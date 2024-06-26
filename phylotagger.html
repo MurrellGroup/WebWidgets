@@ -1,51 +1,63 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Phylogenetic Tree Viewer with Selection Modes</title>
+    <title>Phylotagger</title>
     <style>
-        body, html {
+        body,
+        html {
             margin: 0;
             padding: 0;
             height: 100%;
             font-family: Arial, sans-serif;
         }
+
         #main-container {
             display: flex;
             flex-direction: column;
             height: 100%;
         }
+
         #top-panel {
             padding: 10px;
             border-bottom: 1px solid #ccc;
         }
+
         #newickInput {
             width: calc(100% - 320px);
             margin-right: 10px;
         }
+
         #controls-container {
             display: flex;
             align-items: center;
             margin-top: 10px;
         }
+
         #scale-container {
             display: flex;
             align-items: center;
         }
+
         #scale-container label {
             margin-right: 10px;
         }
+
         #horizontalScale {
             width: 200px;
         }
+
         #tag-buttons {
             margin-left: 20px;
         }
+
         #content-container {
             display: flex;
             flex-grow: 1;
         }
+
         #left-panel {
             width: 100px;
             padding: 10px;
@@ -53,72 +65,107 @@
             display: flex;
             flex-direction: column;
         }
+
         .vertical-slider-container {
             display: flex;
             flex-direction: column;
             align-items: center;
             margin-bottom: 20px;
         }
+
         .vertical-slider-container input {
             width: 80px;
             writing-mode: bt-lr;
             -webkit-appearance: slider-vertical;
             height: 150px;
         }
+
         #mode-controls {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
         }
+
         #mode-controls button {
             margin-bottom: 5px;
             width: 100%;
         }
+
         #canvasContainer {
             flex-grow: 1;
             overflow: auto;
         }
+
         #treeCanvas {
             /* Canvas size will be set dynamically */
         }
     </style>
 </head>
+
 <body>
     <div id="main-container">
         <div id="top-panel">
-            <input type="text" id="newickInput" placeholder="Enter Newick string here..." value="((('EELA':0.150276,'CONGERA':0.213019):0.230956,('EELB':0.263487,'CONGERB':0.202633):0.246917):0.094785,(('CAVEFISH':0.451027,('GOLDFISH':0.340495,'ZEBRAFISH':0.390163):0.220565):0.067778,(((((('NSAM':0.008113,'NARG':0.014065):0.052991,'SPUN':0.061003,('SMIC':0.027806,'SDIA':0.015298,'SXAN':0.046873):0.046977):0.009822,('NAUR':0.081298,('SSPI':0.023876,'STIE':0.013652):0.058179):0.091775):0.073346,('MVIO':0.012271,'MBER':0.039798):0.178835):0.147992,(('BFNKILLIFISH':0.317455,('ONIL':0.029217,'XCAU':0.084388):0.201166):0.055908,'THORNYHEAD':0.252481):0.061905):0.157214,'LAMPFISH':0.717196,(('SCABBARDA':0.189684,'SCABBARDB':0.362015):0.282263,(('VIPERFISH':0.318217,'BLACKDRAGON':0.109912):0.123642,'LOOSEJAW':0.3971):0.287152):0.140663):0.206729):0.222485,('COELACANTH':0.558103,(('CLAWEDFROG':0.441842,'SALAMANDER':0.299607):0.135307,(('CHAMELEON':0.771665,(('PIGEON':0.150909,'CHICKEN':0.172733):0.082163,'ZEBRAFINCH':0.099172):0.272338):0.014055,(('BOVINE':0.167569,'DOLPHIN':0.15745):0.104783,'ELEPHANT':0.166557):0.367205):0.050892):0.114731):0.295021):0;">
-            <button onclick="drawTree()">Draw Tree</button>
-            <button onclick="exportTaggedNewick()">Export</button>
-            <button onclick="exportSVG()">Export SVG</button>
+            <input type="text" id="newickInput" placeholder="Enter Newick string here..."
+                value="((('EELA':0.150276,'CONGERA':0.213019):0.230956,('EELB':0.263487,'CONGERB':0.202633):0.246917):0.094785,(('CAVEFISH':0.451027,('GOLDFISH':0.340495,'ZEBRAFISH':0.390163):0.220565):0.067778,(((((('NSAM':0.008113,'NARG':0.014065):0.052991,'SPUN':0.061003,('SMIC':0.027806,'SDIA':0.015298,'SXAN':0.046873):0.046977):0.009822,('NAUR':0.081298,('SSPI':0.023876,'STIE':0.013652):0.058179):0.091775):0.073346,('MVIO':0.012271,'MBER':0.039798):0.178835):0.147992,(('BFNKILLIFISH':0.317455,('ONIL':0.029217,'XCAU':0.084388):0.201166):0.055908,'THORNYHEAD':0.252481):0.061905):0.157214,'LAMPFISH':0.717196,(('SCABBARDA':0.189684,'SCABBARDB':0.362015):0.282263,(('VIPERFISH':0.318217,'BLACKDRAGON':0.109912):0.123642,'LOOSEJAW':0.3971):0.287152):0.140663):0.206729):0.222485,('COELACANTH':0.558103,(('CLAWEDFROG':0.441842,'SALAMANDER':0.299607):0.135307,(('CHAMELEON':0.771665,(('PIGEON':0.150909,'CHICKEN':0.172733):0.082163,'ZEBRAFINCH':0.099172):0.272338):0.014055,(('BOVINE':0.167569,'DOLPHIN':0.15745):0.104783,'ELEPHANT':0.166557):0.367205):0.050892):0.114731):0.295021):0;">
+            <button onclick="drawTree()" title="Load the tree from the Newick string input and display it">Load
+                Tree</button>
+            <button onclick="exportTaggedNewick()"
+                title="Export the current tree with tags as a Newick string file">Export Newick</button>
+            <button onclick="exportSVG()" title="Export the current tree view as an SVG image file">Export SVG</button>
             <div id="controls-container">
                 <div id="scale-container">
-                    <label for="verticalScale">Scale:</label>
-                    <input type="range" id="verticalScale" min="1" max="100" value="20">
+                    <label for="verticalScale" title="Adjust the vertical spacing between nodes">Scale:</label>
+                    <input type="range" id="verticalScale" min="1" max="100" value="20"
+                        title="Adjust the vertical spacing between nodes">
                 </div>
                 <div id="tag-buttons">
-                    <button onclick="tagSelection('G1')">Tag G1</button>
-                    <button onclick="tagSelection('G2')">Tag G2</button>
-                    <button onclick="tagSelection('')">Tag None</button>
-                    <button onclick="clearSelection()">Clear Selection</button>
+                    <input type="text" id="regexInput" placeholder="Enter regex"
+                        title="Enter a regular expression to match node names">
+                    <button onclick="selectRegexMatches()"
+                        title="Select all nodes whose names match the entered regular expression">Select
+                        Matches</button>
+
+                    <button onclick="tagSelection('G1')" title="Tag all currently selected nodes as Group 1 (G1)">Tag
+                        G1</button>
+                    <button onclick="tagSelection('G2')" title="Tag all currently selected nodes as Group 2 (G2)">Tag
+                        G2</button>
+                    <button onclick="tagSelection('')" title="Remove tags from all currently selected nodes">Tag
+                        None</button>
+
+                    <button onclick="clearSelection()" title="Deselect all currently selected nodes">Clear
+                        Selection</button>
                 </div>
             </div>
         </div>
         <div id="content-container">
             <div id="left-panel">
                 <div class="vertical-slider-container">
-                    <label for="horizontalScale">Vert</label>
-                    <input type="range" id="horizontalScale" min="1" max="2000" value="200" orient="vertical">
+                    <label for="horizontalScale" title="Adjust the horizontal spacing between nodes">Vert</label>
+                    <input type="range" id="horizontalScale" min="1" max="2000" value="200" orient="vertical"
+                        title="Adjust the horizontal spacing between nodes">
                 </div>
                 <div class="vertical-slider-container">
-                    <label for="textSize">Text</label>
-                    <input type="range" id="textSize" min="0" max="40" value="10" orient="vertical">
+                    <label for="textSize" title="Adjust the size of the node labels">Text</label>
+                    <input type="range" id="textSize" min="0" max="40" value="10" orient="vertical"
+                        title="Adjust the size of the node labels">
                 </div>
                 <div id="mode-controls">
-                    <strong>Select Mode:</strong>
-                    <button onclick="setSelectionMode('clade')" id="cladeMode">Clade</button>
-                    <button onclick="setSelectionMode('node')" id="nodeMode">Node</button>
-                    <button onclick="setSelectionMode('nodeToRoot')" id="nodeToRootMode">Node2Root</button>
-                    <button onclick="setSelectionMode('nodeToTag')" id="nodeToTagMode">Node2Tag</button>
+                    <strong>Selection</strong>
+                    <medium>Mode:</medium>
+                    <button onclick="setSelectionMode('clade')" id="cladeMode"
+                        title="Set selection mode to Clade: clicking a node selects it and all its descendants">Clade</button>
+                    <button onclick="setSelectionMode('node')" id="nodeMode"
+                        title="Set selection mode to Node: clicking a node selects only that node">Node</button>
+                    <button onclick="setSelectionMode('nodeToRoot')" id="nodeToRootMode"
+                        title="Set selection mode to Node to Root: clicking a node selects it and all its ancestors up to the root">Node2Root</button>
+                    <button onclick="setSelectionMode('nodeToTag')" id="nodeToTagMode"
+                        title="Set selection mode to Node to Tag: clicking a node selects it and all its ancestors up to the first tagged node">Node2Tag</button>
+
+                    <medium>Expand:</medium>
+                    <button onclick="expandSelectionDown()"
+                        title="Expand the current selection to include all descendants of selected nodes">Down</button>
+                    <button onclick="expandSelectionUp()"
+                        title="Expand the current selection upwards, selecting parent nodes if all their children are selected">Up</button>
                 </div>
             </div>
             <div id="canvasContainer">
@@ -158,40 +205,40 @@
 
 
         function createTaggedNewick(node) {
-    if (node.children.length === 0) {
-        let name = node.name;
-        if (node.tag) {
-            name += (name ? "{" + node.tag + "}" : "{" + node.tag + "}");
-        }
-        return name + ":" + node.length;
-    } else {
-        let newick = "(";
-        newick += node.children.map(child => createTaggedNewick(child)).join(",");
-        newick += ")";
-        if (node.name || node.tag) {
-            let name = node.name;
-            if (node.tag) {
-                name += (name ? "{" + node.tag + "}" : "{" + node.tag + "}");
+            if (node.children.length === 0) {
+                let name = node.name;
+                if (node.tag) {
+                    name += (name ? "{" + node.tag + "}" : "{" + node.tag + "}");
+                }
+                return name + ":" + node.length;
+            } else {
+                let newick = "(";
+                newick += node.children.map(child => createTaggedNewick(child)).join(",");
+                newick += ")";
+                if (node.name || node.tag) {
+                    let name = node.name;
+                    if (node.tag) {
+                        name += (name ? "{" + node.tag + "}" : "{" + node.tag + "}");
+                    }
+                    newick += name;
+                }
+                newick += ":" + node.length;
+                return newick;
             }
-            newick += name;
         }
-        newick += ":" + node.length;
-        return newick;
-    }
-}
 
-function exportTaggedNewick() {
-    const newickString = createTaggedNewick(root) + ";";
-    const blob = new Blob([newickString], {type: "text/plain;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "tagged_tree.newick";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-}
+        function exportTaggedNewick() {
+            const newickString = createTaggedNewick(root) + ";";
+            const blob = new Blob([newickString], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "tagged_tree.newick";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
 
         function parseNewick(newickString) {
             function parseNode() {
@@ -246,7 +293,7 @@ function exportTaggedNewick() {
             const defaultWidth = 1;
             const selWidth = 3;
             ctx.lineWidth = node.selected ? selWidth : defaultWidth;
-            
+
             let nodeColor = defaultColor;
             if (node.tag === 'G1') {
                 nodeColor = node.selected ? colors.G1selected : colors.G1;
@@ -255,10 +302,10 @@ function exportTaggedNewick() {
             } else {
                 nodeColor = node.selected ? selColor : defaultColor;
             }
-            
+
             ctx.fillStyle = nodeColor;
-            
-            const circsize = node.selected ? 3: 2; 
+
+            const circsize = node.selected ? 3 : 2;
             ctx.beginPath();
             ctx.arc(node.y, node.x, circsize, 0, 2 * Math.PI);
             ctx.fill();
@@ -283,11 +330,11 @@ function exportTaggedNewick() {
                     drawNode(child, ctx);
                 }
             }
-            
+
             if (node.name && textSize > 0) {
                 ctx.save();
                 ctx.translate(node.y, node.x);
-                ctx.rotate(-Math.PI/2);
+                ctx.rotate(-Math.PI / 2);
                 ctx.font = `${textSize}px Arial`;
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'middle';
@@ -378,8 +425,9 @@ function exportTaggedNewick() {
 
         function setSelectionMode(mode) {
             selectionMode = mode;
-            document.querySelectorAll('.button-container button').forEach(btn => btn.style.fontWeight = 'normal');
-            document.getElementById(mode + 'Mode').style.fontWeight = 'bold';
+            document.querySelectorAll('#mode-controls button').forEach(btn => {
+                btn.style.fontWeight = btn.id === mode + 'Mode' ? 'bold' : 'normal';
+            });
         }
 
         function selectNode(node) {
@@ -421,86 +469,87 @@ function exportTaggedNewick() {
         }
 
         function exportSVG() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    const maxDepth = calculateDepths(root);
-    calculatePositions(root, 0, { count: 0 }, maxDepth);
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            const maxDepth = calculateDepths(root);
+            calculatePositions(root, 0, { count: 0 }, maxDepth);
 
-    const allNodes = getAllNodes(root);
-    const maxX = Math.max(...allNodes.map(n => n.x)) + 200;
-    const maxY = Math.max(...allNodes.map(n => n.y)) + 100;
+            const allNodes = getAllNodes(root);
+            const maxX = Math.max(...allNodes.map(n => n.x)) + 200;
+            const maxY = Math.max(...allNodes.map(n => n.y)) + 100;
 
-    svg.setAttribute("width", maxY);
-    svg.setAttribute("height", maxX);
-    svg.setAttribute("viewBox", `0 0 ${maxY} ${maxX}`);
+            svg.setAttribute("width", maxY);
+            svg.setAttribute("height", maxX);
+            svg.setAttribute("viewBox", `0 0 ${maxY} ${maxX}`);
 
-    function drawNodeSVG(node) {
-    let nodeColor = colors.default;
-    if (node.tag === 'G1') {
-        nodeColor = node.selected ? colors.G1selected : colors.G1;
-    } else if (node.tag === 'G2') {
-        nodeColor = node.selected ? colors.G2selected : colors.G2;
-    } else {
-        nodeColor = node.selected ? colors.defaultSelected : colors.default;
-    }
+            function drawNodeSVG(node) {
+                let nodeColor = colors.default;
+                if (node.tag === 'G1') {
+                    nodeColor = node.selected ? colors.G1selected : colors.G1;
+                } else if (node.tag === 'G2') {
+                    nodeColor = node.selected ? colors.G2selected : colors.G2;
+                } else {
+                    nodeColor = node.selected ? colors.defaultSelected : colors.default;
+                }
 
-    const circSize = node.selected ? 3 : 2;
-    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute("cx", node.y + 50);
-    circle.setAttribute("cy", node.x + 50);
-    circle.setAttribute("r", circSize);
-    circle.setAttribute("fill", nodeColor);
-    svg.appendChild(circle);
+                const circSize = node.selected ? 3 : 2;
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", node.y + 50);
+                circle.setAttribute("cy", node.x + 50);
+                circle.setAttribute("r", circSize);
+                circle.setAttribute("fill", nodeColor);
+                svg.appendChild(circle);
 
-    if (node.children.length > 0) {
-        for (let child of node.children) {
-            let childColor = colors.default;
-            if (child.tag === 'G1') {
-                childColor = child.selected ? colors.G1selected : colors.G1;
-            } else if (child.tag === 'G2') {
-                childColor = child.selected ? colors.G2selected : colors.G2;
-            } else {
-                childColor = child.selected ? colors.defaultSelected : colors.default;
+                if (node.children.length > 0) {
+                    for (let child of node.children) {
+                        let childColor = colors.default;
+                        if (child.tag === 'G1') {
+                            childColor = child.selected ? colors.G1selected : colors.G1;
+                        } else if (child.tag === 'G2') {
+                            childColor = child.selected ? colors.G2selected : colors.G2;
+                        } else {
+                            childColor = child.selected ? colors.defaultSelected : colors.default;
+                        }
+
+                        const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                        line.setAttribute("d", `M${node.y + 50},${node.x + 50} H${child.y + 50} V${child.x + 50}`);
+                        line.setAttribute("stroke", childColor);
+                        line.setAttribute("stroke-width", child.selected ? 3 : 1);
+                        line.setAttribute("fill", "none");
+                        svg.appendChild(line);
+
+                        drawNodeSVG(child);
+                    }
+                }
+
+                if (node.name && textSize > 0) {
+                    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    text.setAttribute("x", node.y + 50);
+                    text.setAttribute("y", node.x + 50);
+                    text.setAttribute("font-family", "Arial");
+                    text.setAttribute("font-size", textSize);
+                    text.setAttribute("text-anchor", "end");
+                    text.setAttribute("dominant-baseline", "middle");
+                    text.setAttribute("transform", `rotate(-90 ${node.y + 52},${node.x + 52})`);
+                    text.setAttribute("fill", nodeColor);  // Set the text color to match the node color
+                    text.textContent = node.name;
+                    svg.appendChild(text);
+                }
             }
 
-            const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            line.setAttribute("d", `M${node.y + 50},${node.x + 50} H${child.y + 50} V${child.x + 50}`);
-            line.setAttribute("stroke", childColor);
-            line.setAttribute("stroke-width", child.selected ? 3 : 1);
-            line.setAttribute("fill", "none");
-            svg.appendChild(line);
+            drawNodeSVG(root);
 
-            drawNodeSVG(child);
+            const serializer = new XMLSerializer();
+            const svgString = serializer.serializeToString(svg);
+            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "phylogenetic_tree.svg";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
         }
-    }
-
-    if (node.name && textSize > 0) {
-        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        text.setAttribute("x", node.y + 50);
-        text.setAttribute("y", node.x + 50);
-        text.setAttribute("font-family", "Arial");
-        text.setAttribute("font-size", textSize);
-        text.setAttribute("text-anchor", "end");
-        text.setAttribute("dominant-baseline", "middle");
-        text.setAttribute("transform", `rotate(-90 ${node.y + 52},${node.x + 52})`);
-        text.textContent = node.name;
-        svg.appendChild(text);
-    }
-}
-
-    drawNodeSVG(root);
-
-    const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svg);
-    const blob = new Blob([svgString], {type: "image/svg+xml;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "phylogenetic_tree.svg";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-}
 
         function handleCanvasClick(event) {
             const canvas = document.getElementById('treeCanvas');
@@ -540,20 +589,79 @@ function exportTaggedNewick() {
             }
         }
 
+
+        function expandSelectionDown() {
+            function selectDescendants(node) {
+                if (node.selected) {
+                    for (let child of node.children) {
+                        child.selected = true;
+                    }
+                }
+                for (let child of node.children) {
+                    selectDescendants(child);
+                }
+            }
+            selectDescendants(root);
+            draw(root);
+        }
+
+        function expandSelectionUp() {
+            let changed = true;
+            while (changed) {
+                changed = false;
+                function checkAndSelectParent(node) {
+                    if (node.children.length > 0 && !node.selected) {
+                        if (node.children.every(child => child.selected)) {
+                            node.selected = true;
+                            changed = true;
+                        }
+                    }
+                }
+
+                function traverseUp(node) {
+                    for (let child of node.children) {
+                        traverseUp(child);
+                    }
+                    checkAndSelectParent(node);
+                }
+
+                traverseUp(root);
+            }
+            draw(root);
+        }
+
+        function selectRegexMatches() {
+            const regexString = document.getElementById('regexInput').value;
+            try {
+                const regex = new RegExp(regexString);
+
+                function searchNodes(node) {
+                    if (node.name && regex.test(node.name)) {
+                        node.selected = true;
+                    }
+                    for (let child of node.children) {
+                        searchNodes(child);
+                    }
+                }
+
+
+                searchNodes(root);
+                draw(root);
+            } catch (error) {
+                alert('Invalid regular expression');
+            }
+        }
+
         document.getElementById('horizontalScale').addEventListener('input', updateScales);
         document.getElementById('verticalScale').addEventListener('input', updateScales);
         document.getElementById('textSize').addEventListener('input', updateScales);
         document.getElementById('treeCanvas').addEventListener('click', handleCanvasClick);
 
-        window.onload = function() {
+        window.onload = function () {
             drawTree();
             setSelectionMode('clade');
         };
     </script>
 </body>
+
 </html>
-
-
-
-
-
