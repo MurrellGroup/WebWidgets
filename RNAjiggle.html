@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RNA Folding Simulation with Nucleotide Input and Multiple Oligos</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+
+        #startPage,
+        #simulationPage {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        #simulationPage {
+            display: none;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        label {
+            display: block;
+            margin-top: 10px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="range"] {
+            width: 100%;
+            padding: 5px;
+            margin-top: 5px;
+        }
+
+        button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-top: 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #canvas {
+            border: 1px solid #000;
+            display: block;
+            margin: 20px auto;
+        }
+
+        #errorMessage {
+            color: red;
+            margin-top: 10px;
+        }
+
+        #tempSlider {
+            width: 100%;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="startPage">
+        <h1>RNA Folding Simulation with Multiple Oligos</h1>
+        <label for="rnaSequence">RNA Sequence (A, C, G, U) or DNA Sequence (A, C, G, T), use ':' to separate oligos:</label>
+        <input type="text" id="rnaSequence" value="CCCCCGGACAAACAAACAAACCCCCTTTGTTTGTTTGTCC">
+        <div id="errorMessage"></div>
+
+        <label for="k">Spring Constant (k):</label>
+        <input type="number" id="k" value="0.15" step="0.01" min="0" max="1">
+
+        <label for="restLength">Rest Length:</label>
+        <input type="number" id="restLength" value="25" step="1" min="1" max="100">
+
+        <label for="minPairDistance">Minimum Pair Distance:</label>
+        <input type="number" id="minPairDistance" value="4" step="1" min="1" max="20">
+
+        <label for="maxPairDistance">Maximum Pair Distance:</label>
+        <input type="number" id="maxPairDistance" value="60" step="1" min="10" max="200">
+
+        <label for="idealPairLength">Ideal Pair Length:</label>
+        <input type="number" id="idealPairLength" value="40" step="1" min="10" max="100">
+
+        <label for="perturbMult">Temp:</label>
+        <input type="number" id="perturbMult" value="0.6" step="0.01" min="0" max="2">
+
+        <label for="repulsionStrength">Repulsion Strength:</label>
+        <input type="number" id="repulsionStrength" value="0.2" step="0.01" min="0" max="1">
+
+        <label for="maxPairingStrength">Maximum Pairing Strength:</label>
+        <input type="number" id="maxPairingStrength" value="0.3" step="0.01" min="0" max="1">
+
+        <button onclick="startSimulation()">Start Simulation</button>
+    </div>
+
+    <div id="simulationPage">
+        <canvas id="canvas" width="800" height="600"></canvas>
+        <label for="tempSlider">Temperature:</label>
+        <input type="range" id="tempSlider" min="0" max="4" step="0.01" value="0.6">
+        <button onclick="backToStart()">Back to Start</button>
+    </div>
+
+    <script>
+        let bases = [];
+        let simulationParams = {};
+
+        const baseColors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00'];
+        const basePairs = {
+            0: 3, // A-U (or A-T)
+            1: 2, // G-C
+            2: 1, // C-G
+            3: 0  // U-A (or T-A)
+        };
+
+        function convertToNumeric(sequence) {
+            const conversionMap = {
+                'A': 0, 'a': 0,
+                'C': 2, 'c': 2,
+                'G': 1, 'g': 1,
+                'U': 3, 'u': 3,
+                'T': 3, 't': 3
+            };
+            return sequence.split('').map(nucleotide => conversionMap[nucleotide] !== undefined ? conversionMap[nucleotide] : -1);
+        }
+
+        class Base {
+            constructor(x, y, type, index, oligoIndex) {
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.type = type;
+                this.index = index;
+                this.oligoIndex = oligoIndex;
+                this.radius = 10;
+                this.direction = 0;
+            }
+
+            updateDirection(prev, next) {
+                if (!prev && !next) {
+                    this.direction = 0;
+                } else if (!prev) {
+                    this.direction = Math.atan2(next.y - this.y, next.x - this.x) + Math.PI / 2;
+                } else if (!next) {
+                    this.direction = Math.atan2(this.y - prev.y, this.x - prev.x) + Math.PI / 2;
+                } else {
+                    const dx = next.x - prev.x;
+                    const dy = next.y - prev.y;
+                    this.direction = Math.atan2(dy, dx) + Math.PI / 2;
+                }
+                this.direction = (this.direction + 2 * Math.PI) % (2 * Math.PI);
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = baseColors[this.type];
+                ctx.fill();
+                ctx.closePath();
+
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(
+                    this.x + Math.cos(this.direction) * this.radius,
+                    this.y + Math.sin(this.direction) * this.radius
+                );
+                ctx.strokeStyle = '#000';
+                ctx.stroke();
+            }
+
+            update(canvas) {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.8;
+                this.vy *= 0.8;
+
+                // Random perturbations
+                this.vx += ((Math.random() - 0.5) + (Math.random() - 0.5)) * simulationParams.perturbMult;
+                this.vy += ((Math.random() - 0.5) + (Math.random() - 0.5)) * simulationParams.perturbMult;
+
+                // Apply weak gravity towards the center of the canvas
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                const dx = centerX - this.x;
+                const dy = centerY - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const gravityStrength = 0.001;
+                this.vx += (dx / distance) * gravityStrength;
+                this.vy += (dy / distance) * gravityStrength;
+
+                if (this.x < this.radius) this.x = this.radius;
+                if (this.x > canvas.width - this.radius) this.x = canvas.width - this.radius;
+                if (this.y < this.radius) this.y = this.radius;
+                if (this.y > canvas.height - this.radius) this.y = canvas.height - this.radius;
+            }
+        }
+        //DIVIDER
+        function getPairingStrength(base1, base2) {
+    if (basePairs[base1.type] !== base2.type) return 0;
+
+    if (base2.index <= base1.index) return 0;
+
+    const angle = Math.atan2(base2.y - base1.y, base2.x - base1.x);
+    const angleDiff1 = Math.abs(base1.direction - angle);
+    const angleDiff2 = Math.abs(base2.direction - angle - Math.PI);
+    const angleThreshold = Math.PI / 1;
+
+    const alignment1 = Math.max(0, 1 - angleDiff1 / angleThreshold);
+    const alignment2 = Math.max(0, 1 - angleDiff2 / angleThreshold);
+
+    const stren = Math.min(alignment1, alignment2)
+
+    return stren * stren;
+}
+
+function applyForces(bases, canvas, ctx) {
+    const allPairings = [];
+
+    for (let i = 0; i < bases.length; i++) {
+        const base = bases[i];
+
+        if (i > 0 && base.oligoIndex === bases[i - 1].oligoIndex) {
+            const prev = bases[i - 1];
+            const dx = base.x - prev.x;
+            const dy = base.y - prev.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const force = simulationParams.k * (distance - simulationParams.restLength);
+            base.vx -= (force * dx) / distance;
+            base.vy -= (force * dy) / distance;
+            prev.vx += (force * dx) / distance;
+            prev.vy += (force * dy) / distance;
+        }
+
+        for (let j = i + 1; j < bases.length; j++) {
+            const other = bases[j];
+            const dx = other.x - base.x;
+            const dy = other.y - base.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < simulationParams.maxPairDistance) {
+                const strength = getPairingStrength(base, other);
+                if (strength > 0) {
+                    allPairings.push({ base1: i, base2: j, strength });
+                }
+            }
+
+            // Apply repulsion between bases
+            if (base.oligoIndex !== other.oligoIndex || Math.abs(i - j) > 1) {
+                const repulsionDistance = simulationParams.restLength * 2;
+                if (distance < repulsionDistance) {
+                    const repulsionForce = simulationParams.repulsionStrength * (1 - distance / repulsionDistance);
+                    base.vx -= (repulsionForce * dx) / distance;
+                    base.vy -= (repulsionForce * dy) / distance;
+                    other.vx += (repulsionForce * dx) / distance;
+                    other.vy += (repulsionForce * dy) / distance;
+                }
+            }
+        }
+
+        base.updateDirection(
+            i > 0 && base.oligoIndex === bases[i - 1].oligoIndex ? bases[i - 1] : null,
+            i < bases.length - 1 && base.oligoIndex === bases[i + 1].oligoIndex ? bases[i + 1] : null
+        );
+    }
+
+    allPairings.sort((a, b) => b.strength - a.strength);
+
+    const pairedBases = new Set();
+
+    for (const pairing of allPairings) {
+        if (!pairedBases.has(pairing.base1) && !pairedBases.has(pairing.base2)) {
+            const base = bases[pairing.base1];
+            const other = bases[pairing.base2];
+            const dx = other.x - base.x;
+            const dy = other.y - base.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            const distanceFromIdeal = (distance - simulationParams.idealPairLength);
+            const pairForce = simulationParams.maxPairingStrength * pairing.strength * distanceFromIdeal;
+
+            base.vx += (pairForce * dx) / distance;
+            base.vy += (pairForce * dy) / distance;
+            other.vx -= (pairForce * dx) / distance;
+            other.vy -= (pairForce * dy) / distance;
+
+            ctx.beginPath();
+            ctx.moveTo(base.x, base.y);
+            ctx.lineTo(other.x, other.y);
+            ctx.strokeStyle = `rgba(200, 200, 200, ${pairing.strength * 0.5})`;
+            ctx.stroke();
+
+            pairedBases.add(pairing.base1);
+            pairedBases.add(pairing.base2);
+        }
+    }
+}
+
+function drawConnections(bases, ctx) {
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < bases.length - 1; i++) {
+        if (bases[i].oligoIndex === bases[i + 1].oligoIndex) {
+            ctx.beginPath();
+            ctx.moveTo(bases[i].x, bases[i].y);
+            ctx.lineTo(bases[i + 1].x, bases[i + 1].y);
+            ctx.stroke();
+        }
+    }
+}
+
+function animate() {
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    applyForces(bases, canvas, ctx);
+    drawConnections(bases, ctx);
+
+    for (const base of bases) {
+        base.update(canvas);
+        base.draw(ctx);
+    }
+
+    requestAnimationFrame(animate);
+}
+
+function startSimulation() {
+    const rnaSequenceInput = document.getElementById('rnaSequence').value.toUpperCase();
+    const errorMessageElement = document.getElementById('errorMessage');
+
+    // Validate input
+    if (!/^[ACGUT:]+$/.test(rnaSequenceInput)) {
+        errorMessageElement.textContent = "Invalid sequence. Please use only A, C, G, U, T, or : to separate oligos.";
+        return;
+    }
+    errorMessageElement.textContent = "";  // Clear any previous error message
+
+    const rnaSequences = rnaSequenceInput.split(':').map(seq => convertToNumeric(seq));
+
+    simulationParams = {
+        k: parseFloat(document.getElementById('k').value),
+        restLength: parseFloat(document.getElementById('restLength').value),
+        minPairDistance: parseFloat(document.getElementById('minPairDistance').value),
+        maxPairDistance: parseFloat(document.getElementById('maxPairDistance').value),
+        idealPairLength: parseFloat(document.getElementById('idealPairLength').value),
+        perturbMult: parseFloat(document.getElementById('perturbMult').value),
+        maxPairingStrength: parseFloat(document.getElementById('maxPairingStrength').value),
+        repulsionStrength: parseFloat(document.getElementById('repulsionStrength').value)
+    };
+
+    // Log the initial parameters
+    console.log('Initial simulation parameters:', JSON.parse(JSON.stringify(simulationParams)));
+
+    // Set the initial value of the temperature slider
+    document.getElementById('tempSlider').value = simulationParams.perturbMult;
+
+    bases = [];
+    const canvas = document.getElementById('canvas');
+
+    let totalBases = 0;
+    rnaSequences.forEach((sequence, oligoIndex) => {
+        for (let i = 0; i < sequence.length; i++) {
+            const x = 200 + totalBases * 12;
+            const y = canvas.height / 2 + (Math.random() - 0.5) * 20;
+            bases.push(new Base(x, y, sequence[i], totalBases, oligoIndex));
+            totalBases++;
+        }
+    });
+
+    bases.forEach((base, index) => {
+        base.updateDirection(
+            index > 0 && base.oligoIndex === bases[index - 1].oligoIndex ? bases[index - 1] : null,
+            index < bases.length - 1 && base.oligoIndex === bases[index + 1].oligoIndex ? bases[index + 1] : null
+        );
+    });
+
+    document.getElementById('startPage').style.display = 'none';
+    document.getElementById('simulationPage').style.display = 'block';
+
+    // Add event listener for the temperature slider
+    document.getElementById('tempSlider').addEventListener('input', function () {
+        simulationParams.perturbMult = parseFloat(this.value);
+        console.log('Temperature changed:', simulationParams.perturbMult);
+    });
+
+    // Add a periodic check of the parameters
+    setInterval(() => {
+        console.log('Current simulation parameters:', JSON.parse(JSON.stringify(simulationParams)));
+    }, 5000);  // Log every 5 seconds
+
+    animate();
+}
+
+function backToStart() {
+    document.getElementById('simulationPage').style.display = 'none';
+    document.getElementById('startPage').style.display = 'block';
+}
+    </script>
+</body>
+
+</html>
