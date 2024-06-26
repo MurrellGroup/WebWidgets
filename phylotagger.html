@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phylogenetic Tree Viewer with Selection Modes</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        #top-panel {
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+        }
+        #newickInput {
+            width: calc(100% - 320px);
+            margin-right: 10px;
+        }
+        #controls-container {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+        }
+        #scale-container {
+            display: flex;
+            align-items: center;
+        }
+        #scale-container label {
+            margin-right: 10px;
+        }
+        #horizontalScale {
+            width: 200px;
+        }
+        #tag-buttons {
+            margin-left: 20px;
+        }
+        #content-container {
+            display: flex;
+            flex-grow: 1;
+        }
+        #left-panel {
+            width: 100px;
+            padding: 10px;
+            border-right: 1px solid #ccc;
+            display: flex;
+            flex-direction: column;
+        }
+        .vertical-slider-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .vertical-slider-container input {
+            width: 80px;
+            writing-mode: bt-lr;
+            -webkit-appearance: slider-vertical;
+            height: 150px;
+        }
+        #mode-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        #mode-controls button {
+            margin-bottom: 5px;
+            width: 100%;
+        }
+        #canvasContainer {
+            flex-grow: 1;
+            overflow: auto;
+        }
+        #treeCanvas {
+            /* Canvas size will be set dynamically */
+        }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div id="top-panel">
+            <input type="text" id="newickInput" placeholder="Enter Newick string here..." value="((('EELA':0.150276,'CONGERA':0.213019):0.230956,('EELB':0.263487,'CONGERB':0.202633):0.246917):0.094785,(('CAVEFISH':0.451027,('GOLDFISH':0.340495,'ZEBRAFISH':0.390163):0.220565):0.067778,(((((('NSAM':0.008113,'NARG':0.014065):0.052991,'SPUN':0.061003,('SMIC':0.027806,'SDIA':0.015298,'SXAN':0.046873):0.046977):0.009822,('NAUR':0.081298,('SSPI':0.023876,'STIE':0.013652):0.058179):0.091775):0.073346,('MVIO':0.012271,'MBER':0.039798):0.178835):0.147992,(('BFNKILLIFISH':0.317455,('ONIL':0.029217,'XCAU':0.084388):0.201166):0.055908,'THORNYHEAD':0.252481):0.061905):0.157214,'LAMPFISH':0.717196,(('SCABBARDA':0.189684,'SCABBARDB':0.362015):0.282263,(('VIPERFISH':0.318217,'BLACKDRAGON':0.109912):0.123642,'LOOSEJAW':0.3971):0.287152):0.140663):0.206729):0.222485,('COELACANTH':0.558103,(('CLAWEDFROG':0.441842,'SALAMANDER':0.299607):0.135307,(('CHAMELEON':0.771665,(('PIGEON':0.150909,'CHICKEN':0.172733):0.082163,'ZEBRAFINCH':0.099172):0.272338):0.014055,(('BOVINE':0.167569,'DOLPHIN':0.15745):0.104783,'ELEPHANT':0.166557):0.367205):0.050892):0.114731):0.295021):0;">
+            <button onclick="drawTree()">Draw Tree</button>
+            <button onclick="exportTaggedNewick()">Export</button>
+            <button onclick="exportSVG()">Export SVG</button>
+            <div id="controls-container">
+                <div id="scale-container">
+                    <label for="verticalScale">Scale:</label>
+                    <input type="range" id="verticalScale" min="1" max="100" value="20">
+                </div>
+                <div id="tag-buttons">
+                    <button onclick="tagSelection('G1')">Tag G1</button>
+                    <button onclick="tagSelection('G2')">Tag G2</button>
+                    <button onclick="tagSelection('')">Tag None</button>
+                    <button onclick="clearSelection()">Clear Selection</button>
+                </div>
+            </div>
+        </div>
+        <div id="content-container">
+            <div id="left-panel">
+                <div class="vertical-slider-container">
+                    <label for="horizontalScale">Vert</label>
+                    <input type="range" id="horizontalScale" min="1" max="2000" value="200" orient="vertical">
+                </div>
+                <div class="vertical-slider-container">
+                    <label for="textSize">Text</label>
+                    <input type="range" id="textSize" min="0" max="40" value="10" orient="vertical">
+                </div>
+                <div id="mode-controls">
+                    <strong>Select Mode:</strong>
+                    <button onclick="setSelectionMode('clade')" id="cladeMode">Clade</button>
+                    <button onclick="setSelectionMode('node')" id="nodeMode">Node</button>
+                    <button onclick="setSelectionMode('nodeToRoot')" id="nodeToRootMode">Node2Root</button>
+                    <button onclick="setSelectionMode('nodeToTag')" id="nodeToTagMode">Node2Tag</button>
+                </div>
+            </div>
+            <div id="canvasContainer">
+                <canvas id="treeCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class Node {
+            constructor(name = "", length = 0) {
+                this.name = name;
+                this.length = length;
+                this.children = [];
+                this.x = 0;
+                this.y = 0;
+                this.depth = 0;
+                this.selected = false;
+                this.tag = "";
+            }
+        }
+
+        let root;
+        let horizontalScale = 200;
+        let verticalScale = 20;
+        let textSize = 10;
+        let selectionMode = 'clade';
+
+        const colors = {
+            default: 'rgba(0,0,0,1.0)',
+            defaultSelected: 'rgba(100,100,100,0.4)',
+            G1: 'rgba(255,0,0,1.0)',
+            G1selected: 'rgba(255,100,100,0.4)',
+            G2: 'rgba(0,0,255,1.0)',
+            G2selected: 'rgba(100,100,255,0.4)'
+        };
+
+
+        function createTaggedNewick(node) {
+    if (node.children.length === 0) {
+        let name = node.name;
+        if (node.tag) {
+            name += (name ? "{" + node.tag + "}" : "{" + node.tag + "}");
+        }
+        return name + ":" + node.length;
+    } else {
+        let newick = "(";
+        newick += node.children.map(child => createTaggedNewick(child)).join(",");
+        newick += ")";
+        if (node.name || node.tag) {
+            let name = node.name;
+            if (node.tag) {
+                name += (name ? "{" + node.tag + "}" : "{" + node.tag + "}");
+            }
+            newick += name;
+        }
+        newick += ":" + node.length;
+        return newick;
+    }
+}
+
+function exportTaggedNewick() {
+    const newickString = createTaggedNewick(root) + ";";
+    const blob = new Blob([newickString], {type: "text/plain;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "tagged_tree.newick";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+        function parseNewick(newickString) {
+            function parseNode() {
+                let node = new Node();
+                if (newickString[index] === '(') {
+                    index++;
+                    while (newickString[index] !== ')') {
+                        node.children.push(parseNode());
+                        if (newickString[index] === ',') index++;
+                    }
+                    index++;
+                }
+                let nameAndLength = '';
+                while (index < newickString.length && ![',', ')', ';'].includes(newickString[index])) {
+                    nameAndLength += newickString[index];
+                    index++;
+                }
+                let [name, length] = nameAndLength.split(':');
+                node.name = name || '';
+                node.length = length ? parseFloat(length) : 0;
+                return node;
+            }
+            let index = 0;
+            return parseNode();
+        }
+
+        function calculateDepths(node, depth = 0) {
+            node.depth = depth;
+            let maxChildDepth = depth;
+            for (let child of node.children) {
+                maxChildDepth = Math.max(maxChildDepth, calculateDepths(child, depth + child.length));
+            }
+            return maxChildDepth;
+        }
+
+        function calculatePositions(node, x = 0, leafCount = { count: 0 }, maxDepth) {
+            node.x = x * horizontalScale;
+            if (node.children.length === 0) {
+                node.y = leafCount.count * verticalScale;
+                leafCount.count++;
+            } else {
+                for (let child of node.children) {
+                    calculatePositions(child, x + child.length, leafCount, maxDepth);
+                }
+                node.y = node.children.reduce((sum, child) => sum + child.y, 0) / node.children.length;
+            }
+        }
+
+        function drawNode(node, ctx) {
+            const defaultColor = 'rgba(0,0,0,1.0)';
+            const selColor = 'rgba(100,100,100,0.5)';
+            const defaultWidth = 1;
+            const selWidth = 3;
+            ctx.lineWidth = node.selected ? selWidth : defaultWidth;
+            
+            let nodeColor = defaultColor;
+            if (node.tag === 'G1') {
+                nodeColor = node.selected ? colors.G1selected : colors.G1;
+            } else if (node.tag === 'G2') {
+                nodeColor = node.selected ? colors.G2selected : colors.G2;
+            } else {
+                nodeColor = node.selected ? selColor : defaultColor;
+            }
+            
+            ctx.fillStyle = nodeColor;
+            
+            const circsize = node.selected ? 3: 2; 
+            ctx.beginPath();
+            ctx.arc(node.y, node.x, circsize, 0, 2 * Math.PI);
+            ctx.fill();
+
+            if (node.children.length > 0) {
+                for (let child of node.children) {
+                    let childColor = defaultColor;
+                    if (child.tag === 'G1') {
+                        childColor = child.selected ? colors.G1selected : colors.G1;
+                    } else if (child.tag === 'G2') {
+                        childColor = child.selected ? colors.G2selected : colors.G2;
+                    } else {
+                        childColor = child.selected ? selColor : defaultColor;
+                    }
+                    ctx.strokeStyle = childColor;
+                    ctx.lineWidth = child.selected ? selWidth : defaultWidth;
+                    ctx.beginPath();
+                    ctx.moveTo(node.y, node.x);
+                    ctx.lineTo(child.y, node.x);
+                    ctx.lineTo(child.y, child.x);
+                    ctx.stroke();
+                    drawNode(child, ctx);
+                }
+            }
+            
+            if (node.name && textSize > 0) {
+                ctx.save();
+                ctx.translate(node.y, node.x);
+                ctx.rotate(-Math.PI/2);
+                ctx.font = `${textSize}px Arial`;
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(node.name, -5, 0);
+                ctx.restore();
+            }
+        }
+
+        function getAllNodes(node) {
+            let nodes = [node];
+            for (let child of node.children) {
+                nodes = nodes.concat(getAllNodes(child));
+            }
+            return nodes;
+        }
+
+        function draw(root) {
+            const maxDepth = calculateDepths(root);
+            calculatePositions(root, 0, { count: 0 }, maxDepth);
+
+            const canvas = document.getElementById('treeCanvas');
+            const ctx = canvas.getContext('2d');
+
+            const maxX = Math.max(...getAllNodes(root).map(n => n.x)) + 200;
+            const maxY = Math.max(...getAllNodes(root).map(n => n.y)) + 100;
+            canvas.width = maxY;
+            canvas.height = maxX;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.translate(50, 50);
+
+            drawNode(root, ctx);
+        }
+
+        function drawTree() {
+            const newickString = document.getElementById('newickInput').value.trim();
+            if (!newickString) {
+                alert('Please enter a valid Newick string.');
+                return;
+            }
+            root = parseNewick(newickString);
+            draw(root);
+        }
+
+        function updateScales() {
+            horizontalScale = parseInt(document.getElementById('horizontalScale').value);
+            verticalScale = parseInt(document.getElementById('verticalScale').value);
+            textSize = parseInt(document.getElementById('textSize').value);
+            draw(root);
+        }
+
+        function selectSubtree(node) {
+            node.selected = !node.selected;
+            if (node.children) {
+                for (let child of node.children) {
+                    selectSubtree(child);
+                }
+            }
+        }
+
+        function tagSelection(tag) {
+            function tagSubtree(node) {
+                if (node.selected) {
+                    node.tag = tag;
+                }
+                if (node.children) {
+                    for (let child of node.children) {
+                        tagSubtree(child);
+                    }
+                }
+            }
+            tagSubtree(root);
+            draw(root);
+        }
+
+        function clearSelection() {
+            function clearSubtree(node) {
+                node.selected = false;
+                if (node.children) {
+                    for (let child of node.children) {
+                        clearSubtree(child);
+                    }
+                }
+            }
+            clearSubtree(root);
+            draw(root);
+        }
+
+        function setSelectionMode(mode) {
+            selectionMode = mode;
+            document.querySelectorAll('.button-container button').forEach(btn => btn.style.fontWeight = 'normal');
+            document.getElementById(mode + 'Mode').style.fontWeight = 'bold';
+        }
+
+        function selectNode(node) {
+            node.selected = !node.selected;
+        }
+
+        function selectClade(node) {
+            selectSubtree(node);
+        }
+
+        function selectNodeToRoot(node) {
+            while (node) {
+                node.selected = !node.selected;
+                node = findParent(root, node);
+            }
+        }
+
+        function selectNodeToTag(node) {
+            while (node && !node.tag) {
+                node.selected = !node.selected;
+                node = findParent(root, node);
+            }
+        }
+
+        function findParent(currentNode, targetNode) {
+            if (currentNode === targetNode) {
+                return null;
+            }
+            for (let child of currentNode.children) {
+                if (child === targetNode) {
+                    return currentNode;
+                }
+                const found = findParent(child, targetNode);
+                if (found) {
+                    return found;
+                }
+            }
+            return null;
+        }
+
+        function exportSVG() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const maxDepth = calculateDepths(root);
+    calculatePositions(root, 0, { count: 0 }, maxDepth);
+
+    const allNodes = getAllNodes(root);
+    const maxX = Math.max(...allNodes.map(n => n.x)) + 200;
+    const maxY = Math.max(...allNodes.map(n => n.y)) + 100;
+
+    svg.setAttribute("width", maxY);
+    svg.setAttribute("height", maxX);
+    svg.setAttribute("viewBox", `0 0 ${maxY} ${maxX}`);
+
+    function drawNodeSVG(node) {
+    let nodeColor = colors.default;
+    if (node.tag === 'G1') {
+        nodeColor = node.selected ? colors.G1selected : colors.G1;
+    } else if (node.tag === 'G2') {
+        nodeColor = node.selected ? colors.G2selected : colors.G2;
+    } else {
+        nodeColor = node.selected ? colors.defaultSelected : colors.default;
+    }
+
+    const circSize = node.selected ? 3 : 2;
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", node.y + 50);
+    circle.setAttribute("cy", node.x + 50);
+    circle.setAttribute("r", circSize);
+    circle.setAttribute("fill", nodeColor);
+    svg.appendChild(circle);
+
+    if (node.children.length > 0) {
+        for (let child of node.children) {
+            let childColor = colors.default;
+            if (child.tag === 'G1') {
+                childColor = child.selected ? colors.G1selected : colors.G1;
+            } else if (child.tag === 'G2') {
+                childColor = child.selected ? colors.G2selected : colors.G2;
+            } else {
+                childColor = child.selected ? colors.defaultSelected : colors.default;
+            }
+
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            line.setAttribute("d", `M${node.y + 50},${node.x + 50} H${child.y + 50} V${child.x + 50}`);
+            line.setAttribute("stroke", childColor);
+            line.setAttribute("stroke-width", child.selected ? 3 : 1);
+            line.setAttribute("fill", "none");
+            svg.appendChild(line);
+
+            drawNodeSVG(child);
+        }
+    }
+
+    if (node.name && textSize > 0) {
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", node.y + 50);
+        text.setAttribute("y", node.x + 50);
+        text.setAttribute("font-family", "Arial");
+        text.setAttribute("font-size", textSize);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("dominant-baseline", "middle");
+        text.setAttribute("transform", `rotate(-90 ${node.y + 52},${node.x + 52})`);
+        text.textContent = node.name;
+        svg.appendChild(text);
+    }
+}
+
+    drawNodeSVG(root);
+
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svg);
+    const blob = new Blob([svgString], {type: "image/svg+xml;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "phylogenetic_tree.svg";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+        function handleCanvasClick(event) {
+            const canvas = document.getElementById('treeCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left - 50;
+            const y = event.clientY - rect.top - 50;
+
+            function findClickedNode(node) {
+                const tolerance = 5;
+                if (Math.abs(node.y - x) < tolerance && Math.abs(node.x - y) < tolerance) {
+                    return node;
+                }
+                for (let child of node.children) {
+                    const found = findClickedNode(child);
+                    if (found) return found;
+                }
+                return null;
+            }
+
+            const clickedNode = findClickedNode(root);
+            if (clickedNode) {
+                switch (selectionMode) {
+                    case 'clade':
+                        selectClade(clickedNode);
+                        break;
+                    case 'node':
+                        selectNode(clickedNode);
+                        break;
+                    case 'nodeToRoot':
+                        selectNodeToRoot(clickedNode);
+                        break;
+                    case 'nodeToTag':
+                        selectNodeToTag(clickedNode);
+                        break;
+                }
+                draw(root);
+            }
+        }
+
+        document.getElementById('horizontalScale').addEventListener('input', updateScales);
+        document.getElementById('verticalScale').addEventListener('input', updateScales);
+        document.getElementById('textSize').addEventListener('input', updateScales);
+        document.getElementById('treeCanvas').addEventListener('click', handleCanvasClick);
+
+        window.onload = function() {
+            drawTree();
+            setSelectionMode('clade');
+        };
+    </script>
+</body>
+</html>
+
+
+
+
+
