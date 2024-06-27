@@ -193,6 +193,7 @@
         let verticalScale = 20;
         let textSize = 10;
         let selectionMode = 'clade';
+        let maxTreeDistance = 1; // New variable to store the maximum tree distance
 
         const colors = {
             default: 'rgba(0,0,0,1.0)',
@@ -202,7 +203,6 @@
             G2: 'rgba(0,0,255,1.0)',
             G2selected: 'rgba(100,100,255,0.4)'
         };
-
 
         function createTaggedNewick(node) {
             if (node.children.length === 0) {
@@ -274,14 +274,29 @@
             return maxChildDepth;
         }
 
+        // New function to calculate the maximum tree distance
+        function calculateMaxTreeDistance(node, currentDistance = 0) {
+            if (node.children.length === 0) {
+                return currentDistance;
+            }
+            let maxDistance = 0;
+            for (let child of node.children) {
+                const childDistance = calculateMaxTreeDistance(child, currentDistance + child.length);
+                maxDistance = Math.max(maxDistance, childDistance);
+            }
+            return maxDistance;
+        }
+
         function calculatePositions(node, x = 0, leafCount = { count: 0 }, maxDepth) {
-            node.x = x * horizontalScale;
+            // Use normalized branch lengths
+            const normalizedLength = node.length / maxTreeDistance;
+            node.x = (x + normalizedLength) * horizontalScale;
             if (node.children.length === 0) {
                 node.y = leafCount.count * verticalScale;
                 leafCount.count++;
             } else {
                 for (let child of node.children) {
-                    calculatePositions(child, x + child.length, leafCount, maxDepth);
+                    calculatePositions(child, x + normalizedLength, leafCount, maxDepth);
                 }
                 node.y = node.children.reduce((sum, child) => sum + child.y, 0) / node.children.length;
             }
@@ -376,6 +391,10 @@
                 return;
             }
             root = parseNewick(newickString);
+
+            // Calculate the maximum tree distance
+            maxTreeDistance = calculateMaxTreeDistance(root);
+
             draw(root);
         }
 
@@ -589,7 +608,6 @@
             }
         }
 
-
         function expandSelectionDown() {
             function selectDescendants(node) {
                 if (node.selected) {
@@ -643,7 +661,6 @@
                         searchNodes(child);
                     }
                 }
-
 
                 searchNodes(root);
                 draw(root);
