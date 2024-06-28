@@ -26,7 +26,7 @@
         }
 
         #newickInput {
-            width: calc(100% - 320px);
+            width: calc(100% - 420px);
             margin-right: 10px;
         }
 
@@ -104,7 +104,9 @@
 
 <body>
     <div id="main-container">
+        <strong>----(Phylotagger)-----</strong>
         <div id="top-panel">
+            <medium>Input Newick:</medium>
             <input type="text" id="newickInput" placeholder="Enter Newick string here..."
                 value="((('EELA':0.150276,'CONGERA':0.213019):0.230956,('EELB':0.263487,'CONGERB':0.202633):0.246917):0.094785,(('CAVEFISH':0.451027,('GOLDFISH':0.340495,'ZEBRAFISH':0.390163):0.220565):0.067778,(((((('NSAM':0.008113,'NARG':0.014065):0.052991,'SPUN':0.061003,('SMIC':0.027806,'SDIA':0.015298,'SXAN':0.046873):0.046977):0.009822,('NAUR':0.081298,('SSPI':0.023876,'STIE':0.013652):0.058179):0.091775):0.073346,('MVIO':0.012271,'MBER':0.039798):0.178835):0.147992,(('BFNKILLIFISH':0.317455,('ONIL':0.029217,'XCAU':0.084388):0.201166):0.055908,'THORNYHEAD':0.252481):0.061905):0.157214,'LAMPFISH':0.717196,(('SCABBARDA':0.189684,'SCABBARDB':0.362015):0.282263,(('VIPERFISH':0.318217,'BLACKDRAGON':0.109912):0.123642,'LOOSEJAW':0.3971):0.287152):0.140663):0.206729):0.222485,('COELACANTH':0.558103,(('CLAWEDFROG':0.441842,'SALAMANDER':0.299607):0.135307,(('CHAMELEON':0.771665,(('PIGEON':0.150909,'CHICKEN':0.172733):0.082163,'ZEBRAFINCH':0.099172):0.272338):0.014055,(('BOVINE':0.167569,'DOLPHIN':0.15745):0.104783,'ELEPHANT':0.166557):0.367205):0.050892):0.114731):0.295021):0;">
             <button onclick="drawTree()" title="Load the tree from the Newick string input and display it">Load
@@ -160,7 +162,9 @@
                         title="Set selection mode to Node to Root: clicking a node selects it and all its ancestors up to the root">Node2Root</button>
                     <button onclick="setSelectionMode('nodeToTag')" id="nodeToTagMode"
                         title="Set selection mode to Node to Tag: clicking a node selects it and all its ancestors up to the first tagged node">Node2Tag</button>
-                    <button onclick="setSelectionMode('box')" id="boxMode" title="Set selection mode to Box: click and drag to select multiple nodes within a rectangular area">Box Select</button>
+                    <button onclick="setSelectionMode('box')" id="boxMode"
+                        title="Set selection mode to Box: click and drag to select multiple nodes within a rectangular area">Box
+                        Select</button>
 
                     <medium>Expand:</medium>
                     <button onclick="expandSelectionDown()"
@@ -212,26 +216,26 @@
         };
 
         function handleMouseDown(event) {
-    isMouseDown = true;
-    const canvas = document.getElementById('treeCanvas');
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (event.clientX - rect.left) * scaleX;
-    const y = (event.clientY - rect.top) * scaleY;
+            isMouseDown = true;
+            const canvas = document.getElementById('treeCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (event.clientX - rect.left) * scaleX;
+            const y = (event.clientY - rect.top) * scaleY;
 
-    if (selectionMode === 'box') {
-        isBoxSelecting = true;
-        boxStartX = x;
-        boxStartY = y;
-        boxEndX = x;
-        boxEndY = y;
-        drawBoxStartX = event.clientX - rect.left - 50;
-        drawBoxStartY = event.clientY - rect.top - 50;
-        drawBoxEndX = event.clientX - rect.left - 50;
-        drawBoxEndY = event.clientY - rect.top - 50;
-    }
-}
+            if (selectionMode === 'box') {
+                isBoxSelecting = true;
+                boxStartX = x;
+                boxStartY = y;
+                boxEndX = x;
+                boxEndY = y;
+                drawBoxStartX = event.clientX - rect.left - 50;
+                drawBoxStartY = event.clientY - rect.top - 50;
+                drawBoxEndX = event.clientX - rect.left - 50;
+                drawBoxEndY = event.clientY - rect.top - 50;
+            }
+        }
 
         function createTaggedNewick(node) {
             if (node.children.length === 0) {
@@ -396,33 +400,33 @@
         }
 
         function draw(root) {
-    const maxDepth = calculateDepths(root);
-    calculatePositions(root, 0, { count: 0 }, maxDepth);
+            const maxDepth = calculateDepths(root);
+            calculatePositions(root, 0, { count: 0 }, maxDepth);
 
-    const canvas = document.getElementById('treeCanvas');
-    const ctx = canvas.getContext('2d');
+            const canvas = document.getElementById('treeCanvas');
+            const ctx = canvas.getContext('2d');
 
-    const maxX = Math.max(...getAllNodes(root).map(n => n.x)) + 200;
-    const maxY = Math.max(...getAllNodes(root).map(n => n.y)) + 100;
-    canvas.width = maxY;
-    canvas.height = maxX;
+            const maxX = Math.max(...getAllNodes(root).map(n => n.x)) + 200;
+            const maxY = Math.max(...getAllNodes(root).map(n => n.y)) + 100;
+            canvas.width = maxY;
+            canvas.height = maxX;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.translate(50, 50);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.translate(50, 50);
 
-    drawNode(root, ctx);
+            drawNode(root, ctx);
 
-    if (selectionMode === 'box' && isBoxSelecting && drawBoxStartX !== undefined) {
-        ctx.strokeStyle = 'rgba(0, 0, 255, 0.5)';
-        ctx.fillStyle = 'rgba(0, 0, 255, 0.1)';
-        ctx.lineWidth = 2;
-        const width = drawBoxEndX - drawBoxStartX;
-        const height = drawBoxEndY - drawBoxStartY;
-        // Adjust for the canvas translation
-        ctx.strokeRect(drawBoxStartX, drawBoxStartY, width, height);
-        ctx.fillRect(drawBoxStartX, drawBoxStartY, width, height);
-    }
-}
+            if (selectionMode === 'box' && isBoxSelecting && drawBoxStartX !== undefined) {
+                ctx.strokeStyle = 'rgba(0, 0, 255, 0.5)';
+                ctx.fillStyle = 'rgba(0, 0, 255, 0.1)';
+                ctx.lineWidth = 2;
+                const width = drawBoxEndX - drawBoxStartX;
+                const height = drawBoxEndY - drawBoxStartY;
+                // Adjust for the canvas translation
+                ctx.strokeRect(drawBoxStartX, drawBoxStartY, width, height);
+                ctx.fillRect(drawBoxStartX, drawBoxStartY, width, height);
+            }
+        }
         function drawTree() {
             const newickString = document.getElementById('newickInput').value.trim();
             if (!newickString) {
@@ -486,7 +490,7 @@
             document.querySelectorAll('#mode-controls button').forEach(btn => {
                 btn.style.fontWeight = btn.id === mode + 'Mode' ? 'bold' : 'normal';
             });
-            
+
             // Reset box selection variables when changing modes
             isBoxSelecting = false;
             boxStartX = boxStartY = boxEndX = boxEndY = undefined;
@@ -673,76 +677,76 @@
         }
 
         function handleMouseMove(event) {
-    if (selectionMode === 'box' && isBoxSelecting) {
-        const canvas = document.getElementById('treeCanvas');
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
-        boxEndX = (event.clientX - rect.left) * scaleX;
-        boxEndY = (event.clientY - rect.top) * scaleY;
-        drawBoxEndX = event.clientX - rect.left - 50;
-        drawBoxEndY = event.clientY - rect.top - 50;
-        draw(root);
-    }
-}
-
-function handleMouseUp(event) {
-    isMouseDown = false;
-    const canvas = document.getElementById('treeCanvas');
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (event.clientX - rect.left) * scaleX;
-    const y = (event.clientY - rect.top) * scaleY;
-
-    if (selectionMode === 'box') {
-        isBoxSelecting = false;
-        boxEndX = x;
-        boxEndY = y;
-        drawBoxEndX = event.clientX - rect.left - 50;
-        drawBoxEndY = event.clientY - rect.top - 50;
-        selectNodesInBox();
-    } else {
-        // Only handle selection for non-box modes on mouseup
-        handleNodeSelection(x, y);
-    }
-    draw(root);
-}
-
-function handleNodeSelection(x, y) {
-    function findClickedNode(node) {
-        const tolerance = 5;
-        // Adjust node coordinates to match canvas coordinates
-        const nodeX = node.x + 50;
-        const nodeY = node.y + 50;
-        if (Math.abs(nodeY - x) < tolerance && Math.abs(nodeX - y) < tolerance) {
-            return node;
+            if (selectionMode === 'box' && isBoxSelecting) {
+                const canvas = document.getElementById('treeCanvas');
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                boxEndX = (event.clientX - rect.left) * scaleX;
+                boxEndY = (event.clientY - rect.top) * scaleY;
+                drawBoxEndX = event.clientX - rect.left - 50;
+                drawBoxEndY = event.clientY - rect.top - 50;
+                draw(root);
+            }
         }
-        for (let child of node.children) {
-            const found = findClickedNode(child);
-            if (found) return found;
-        }
-        return null;
-    }
 
-    const clickedNode = findClickedNode(root);
-    if (clickedNode) {
-        switch (selectionMode) {
-            case 'clade':
-                selectClade(clickedNode);
-                break;
-            case 'node':
-                selectNode(clickedNode);
-                break;
-            case 'nodeToRoot':
-                selectNodeToRoot(clickedNode);
-                break;
-            case 'nodeToTag':
-                selectNodeToTag(clickedNode);
-                break;
+        function handleMouseUp(event) {
+            isMouseDown = false;
+            const canvas = document.getElementById('treeCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (event.clientX - rect.left) * scaleX;
+            const y = (event.clientY - rect.top) * scaleY;
+
+            if (selectionMode === 'box') {
+                isBoxSelecting = false;
+                boxEndX = x;
+                boxEndY = y;
+                drawBoxEndX = event.clientX - rect.left - 50;
+                drawBoxEndY = event.clientY - rect.top - 50;
+                selectNodesInBox();
+            } else {
+                // Only handle selection for non-box modes on mouseup
+                handleNodeSelection(x, y);
+            }
+            draw(root);
         }
-    }
-}
+
+        function handleNodeSelection(x, y) {
+            function findClickedNode(node) {
+                const tolerance = 5;
+                // Adjust node coordinates to match canvas coordinates
+                const nodeX = node.x + 50;
+                const nodeY = node.y + 50;
+                if (Math.abs(nodeY - x) < tolerance && Math.abs(nodeX - y) < tolerance) {
+                    return node;
+                }
+                for (let child of node.children) {
+                    const found = findClickedNode(child);
+                    if (found) return found;
+                }
+                return null;
+            }
+
+            const clickedNode = findClickedNode(root);
+            if (clickedNode) {
+                switch (selectionMode) {
+                    case 'clade':
+                        selectClade(clickedNode);
+                        break;
+                    case 'node':
+                        selectNode(clickedNode);
+                        break;
+                    case 'nodeToRoot':
+                        selectNodeToRoot(clickedNode);
+                        break;
+                    case 'nodeToTag':
+                        selectNodeToTag(clickedNode);
+                        break;
+                }
+            }
+        }
 
         function selectNodesInBox() {
             const canvas = document.getElementById('treeCanvas');
