@@ -14,14 +14,11 @@
         .visual-alignment { font-family: monospace; white-space: pre; margin-bottom: 20px; }
         .mutation { color: red; font-weight: bold; }
         .flank { color: blue; }
-        .mutated-dna-container { background-color: white; padding: 1px; margin-bottom: 1px; }
-        .copy-button { background-color: #1890ff; color: white; border: none; padding: 5px 10px; cursor: pointer; margin-top: 1px; }
-        .copy-button:hover { background-color: #40a9ff; }
     </style>
 </head>
 <body>
     <h1>Mutation Assistant (Batch)</h1>
-    <textarea id="originalDNA" placeholder="Enter original DNA sequence"></textarea>
+    <textarea id="originalDNA" placeholder="Enter original DNA sequence (NOT in FASTA format)"></textarea>
     <textarea id="mutatedAAFasta" placeholder="Enter one or more mutated amino acid sequences (in FASTA format)"></textarea>
     
     <button onclick="processBatchMutations()">Process Batch</button>
@@ -269,8 +266,9 @@
             let mutatedDNAFasta = '';
 
             // Add download button for mutated DNA FASTA
-            output += `<h3>Download Mutated DNA Sequences</h3>
-                       <button onclick="downloadMutatedDNA()">Download FASTA</button>`;
+            output += `<h3>Download Mutated DNA Sequences:</h3>
+                       <button onclick="downloadMutatedDNA()">Download FASTA</button>
+                       <h3>Alignments:</h3>`;
 
             for (const mutatedAA of mutatedAASequences) {
                 const result = processSingleMutation(originalDNA, mutatedAA.sequence);
@@ -388,7 +386,7 @@
             }
 
             // Visual alignment output
-            let visualOutput = `Visual Alignment:\n`;
+            let visualOutput = ``;
             visualOutput += `Original: `;
             let mutatedOutput = `Mutated:  `;
 
@@ -407,23 +405,7 @@
 
             visualOutput += `\n${mutatedOutput}\n`;
 
-            let output = `<h4>Visual Alignment (changes: red; flanks: blue):</h4>
-                          <div class="visual-alignment">${visualOutput}</div>`;
-
-            output += `<h4>Alignment Details:</h4>
-                       <div>Best alignment found in frame ${bestFrame + 1} on ${bestStrand} strand</div>
-                       <div>Number of mutations: ${mutations.length}</div>`;
-
-            output += `<h4>Mutations:</h4>`;
-            for (const mutation of mutations) {
-                if (mutation.type === 'substitution') {
-                    output += `<div>Position ${mutation.position}: ${mutation.original} -> ${mutation.mutated} (Codon: ${mutation.mutatedCodon})</div>`;
-                } else if (mutation.type === 'insertion') {
-                    output += `<div>Position ${mutation.position}: Inserted ${mutation.inserted} (Codon: ${mutation.insertedCodon})</div>`;
-                } else if (mutation.type === 'deletion') {
-                    output += `<div>Position ${mutation.position}: Deleted ${mutation.deleted}</div>`;
-                }
-            }
+            let output = `<div class="visual-alignment">${visualOutput}</div>`;
 
             return { output, mutatedDNA };
         }
