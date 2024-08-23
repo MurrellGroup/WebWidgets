@@ -27,6 +27,9 @@
         #downloadButton {
             display: none;
         }
+        #fileList {
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -36,12 +39,14 @@
     <label for="referenceSequence">Reference Plasmid Sequence (not FASTA):</label>
     <textarea id="referenceSequence" placeholder="Enter reference plasmid sequence"></textarea>
     
-    <label for="fastaFile">Circular Plasmid Sequences (FASTA format):</label>
-    <input type="file" id="fastaFile" accept=".fasta,.fa,.txt">
+    <label for="fastaFiles">Circular Plasmid Sequences (FASTA format):</label>
+    <input type="file" id="fastaFiles" accept=".fasta,.fa,.txt" multiple>
     
+    <button onclick="addMoreFiles()">Add More Files</button>
     <button onclick="processPlasmids()">Process Plasmids</button>
     <button id="downloadButton" onclick="downloadResults()">Download Results</button>
     
+    <div id="fileList"></div>
     <div id="warnings"></div>
     <div id="result"></div>
 
@@ -49,28 +54,62 @@
         const ANCHOR_LENGTH = 50;
         let processedResults = '';
         let warningMessages = '';
+        let selectedFiles = [];
+
+        function updateFileList() {
+            const fileListDiv = document.getElementById('fileList');
+            fileListDiv.innerHTML = '<strong>Selected Files:</strong><br>' + 
+                selectedFiles.map(file => file.name).join('<br>');
+        }
+
+        function addMoreFiles() {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.multiple = true;
+            fileInput.accept = '.fasta,.fa,.txt';
+            fileInput.onchange = function(e) {
+                const newFiles = Array.from(e.target.files);
+                const uniqueNewFiles = newFiles.filter(newFile => 
+                    !selectedFiles.some(existingFile => 
+                        existingFile.name === newFile.name && existingFile.size === newFile.size
+                    )
+                );
+                selectedFiles = [...selectedFiles, ...uniqueNewFiles];
+                updateFileList();
+            };
+            fileInput.click();
+        }
 
         function processPlasmids() {
             const referenceSequence = document.getElementById('referenceSequence').value.toUpperCase().replace(/[^ATCG]/g, '');
-            const fastaFile = document.getElementById('fastaFile').files[0];
             
-            if (!referenceSequence || !fastaFile) {
-                alert('Please enter the reference sequence and select a FASTA file.');
+            if (!referenceSequence || selectedFiles.length === 0) {
+                alert('Please enter the reference sequence and select at least one FASTA file.');
                 return;
             }
 
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const fastaContent = e.target.result;
-                const plasmids = parseFasta(fastaContent);
-                const results = processBatch(referenceSequence, plasmids);
-                processedResults = results.alignedSequences;
-                warningMessages = results.warnings;
-                document.getElementById('warnings').textContent = warningMessages;
-                document.getElementById('result').textContent = 'Processing complete. Click the Download button to get the results.';
-                document.getElementById('downloadButton').style.display = 'inline-block';
-            };
-            reader.readAsText(fastaFile);
+            processedResults = '';
+            warningMessages = '';
+            let filesProcessed = 0;
+
+            for (let file of selectedFiles) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fastaContent = e.target.result;
+                    const plasmids = parseFasta(fastaContent);
+                    const results = processBatch(referenceSequence, plasmids);
+                    processedResults += results.alignedSequences;
+                    warningMessages += results.warnings;
+                    
+                    filesProcessed++;
+                    if (filesProcessed === selectedFiles.length) {
+                        document.getElementById('warnings').textContent = warningMessages;
+                        document.getElementById('result').textContent = 'Processing complete. Click the Download button to get the results.';
+                        document.getElementById('downloadButton').style.display = 'inline-block';
+                    }
+                };
+                reader.readAsText(file);
+            }
         }
 
         function parseFasta(fastaContent) {
@@ -172,6 +211,12 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
+
+        // Initialize file selection
+        document.getElementById('fastaFiles').addEventListener('change', function(e) {
+            selectedFiles = Array.from(e.target.files);
+            updateFileList();
+        });
     </script>
 </body>
 </html>
