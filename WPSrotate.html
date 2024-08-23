@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rotating Circular Plasmids</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+        }
+        input[type="file"], button {
+            margin-top: 10px;
+        }
+        #result, #warnings {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: monospace;
+        }
+        #downloadButton {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Rotating Circular Plasmids</h1>
+    <p>This tool takes circular plasmids that don't start and end in the right place, and "rotates" them to start and end according to your reference sequence.</p>
+    
+    <label for="referenceSequence">Reference Plasmid Sequence (not FASTA):</label>
+    <textarea id="referenceSequence" placeholder="Enter reference plasmid sequence"></textarea>
+    
+    <label for="fastaFile">Circular Plasmid Sequences (FASTA format):</label>
+    <input type="file" id="fastaFile" accept=".fasta,.fa,.txt">
+    
+    <button onclick="processPlasmids()">Process Plasmids</button>
+    <button id="downloadButton" onclick="downloadResults()">Download Results</button>
+    
+    <div id="warnings"></div>
+    <div id="result"></div>
+
+    <script>
+        const ANCHOR_LENGTH = 50;
+        let processedResults = '';
+        let warningMessages = '';
+
+        function processPlasmids() {
+            const referenceSequence = document.getElementById('referenceSequence').value.toUpperCase().replace(/[^ATCG]/g, '');
+            const fastaFile = document.getElementById('fastaFile').files[0];
+            
+            if (!referenceSequence || !fastaFile) {
+                alert('Please enter the reference sequence and select a FASTA file.');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const fastaContent = e.target.result;
+                const plasmids = parseFasta(fastaContent);
+                const results = processBatch(referenceSequence, plasmids);
+                processedResults = results.alignedSequences;
+                warningMessages = results.warnings;
+                document.getElementById('warnings').textContent = warningMessages;
+                document.getElementById('result').textContent = 'Processing complete. Click the Download button to get the results.';
+                document.getElementById('downloadButton').style.display = 'inline-block';
+            };
+            reader.readAsText(fastaFile);
+        }
+
+        function parseFasta(fastaContent) {
+            const lines = fastaContent.split('\n');
+            const plasmids = [];
+            let currentSequence = '';
+            let currentName = '';
+
+            for (let line of lines) {
+                line = line.trim();
+                if (line.startsWith('>')) {
+                    if (currentSequence) {
+                        plasmids.push({ name: currentName, sequence: currentSequence });
+                    }
+                    currentName = line.substring(1);
+                    currentSequence = '';
+                } else {
+                    currentSequence += line.toUpperCase().replace(/[^ATCG]/g, '');
+                }
+            }
+
+            if (currentSequence) {
+                plasmids.push({ name: currentName, sequence: currentSequence });
+            }
+
+            return plasmids;
+        }
+
+        function processBatch(reference, plasmids) {
+            const startAnchor = reference.substring(0, ANCHOR_LENGTH);
+            const endAnchor = reference.substring(reference.length - ANCHOR_LENGTH);
+            let alignedSequences = '';
+            let warnings = '';
+
+            for (let plasmid of plasmids) {
+                const result = alignPlasmid(reference, plasmid.sequence, startAnchor, endAnchor);
+                alignedSequences += `>${plasmid.name}\n`;
+                alignedSequences += result.sequence ? `${result.sequence}\n` : '\n';
+                if (result.warning) {
+                    warnings += `Warning for ${plasmid.name}: ${result.warning}\n`;
+                }
+            }
+
+            return { alignedSequences, warnings };
+        }
+
+        function alignPlasmid(reference, circular, startAnchor, endAnchor) {
+            let alignedSequence = alignOrientation(circular, startAnchor, endAnchor);
+            if (alignedSequence) {
+                return { sequence: alignedSequence };
+            }
+
+            // Try reverse complement
+            const revComp = reverseComplement(circular);
+            alignedSequence = alignOrientation(revComp, startAnchor, endAnchor);
+            if (alignedSequence) {
+                return { sequence: alignedSequence, warning: "Sequence was reverse complemented before alignment." };
+            }
+
+            return { warning: "Could not align sequence in either orientation." };
+        }
+
+        function alignOrientation(sequence, startAnchor, endAnchor) {
+            const doubledSequence = sequence + sequence;
+            const startIndex = doubledSequence.indexOf(startAnchor);
+            const endIndex = doubledSequence.indexOf(endAnchor);
+
+            if (startIndex === -1 || endIndex === -1) {
+                return null;
+            }
+
+            let alignedSequence = doubledSequence.substring(startIndex, startIndex + sequence.length);
+
+            // Verify rotation
+            if (!verifyRotation(sequence, alignedSequence)) {
+                return null;
+            }
+
+            return alignedSequence;
+        }
+
+        function reverseComplement(sequence) {
+            const complement = { 'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' };
+            return sequence.split('').reverse().map(base => complement[base]).join('');
+        }
+
+        function verifyRotation(original, rotated) {
+            return (original + original).includes(rotated) && original.length === rotated.length;
+        }
+
+        function downloadResults() {
+            const blob = new Blob([processedResults], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'aligned_plasmids.fasta';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
