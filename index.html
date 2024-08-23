@@ -6,47 +6,73 @@
     <title>MurrellGroup WebWidgets</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
             color: #333;
-            max-width: 800px;
-            margin: 0 auto;
+            background-color: #f0f4f8;
+            margin: 0;
             padding: 20px;
-            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            max-width: 600px;
+            width: 100%;
         }
         h1 {
             color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
         }
-        ul {
-            list-style-type: none;
-            padding: 0;
+        .widget-list {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         }
-        li {
-            margin-bottom: 15px;
+        .widget-item {
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
-        a {
-            display: inline-block;
-            color: #2980b9;
+        .widget-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+        }
+        .widget-item a {
+            display: block;
+            padding: 20px;
             text-decoration: none;
-            padding: 10px 15px;
-            background-color: #ecf0f1;
-            border-radius: 5px;
-            transition: background-color 0.3s ease;
+            color: #34495e;
+            font-weight: bold;
+            text-align: center;
         }
-        a:hover {
-            background-color: #3498db;
-            color: white;
+        .widget-item a:hover {
+            background-color: #e9ecef;
         }
     </style>
 </head>
 <body>
-    <h1>Murrell Lab WebWidgets</h1>
-    <ul>
-        <li><a href="mutating_codons.html">Mutation Assistant (plasmid seq + mutated AA => mutated plasmid seq)</a></li>
-        <li><a href="phylotagger.html">Phylogenetic Tree Tagger (for difFUBAR)</a></li>
-        <li><a href="RNAjiggle.html">Stochastic RNA folding sim (just a toy)</a></li>
-    </ul>
+    <div class="container">
+        <h1>Murrell Lab WebWidgets</h1>
+        <div class="widget-list">
+            <div class="widget-item">
+                <a href="mutating_codons.html">Mutation Assistant<br>(DNA seq + mutated AA => mutated DNA seq)</a>
+            </div>
+            <div class="widget-item">
+                <a href="phylotagger.html">Phylogenetic Tree Tagger<br>(eg. for difFUBAR)</a>
+            </div>
+            <div class="widget-item">
+                <a href="RNAjiggle.html">Stochastic RNA folding sim<br>(just a toy)</a>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
