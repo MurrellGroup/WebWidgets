@@ -14,18 +14,26 @@
         .visual-alignment { font-family: monospace; white-space: pre; margin-bottom: 20px; }
         .mutation { color: red; font-weight: bold; }
         .flank { color: blue; }
+        select { margin-bottom: 10px; }
     </style>
 </head>
 <body>
     <h1>Mutation Assistant (Batch)</h1>
     <textarea id="originalDNA" placeholder="Enter original DNA sequence (NOT in FASTA format)"></textarea>
     <textarea id="mutatedAAFasta" placeholder="Enter one or more mutated amino acid sequences (in FASTA format)"></textarea>
+
+    <select id="codonUsageTable">
+        <option value="human" selected>Human</option>
+        <option value="wheat">Wheat</option>
+        <option value="rabbit">Rabbit</option>
+        <option value="ecoli">E. coli</option>
+    </select>
     
     <button onclick="processBatchMutations()">Process Batch</button>
     <div id="output"></div>
 
     <script>
-        const geneticCodeJSON = {
+       const geneticCodeJSON = {
                                       "geneticCode": {
                                         "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
                                         "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
@@ -44,32 +52,105 @@
                                         "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
                                         "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G"
                                       },
-                                      "codonUsage": {
-                                        "A": {"GCT": 0.26267599657078056, "GCC": 0.3975938884126084, "GCA": 0.2301414614526459, "GCG": 0.10958865356396515},
-                                        "R": {"CGT": 0.07921016243485132, "CGC": 0.18229779216240447, "CGA": 0.1068499187065992, "CGG": 0.20099223534059657, "AGA": 0.21718861588488247, "AGG": 0.21346127547066598},
-                                        "N": {"AAT": 0.48155387543875877, "AAC": 0.5184461245612413},
-                                        "D": {"GAT": 0.47054551605329586, "GAC": 0.5294544839467041},
-                                        "C": {"TGT": 0.4655420749204069, "TGC": 0.5344579250795931},
-                                        "Q": {"CAA": 0.2702034849363689, "CAG": 0.7297965150636311},
-                                        "E": {"GAA": 0.4316289069283393, "GAG": 0.5683710930716608},
-                                        "G": {"GGT": 0.16156930155881555, "GGC": 0.3365434778072244, "GGA": 0.2526567162621815, "GGG": 0.24923050437177854},
-                                        "H": {"CAT": 0.42579848302186774, "CAC": 0.5742015169781323},
-                                        "I": {"ATT": 0.36836567357094385, "ATC": 0.45433523443306295, "ATA": 0.17729909199599314},
-                                        "L": {"TTA": 0.07966076499996089, "TTG": 0.13057991764267143, "CTT": 0.1350654972864851, "CTC": 0.1917680920552213, "CTA": 0.072189145418841, "CTG": 0.39073658259682026},
-                                        "K": {"AAA": 0.4447542554647926, "AAG": 0.5552457445352074},
-                                        "M": {"ATG": 1.0},
-                                        "F": {"TTT": 0.46937816168750596, "TTC": 0.530621838312494},
-                                        "P": {"CCT": 0.2856945878866857, "CCC": 0.32143513737110474, "CCA": 0.27603724511590433, "CCG": 0.11683302962630518},
-                                        "S": {"TCT": 0.18785702139938476, "TCC": 0.21286024187024336, "TCA": 0.15463515929737054, "TCG": 0.05463464402203317, "AGT": 0.15189080285050316, "AGC": 0.238122130560465},
-                                        "T": {"ACT": 0.2541766361090097, "ACC": 0.34642144943407044, "ACA": 0.28802387158332293, "ACG": 0.11137804287359693},
-                                        "W": {"TGG": 1.0},
-                                        "Y": {"TAT": 0.45311126258285667, "TAC": 0.5468887374171433},
-                                        "V": {"GTT": 0.18567061570958135, "GTC": 0.23524867016818055, "GTA": 0.12102234875486341, "GTG": 0.4580583653673747},
-                                        "*": {"TAA": 0.2840010078105316, "TAG": 0.2235323759133283, "TGA": 0.4924666162761401}
-                                      }
+                                      "wheat": {
+                                        "A": {"GCT": 0.2047, "GCC": 0.3507, "GCA": 0.1896, "GCG": 0.2550},
+                                        "R": {"CGT": 0.0988, "CGC": 0.2427, "CGA": 0.0711, "CGG": 0.1858, "AGA": 0.1541, "AGG": 0.2476},
+                                        "N": {"AAT": 0.4244, "AAC": 0.5756},
+                                        "D": {"GAT": 0.4457, "GAC": 0.5543},
+                                        "C": {"TGT": 0.3143, "TGC": 0.6857},
+                                        "Q": {"CAA": 0.3525, "CAG": 0.6475},
+                                        "E": {"GAA": 0.3417, "GAG": 0.6583},
+                                        "G": {"GGT": 0.1893, "GGC": 0.4003, "GGA": 0.1856, "GGG": 0.2248},
+                                        "H": {"CAT": 0.4368, "CAC": 0.5632},
+                                        "I": {"ATT": 0.3109, "ATC": 0.4770, "ATA": 0.2121},
+                                        "L": {"TTA": 0.0594, "TTG": 0.1483, "CTT": 0.1621, "CTC": 0.2939, "CTA": 0.0783, "CTG": 0.2579},
+                                        "K": {"AAA": 0.3118, "AAG": 0.6882},
+                                        "M": {"ATG": 1.0000},
+                                        "F": {"TTT": 0.3464, "TTC": 0.6536},
+                                        "P": {"CCT": 0.2241, "CCC": 0.2412, "CCA": 0.2378, "CCG": 0.2969},
+                                        "S": {"TCT": 0.1574, "TCC": 0.2227, "TCA": 0.1536, "TCG": 0.1419, "AGT": 0.1099, "AGC": 0.2145},
+                                        "T": {"ACT": 0.2055, "ACC": 0.3302, "ACA": 0.2405, "ACG": 0.2238},
+                                        "W": {"TGG": 1.0000},
+                                        "Y": {"TAT": 0.3663, "TAC": 0.6337},
+                                        "V": {"GTT": 0.2216, "GTC": 0.3066, "GTA": 0.0971, "GTG": 0.3746},
+                                        "*": {"TAA": 0.2063, "TAG": 0.3092, "TGA": 0.4845}
+                                    },
+                                    "rabbit": {
+                                        "A": {"GCT": 0.2386, "GCC": 0.4214, "GCA": 0.2041, "GCG": 0.1359},
+                                        "R": {"CGT": 0.0700, "CGC": 0.1991, "CGA": 0.0990, "CGG": 0.2094, "AGA": 0.2051, "AGG": 0.2174},
+                                        "N": {"AAT": 0.4350, "AAC": 0.5650},
+                                        "D": {"GAT": 0.4172, "GAC": 0.5828},
+                                        "C": {"TGT": 0.4309, "TGC": 0.5691},
+                                        "Q": {"CAA": 0.2448, "CAG": 0.7552},
+                                        "E": {"GAA": 0.4056, "GAG": 0.5944},
+                                        "G": {"GGT": 0.1437, "GGC": 0.3613, "GGA": 0.2394, "GGG": 0.2556},
+                                        "H": {"CAT": 0.3617, "CAC": 0.6383},
+                                        "I": {"ATT": 0.3387, "ATC": 0.4979, "ATA": 0.1634},
+                                        "L": {"TTA": 0.0704, "TTG": 0.1241, "CTT": 0.1180, "CTC": 0.2039, "CTA": 0.0588, "CTG": 0.4248},
+                                        "K": {"AAA": 0.4176, "AAG": 0.5824},
+                                        "M": {"ATG": 1.0000},
+                                        "F": {"TTT": 0.4271, "TTC": 0.5729},
+                                        "P": {"CCT": 0.2635, "CCC": 0.3446, "CCA": 0.2419, "CCG": 0.1500},
+                                        "S": {"TCT": 0.1714, "TCC": 0.2302, "TCA": 0.1311, "TCG": 0.0715, "AGT": 0.1416, "AGC": 0.2542},
+                                        "T": {"ACT": 0.2282, "ACC": 0.3623, "ACA": 0.2583, "ACG": 0.1512},
+                                        "W": {"TGG": 1.0000},
+                                        "Y": {"TAT": 0.3924, "TAC": 0.6076},
+                                        "V": {"GTT": 0.1668, "GTC": 0.2480, "GTA": 0.1015, "GTG": 0.4838},
+                                        "*": {"TAA": 0.2536, "TAG": 0.2360, "TGA": 0.5105}
+                                    },
+                                    "human": {
+                                        "A": {"GCT": 0.2627, "GCC": 0.3976, "GCA": 0.2301, "GCG": 0.1096},
+                                        "R": {"CGT": 0.0792, "CGC": 0.1823, "CGA": 0.1068, "CGG": 0.2010, "AGA": 0.2172, "AGG": 0.2135},
+                                        "N": {"AAT": 0.4816, "AAC": 0.5184},
+                                        "D": {"GAT": 0.4705, "GAC": 0.5295},
+                                        "C": {"TGT": 0.4655, "TGC": 0.5345},
+                                        "Q": {"CAA": 0.2702, "CAG": 0.7298},
+                                        "E": {"GAA": 0.4316, "GAG": 0.5684},
+                                        "G": {"GGT": 0.1616, "GGC": 0.3365, "GGA": 0.2527, "GGG": 0.2492},
+                                        "H": {"CAT": 0.4258, "CAC": 0.5742},
+                                        "I": {"ATT": 0.3684, "ATC": 0.4543, "ATA": 0.1773},
+                                        "L": {"TTA": 0.0797, "TTG": 0.1306, "CTT": 0.1351, "CTC": 0.1918, "CTA": 0.0722, "CTG": 0.3907},
+                                        "K": {"AAA": 0.4448, "AAG": 0.5552},
+                                        "M": {"ATG": 1.0000},
+                                        "F": {"TTT": 0.4694, "TTC": 0.5306},
+                                        "P": {"CCT": 0.2857, "CCC": 0.3214, "CCA": 0.2760, "CCG": 0.1168},
+                                        "S": {"TCT": 0.1879, "TCC": 0.2129, "TCA": 0.1546, "TCG": 0.0546, "AGT": 0.1519, "AGC": 0.2381},
+                                        "T": {"ACT": 0.2542, "ACC": 0.3464, "ACA": 0.2880, "ACG": 0.1114},
+                                        "W": {"TGG": 1.0000},
+                                        "Y": {"TAT": 0.4531, "TAC": 0.5469},
+                                        "V": {"GTT": 0.1857, "GTC": 0.2352, "GTA": 0.1210, "GTG": 0.4581},
+                                        "*": {"TAA": 0.2840, "TAG": 0.2235, "TGA": 0.4925}
+                                    },
+                                    "ecoli": {
+                                        "A": {"GCT": 0.1655, "GCC": 0.2710, "GCA": 0.2225, "GCG": 0.3409},
+                                        "R": {"CGT": 0.3654, "CGC": 0.3755, "CGA": 0.0670, "CGG": 0.1115, "AGA": 0.0494, "AGG": 0.0312},
+                                        "N": {"AAT": 0.4616, "AAC": 0.5384},
+                                        "D": {"GAT": 0.6281, "GAC": 0.3719},
+                                        "C": {"TGT": 0.4556, "TGC": 0.5444},
+                                        "Q": {"CAA": 0.3281, "CAG": 0.6719},
+                                        "E": {"GAA": 0.6768, "GAG": 0.3232},
+                                        "G": {"GGT": 0.3346, "GGC": 0.3835, "GGA": 0.1227, "GGG": 0.1592},
+                                        "H": {"CAT": 0.5755, "CAC": 0.4245},
+                                        "I": {"ATT": 0.5038, "ATC": 0.4081, "ATA": 0.0881},
+                                        "L": {"TTA": 0.1292, "TTG": 0.1232, "CTT": 0.1110, "CTC": 0.1023, "CTA": 0.0359, "CTG": 0.4983},
+                                        "K": {"AAA": 0.7528, "AAG": 0.2472},
+                                        "M": {"ATG": 1.0000},
+                                        "F": {"TTT": 0.5807, "TTC": 0.4193},
+                                        "P": {"CCT": 0.1670, "CCC": 0.1291, "CCA": 0.1898, "CCG": 0.5141},
+                                        "S": {"TCT": 0.1450, "TCC": 0.1519, "TCA": 0.1334, "TCG": 0.1462, "AGT": 0.1590, "AGC": 0.2645},
+                                        "T": {"ACT": 0.1640, "ACC": 0.4171, "ACA": 0.1510, "ACG": 0.2680},
+                                        "W": {"TGG": 1.0000},
+                                        "Y": {"TAT": 0.5717, "TAC": 0.4283},
+                                        "V": {"GTT": 0.2621, "GTC": 0.2124, "GTA": 0.1549, "GTG": 0.3705},
+                                        "*": {"TAA": 0.6154, "TAG": 0.1923, "TGA": 0.1923}
+                                    }
                                     };
             const geneticCode = geneticCodeJSON.geneticCode;
-            const codonUsage = geneticCodeJSON.codonUsage;
+
+        function getCurrentCodonUsage() {
+            const codonUsageTable = document.getElementById('codonUsageTable');
+            return geneticCodeJSON[codonUsageTable.value] || geneticCodeJSON["human"];
+        }    
 
         // Correct affine alignment function
         function affineNWAlign(s1, s2, gapOpen = -2.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -1.0) {
@@ -287,6 +368,8 @@
             let bestAlignment = null;
             let bestFrame = 0;
             let bestStrand = '+';
+
+            let codonUsage = getCurrentCodonUsage();
 
             // Check all 6 reading frames
             for (let frame = 0; frame < 3; frame++) {
