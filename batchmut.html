@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mutation Assistant (Batch)</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
+        textarea { width: 100%; height: 200px; margin-bottom: 10px; }
+        button { padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; margin-bottom: 20px; }
+        button:hover { background-color: #45a049; }
+        #output { margin-top: 10px; }
+        .sequence-box { font-family: monospace; overflow-x: auto; white-space: pre; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; margin-bottom: 10px; }
+        .visual-alignment { font-family: monospace; white-space: pre; margin-bottom: 20px; }
+        .mutation { color: red; font-weight: bold; }
+        .flank { color: blue; }
+        .mutated-dna-container { background-color: white; padding: 1px; margin-bottom: 1px; }
+        .copy-button { background-color: #1890ff; color: white; border: none; padding: 5px 10px; cursor: pointer; margin-top: 1px; }
+        .copy-button:hover { background-color: #40a9ff; }
+    </style>
+</head>
+<body>
+    <h1>Mutation Assistant (Batch)</h1>
+    <textarea id="originalDNA" placeholder="Enter original DNA sequence"></textarea>
+    <textarea id="mutatedAAFasta" placeholder="Enter one or more mutated amino acid sequences (in FASTA format)"></textarea>
+    
+    <button onclick="processBatchMutations()">Process Batch</button>
+    <div id="output"></div>
+
+    <script>
+        const geneticCodeJSON = {
+                                      "geneticCode": {
+                                        "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
+                                        "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
+                                        "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
+                                        "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
+                                        "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
+                                        "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
+                                        "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
+                                        "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
+                                        "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
+                                        "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
+                                        "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
+                                        "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
+                                        "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
+                                        "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
+                                        "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
+                                        "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G"
+                                      },
+                                      "codonUsage": {
+                                        "A": {"GCT": 0.26267599657078056, "GCC": 0.3975938884126084, "GCA": 0.2301414614526459, "GCG": 0.10958865356396515},
+                                        "R": {"CGT": 0.07921016243485132, "CGC": 0.18229779216240447, "CGA": 0.1068499187065992, "CGG": 0.20099223534059657, "AGA": 0.21718861588488247, "AGG": 0.21346127547066598},
+                                        "N": {"AAT": 0.48155387543875877, "AAC": 0.5184461245612413},
+                                        "D": {"GAT": 0.47054551605329586, "GAC": 0.5294544839467041},
+                                        "C": {"TGT": 0.4655420749204069, "TGC": 0.5344579250795931},
+                                        "Q": {"CAA": 0.2702034849363689, "CAG": 0.7297965150636311},
+                                        "E": {"GAA": 0.4316289069283393, "GAG": 0.5683710930716608},
+                                        "G": {"GGT": 0.16156930155881555, "GGC": 0.3365434778072244, "GGA": 0.2526567162621815, "GGG": 0.24923050437177854},
+                                        "H": {"CAT": 0.42579848302186774, "CAC": 0.5742015169781323},
+                                        "I": {"ATT": 0.36836567357094385, "ATC": 0.45433523443306295, "ATA": 0.17729909199599314},
+                                        "L": {"TTA": 0.07966076499996089, "TTG": 0.13057991764267143, "CTT": 0.1350654972864851, "CTC": 0.1917680920552213, "CTA": 0.072189145418841, "CTG": 0.39073658259682026},
+                                        "K": {"AAA": 0.4447542554647926, "AAG": 0.5552457445352074},
+                                        "M": {"ATG": 1.0},
+                                        "F": {"TTT": 0.46937816168750596, "TTC": 0.530621838312494},
+                                        "P": {"CCT": 0.2856945878866857, "CCC": 0.32143513737110474, "CCA": 0.27603724511590433, "CCG": 0.11683302962630518},
+                                        "S": {"TCT": 0.18785702139938476, "TCC": 0.21286024187024336, "TCA": 0.15463515929737054, "TCG": 0.05463464402203317, "AGT": 0.15189080285050316, "AGC": 0.238122130560465},
+                                        "T": {"ACT": 0.2541766361090097, "ACC": 0.34642144943407044, "ACA": 0.28802387158332293, "ACG": 0.11137804287359693},
+                                        "W": {"TGG": 1.0},
+                                        "Y": {"TAT": 0.45311126258285667, "TAC": 0.5468887374171433},
+                                        "V": {"GTT": 0.18567061570958135, "GTC": 0.23524867016818055, "GTA": 0.12102234875486341, "GTG": 0.4580583653673747},
+                                        "*": {"TAA": 0.2840010078105316, "TAG": 0.2235323759133283, "TGA": 0.4924666162761401}
+                                      }
+                                    };
+            const geneticCode = geneticCodeJSON.geneticCode;
+            const codonUsage = geneticCodeJSON.codonUsage;
+
+        // Correct affine alignment function
+        function affineNWAlign(s1, s2, gapOpen = -2.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -1.0) {
+            const s1arr = s1.split('');
+            const s1len = s1arr.length;
+            const s2arr = s2.split('');
+            const s2len = s2arr.length;
+            const M = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+            const IX = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+            const IY = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+            for (let i = 0; i <= s1len; i++) {
+                IX[i][0] = gapOpen + gapExtend * i;
+                IY[i][0] = -Infinity;
+                M[i][0] = gapOpen + gapExtend * i;
+            }
+            for (let j = 0; j <= s2len; j++) {
+                IX[0][j] = -Infinity;
+                IY[0][j] = gapOpen + gapExtend * j;
+                M[0][j] = gapOpen + gapExtend * j;
+            }
+            const traceM = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+            const traceIX = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+            const traceIY = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+            traceM[0].fill(3);
+            traceIX[0].fill(3);
+            traceIY[0].fill(3);
+            for (let i = 1; i <= s1len; i++) {
+                traceM[i][0] = 2;
+                traceIX[i][0] = 2;
+                traceIY[i][0] = 2;
+            }
+            for (let i = 1; i <= s1len; i++) {
+                for (let j = 1; j <= s2len; j++) {
+                    const diagCost = s1arr[i - 1] === s2arr[j - 1] ? matchCost : mismatchCost;
+                    const diagM = M[i - 1][j - 1] + diagCost;
+                    const IX2M = IX[i - 1][j - 1] + diagCost;
+                    const IY2M = IY[i - 1][j - 1] + diagCost;
+                    [M[i][j], traceM[i][j]] = findMax([diagM, IX2M, IY2M]);
+                    const M2IX = M[i - 1][j] + gapOpen;
+                    const IXextend = IX[i - 1][j] + gapExtend;
+                    [IX[i][j], traceIX[i][j]] = findMax([M2IX, IXextend]);
+                    const M2IY = M[i][j - 1] + gapOpen;
+                    const IYextend = IY[i][j - 1] + gapExtend;
+                    [IY[i][j], traceIY[i][j]] = findMax([M2IY, -Infinity, IYextend]);
+                }
+            }
+            const revArr1 = [];
+            const revArr2 = [];
+            const mats = [traceM, traceIX, traceIY];
+            let xI = s1len;
+            let yI = s2len;
+            let mI = findMax([M[xI][yI], IX[xI][yI], IY[xI][yI]])[1];
+            while (xI > 0 && yI > 0) {
+                const nextMI = mats[mI - 1][xI][yI];
+                if (mI === 1) {
+                    revArr1.push(s1arr[xI - 1]);
+                    revArr2.push(s2arr[yI - 1]);
+                    xI--;
+                    yI--;
+                } else if (mI === 2) {
+                    revArr1.push(s1arr[xI - 1]);
+                    revArr2.push('-');
+                    xI--;
+                } else if (mI === 3) {
+                    revArr1.push('-');
+                    revArr2.push(s2arr[yI - 1]);
+                    yI--;
+                }
+                mI = nextMI;
+            }
+            while (xI > 0) {
+                revArr1.push(s1arr[xI - 1]);
+                revArr2.push('-');
+                xI--;
+            }
+            while (yI > 0) {
+                revArr1.push('-');
+                revArr2.push(s2arr[yI - 1]);
+                yI--;
+            }
+            return [revArr1.reverse().join(''), revArr2.reverse().join('')];
+        }
+        function findMax(arr) {
+            let maxVal = arr[0];
+            let maxIndex = 1;
+            for (let i = 1; i < arr.length; i++) {
+                if (arr[i] > maxVal) {
+                    maxVal = arr[i];
+                    maxIndex = i + 1;
+                }
+            }
+            return [maxVal, maxIndex];
+        }
+
+        function translateDNA(dna, geneticCode) {
+            let protein = '';
+            for (let i = 0; i < dna.length; i += 3) {
+                const codon = dna.slice(i, i + 3);
+                protein += geneticCode[codon] || 'X';
+            }
+            return protein;
+        }
+
+        function reverseComplement(dna) {
+            const complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'};
+            return dna.split('').reverse().map(base => complement[base]).join('');
+        }
+
+        function sampleCodonSimple(aa, codonUsage) {
+            const codons = Object.keys(codonUsage[aa]);
+            const frequencies = Object.values(codonUsage[aa]);
+            const totalFreq = frequencies.reduce((a, b) => a + b, 0);
+            const normalizedFreqs = frequencies.map(f => f / totalFreq);
+            
+            let cumSum = 0;
+            const thresholds = normalizedFreqs.map(f => cumSum += f);
+            const r = Math.random();
+            
+            for (let i = 0; i < thresholds.length; i++) {
+                if (r <= thresholds[i]) return codons[i];
+            }
+            
+            return codons[codons.length - 1];
+        }
+
+        //Top-p sampling
+        function sampleCodon(aa, codonUsage, p = 0.7) {
+            const codons = Object.keys(codonUsage[aa]);
+            const frequencies = Object.values(codonUsage[aa]);
+            const totalFreq = frequencies.reduce((a, b) => a + b, 0);
+            const normalizedFreqs = frequencies.map(f => f / totalFreq);
+            
+            // Sort codons by descending probability
+            const sortedIndices = normalizedFreqs.map((_, i) => i)
+                .sort((a, b) => normalizedFreqs[b] - normalizedFreqs[a]);
+            
+            let cumSum = 0;
+            const nucleusIndices = [];
+            for (const i of sortedIndices) {
+                cumSum += normalizedFreqs[i];
+                nucleusIndices.push(i);
+                if (cumSum >= p) break;
+            }
+            
+            // Renormalize probabilities within the nucleus
+            const nucleusTotal = nucleusIndices.reduce((sum, i) => sum + normalizedFreqs[i], 0);
+            const nucleusProbs = nucleusIndices.map(i => normalizedFreqs[i] / nucleusTotal);
+            
+            // Sample from the nucleus
+            const r = Math.random();
+            let cumulativeProb = 0;
+            for (let i = 0; i < nucleusIndices.length; i++) {
+                cumulativeProb += nucleusProbs[i];
+                if (r <= cumulativeProb) {
+                    return codons[nucleusIndices[i]];
+                }
+            }
+            
+            // Fallback (should rarely happen)
+            return codons[nucleusIndices[nucleusIndices.length - 1]];
+        }
+
+        function parseFasta(fastaText) {
+            const sequences = [];
+            const lines = fastaText.split('\n');
+            let currentSeq = '';
+            let currentName = '';
+
+            for (const line of lines) {
+                if (line.startsWith('>')) {
+                    if (currentSeq) {
+                        sequences.push({ name: currentName, sequence: currentSeq });
+                    }
+                    currentName = line.slice(1).trim();
+                    currentSeq = '';
+                } else {
+                    currentSeq += line.trim();
+                }
+            }
+
+            if (currentSeq) {
+                sequences.push({ name: currentName, sequence: currentSeq });
+            }
+
+            return sequences;
+        }
+
+        function processBatchMutations() {
+            const originalDNA = document.getElementById('originalDNA').value.toUpperCase();
+            const mutatedAAFasta = document.getElementById('mutatedAAFasta').value;
+            const mutatedAASequences = parseFasta(mutatedAAFasta);
+
+            let output = '';
+            let mutatedDNAFasta = '';
+
+            // Add download button for mutated DNA FASTA
+            output += `<h3>Download Mutated DNA Sequences</h3>
+                       <button onclick="downloadMutatedDNA()">Download FASTA</button>`;
+
+            for (const mutatedAA of mutatedAASequences) {
+                const result = processSingleMutation(originalDNA, mutatedAA.sequence);
+                output += `<h3>${mutatedAA.name}</h3>`;
+                output += result.output;
+                mutatedDNAFasta += `>${mutatedAA.name}\n${result.mutatedDNA}\n`;
+            }
+
+            document.getElementById('output').innerHTML = output;
+
+            // Store mutated DNA FASTA in a global variable for download
+            window.mutatedDNAFasta = mutatedDNAFasta;
+        }
+
+        function processSingleMutation(originalDNA, mutatedAA) {
+            let bestAlignment = null;
+            let bestFrame = 0;
+            let bestStrand = '+';
+
+            // Check all 6 reading frames
+            for (let frame = 0; frame < 3; frame++) {
+                const forwardDNA = originalDNA.slice(frame);
+                const reverseDNA = reverseComplement(originalDNA).slice(frame);
+
+                const forwardAA = translateDNA(forwardDNA, geneticCode);
+                const reverseAA = translateDNA(reverseDNA, geneticCode);
+
+                const [forwardAlignedOrig, forwardAlignedMutated] = affineNWAlign(forwardAA, mutatedAA);
+                const [reverseAlignedOrig, reverseAlignedMutated] = affineNWAlign(reverseAA, mutatedAA);
+
+                const forwardScore = forwardAlignedOrig.split('').reduce((score, char, index) => 
+                    score + (char === forwardAlignedMutated[index] ? 1 : 0), 0);
+                const reverseScore = reverseAlignedOrig.split('').reduce((score, char, index) => 
+                    score + (char === reverseAlignedMutated[index] ? 1 : 0), 0);
+
+                if (!bestAlignment || forwardScore > bestAlignment.score) {
+                    bestAlignment = {score: forwardScore, alignedOrig: forwardAlignedOrig, alignedMutated: forwardAlignedMutated};
+                    bestFrame = frame;
+                    bestStrand = '+';
+                }
+
+                if (reverseScore > bestAlignment.score) {
+                    bestAlignment = {score: reverseScore, alignedOrig: reverseAlignedOrig, alignedMutated: reverseAlignedMutated};
+                    bestFrame = frame;
+                    bestStrand = '-';
+                }
+            }
+
+            // Process mutations, including indels, while preserving flanks
+            let workingDNA = bestStrand === '+' ? originalDNA : reverseComplement(originalDNA);
+            let mutations = [];
+            let dnaIndex = bestFrame;
+            let alignmentIndex = 0;
+            let alignmentStart = bestAlignment.alignedMutated.indexOf(mutatedAA[0]);
+            let alignmentEnd = bestAlignment.alignedMutated.lastIndexOf(mutatedAA[mutatedAA.length - 1]);
+
+            // Preserve left flank
+            let leftFlank = workingDNA.slice(0, dnaIndex + alignmentStart * 3);
+            let rightFlank = '';
+
+            while (alignmentIndex < bestAlignment.alignedMutated.length) {
+                if (alignmentIndex < alignmentStart || alignmentIndex > alignmentEnd) {
+                    // Skip flanking regions
+                    if (bestAlignment.alignedOrig[alignmentIndex] !== '-') {
+                        dnaIndex += 3;
+                    }
+                } else {
+                    if (bestAlignment.alignedOrig[alignmentIndex] === '-' && bestAlignment.alignedMutated[alignmentIndex] !== '-') {
+                        // Insertion
+                        const insertedAA = bestAlignment.alignedMutated[alignmentIndex];
+                        const insertedCodon = sampleCodon(insertedAA, codonUsage);
+                        workingDNA = workingDNA.slice(0, dnaIndex) + insertedCodon + workingDNA.slice(dnaIndex);
+                        mutations.push({
+                            type: 'insertion',
+                            position: Math.floor(dnaIndex / 3) + 1,
+                            inserted: insertedAA,
+                            insertedCodon: insertedCodon
+                        });
+                        dnaIndex += 3;
+                    } else if (bestAlignment.alignedOrig[alignmentIndex] !== '-' && bestAlignment.alignedMutated[alignmentIndex] === '-') {
+                        // Deletion
+                        workingDNA = workingDNA.slice(0, dnaIndex) + workingDNA.slice(dnaIndex + 3);
+                        mutations.push({
+                            type: 'deletion',
+                            position: Math.floor(dnaIndex / 3) + 1,
+                            deleted: bestAlignment.alignedOrig[alignmentIndex]
+                        });
+                    } else if (bestAlignment.alignedOrig[alignmentIndex] !== bestAlignment.alignedMutated[alignmentIndex]) {
+                        // Substitution
+                        const newAA = bestAlignment.alignedMutated[alignmentIndex];
+                        const newCodon = sampleCodon(newAA, codonUsage);
+                        workingDNA = workingDNA.slice(0, dnaIndex) + newCodon + workingDNA.slice(dnaIndex + 3);
+                        mutations.push({
+                            type: 'substitution',
+                            position: Math.floor(dnaIndex / 3) + 1,
+                            original: bestAlignment.alignedOrig[alignmentIndex],
+                            mutated: newAA,
+                            mutatedCodon: newCodon
+                        });
+                        dnaIndex += 3;
+                    } else {
+                        // No change
+                        dnaIndex += 3;
+                    }
+                }
+                alignmentIndex++;
+            }
+
+            // Preserve right flank
+            rightFlank = workingDNA.slice(dnaIndex);
+            let mutatedDNA = leftFlank + workingDNA.slice(leftFlank.length, dnaIndex) + rightFlank;
+
+            if (bestStrand === '-') {
+                mutatedDNA = reverseComplement(mutatedDNA);
+            }
+
+            // Visual alignment output
+            let visualOutput = `Visual Alignment:\n`;
+            visualOutput += `Original: `;
+            let mutatedOutput = `Mutated:  `;
+
+            for (let i = 0; i < bestAlignment.alignedOrig.length; i++) {
+                if (i < alignmentStart || i > alignmentEnd) {
+                    visualOutput += `<span class="flank">${bestAlignment.alignedOrig[i]}</span>`;
+                    mutatedOutput += `<span class="flank">${bestAlignment.alignedMutated[i]}</span>`;
+                } else if (bestAlignment.alignedOrig[i] !== bestAlignment.alignedMutated[i]) {
+                    visualOutput += `<span class="mutation">${bestAlignment.alignedOrig[i]}</span>`;
+                    mutatedOutput += `<span class="mutation">${bestAlignment.alignedMutated[i]}</span>`;
+                } else {
+                    visualOutput += bestAlignment.alignedOrig[i];
+                    mutatedOutput += bestAlignment.alignedMutated[i];
+                }
+            }
+
+            visualOutput += `\n${mutatedOutput}\n`;
+
+            let output = `<h4>Visual Alignment (changes: red; flanks: blue):</h4>
+                          <div class="visual-alignment">${visualOutput}</div>`;
+
+            output += `<h4>Alignment Details:</h4>
+                       <div>Best alignment found in frame ${bestFrame + 1} on ${bestStrand} strand</div>
+                       <div>Number of mutations: ${mutations.length}</div>`;
+
+            output += `<h4>Mutations:</h4>`;
+            for (const mutation of mutations) {
+                if (mutation.type === 'substitution') {
+                    output += `<div>Position ${mutation.position}: ${mutation.original} -> ${mutation.mutated} (Codon: ${mutation.mutatedCodon})</div>`;
+                } else if (mutation.type === 'insertion') {
+                    output += `<div>Position ${mutation.position}: Inserted ${mutation.inserted} (Codon: ${mutation.insertedCodon})</div>`;
+                } else if (mutation.type === 'deletion') {
+                    output += `<div>Position ${mutation.position}: Deleted ${mutation.deleted}</div>`;
+                }
+            }
+
+            return { output, mutatedDNA };
+        }
+
+        function downloadMutatedDNA() {
+            const blob = new Blob([window.mutatedDNAFasta], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'mutated_dna_sequences.fasta';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
