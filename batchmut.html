@@ -153,7 +153,7 @@
         }    
 
         // Correct affine alignment function
-        function affineNWAlign(s1, s2, gapOpen = -2.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -1.0, boundaryGapFactor = 10) {
+        function affineNWAlign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -0.7, boundaryGapFactor = 10) {
             const s1arr = s1.split('');
             const s1len = s1arr.length;
             const s2arr = s2.split('');
