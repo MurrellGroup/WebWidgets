@@ -15,10 +15,25 @@
         .mutation { color: red; font-weight: bold; }
         .flank { color: blue; }
         select { margin-bottom: 10px; }
+        .advanced-settings {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+        .advanced-settings label {
+            display: inline-block;
+            width: 150px;
+            margin-bottom: 5px;
+        }
+        .advanced-settings input {
+            width: 100px;
+        }
     </style>
 </head>
 <body>
-    <h1>Mutation Assistant (Batch)</h1>
+    <h1>Codon-aware Mutation Designer</h1>
     <textarea id="originalDNA" placeholder="Enter original DNA sequence (NOT in FASTA format)"></textarea>
     <textarea id="mutatedAAFasta" placeholder="Enter one or more mutated amino acid sequences (in FASTA format)"></textarea>
 
@@ -29,8 +44,58 @@
         <option value="ecoli">E. coli</option>
     </select>
     
+    <button onclick="toggleAdvancedSettings()">Advanced Settings</button>
+    
+    <div id="advancedSettings" class="advanced-settings" style="display: none;">
+        <h3>Alignment Parameters</h3>
+        <label for="gapOpen">Gap Open:</label>
+        <input type="number" id="gapOpen" value="-10.0" step="0.1"><br>
+        <label for="gapExtend">Gap Extend:</label>
+        <input type="number" id="gapExtend" value="-0.2" step="0.1"><br>
+        <label for="matchCost">Match Cost:</label>
+        <input type="number" id="matchCost" value="1.0" step="0.1"><br>
+        <label for="mismatchCost">Mismatch Cost:</label>
+        <input type="number" id="mismatchCost" value="-0.7" step="0.1"><br>
+        <label for="boundaryGapFactor">Boundary Gap Factor:</label>
+        <input type="number" id="boundaryGapFactor" value="10" step="1">
+        <h3>Codon Sampling Parameters</h3>
+        <label for="topP">Top-p (Nucleus Sampling):</label>
+        <input type="number" id="topP" value="0.7" min="0" max="1" step="0.1">
+    </div>
+    
     <button onclick="processBatchMutations()">Process Batch</button>
     <div id="output"></div>
+    <!-- Add this section after the h1 and before the textareas -->
+    <div id="explanation" style="background-color: #f0f0f0; padding: 15px; margin-bottom: 20px; border-radius: 5px;">
+        <h3>About This Tool</h3>
+        <p>This helps you to design DNA sequences based on desired amino acid changes while respecting species-specific codon usage frequencies.</p>
+        
+        <h4>Typical use: You want to make a few mutations in an existing construct</h4>
+        <ul>
+            <li>Paste in the original (unmutated) DNA sequence, including the flanks you'll use for eg. Gibson assembly. Don't worry about the reading frame.</li>
+            <li>Paste in the .fasta file containing one or more mutated amino acid sequences (that are derived from the above sequence).</li>
+            <li>Click to process, and carefully inspect the alignments to check that they make sense. The alignments will only show the longest translatable AA sequence from the original DNA.</li>
+            <li>Download the fasta file containing the mutated DNA sequences. Check these carefully!</li>
+        </ul>
+
+        <h4>How This Tool Works</h4>
+        <p>This tool processes DNA mutations based on amino acid sequences. Here's how it handles different scenarios:</p>
+        <ul>
+            <li><strong>Internal Indels:</strong> Insertions and deletions within the aligned region are directly applied to the DNA sequence. For insertions, new codons are sampled based on the codon usage table. For deletions, the corresponding codons are removed.</li>
+            <li><strong>Substitutions:</strong> When an amino acid differs between the original and mutated sequences, a new codon is sampled for the mutated amino acid and replaces the original codon.</li>
+            <li><strong>Overhangs and Truncations:</strong>
+                <ul>
+                    <li>If the query (mutated) sequence is shorter than the reference at either end, this is treated as "missing flanks". The tool preserves the corresponding DNA from the original sequence, effectively extending the mutated sequence.</li>
+                    <li>If the query sequence is longer than the reference at either end, this is treated as an insertion. New codons are sampled for these overhanging amino acids.</li>
+                </ul>
+            </li>
+            <li><strong>Flanking Regions:</strong> DNA sequences outside the aligned region (before the first or after the last AA in the longest alignable reading frame) are preserved from the original sequence.</li>
+        </ul>
+
+        <h4>Codon Sampling</h4>
+        <p>Species-specific codon usage frequencies are respected, and rare codons are excluded, whilst not being completely deterministic, using an approach called "top-p" or "nucleus sampling". this method selects from a dynamic set of most likely codons whose cumulative probability mass exceeds a threshold p. This balances between always choosing the most common codon and sampling purely based on frequencies</p>
+        
+    </div>
 
     <script>
        const geneticCodeJSON = {
@@ -266,24 +331,6 @@
             return dna.split('').reverse().map(base => complement[base]).join('');
         }
 
-        function sampleCodonSimple(aa, codonUsage) {
-            const codons = Object.keys(codonUsage[aa]);
-            const frequencies = Object.values(codonUsage[aa]);
-            const totalFreq = frequencies.reduce((a, b) => a + b, 0);
-            const normalizedFreqs = frequencies.map(f => f / totalFreq);
-            
-            let cumSum = 0;
-            const thresholds = normalizedFreqs.map(f => cumSum += f);
-            const r = Math.random();
-            
-            for (let i = 0; i < thresholds.length; i++) {
-                if (r <= thresholds[i]) return codons[i];
-            }
-            
-            return codons[codons.length - 1];
-        }
-
-        //Top-p sampling
         function sampleCodon(aa, codonUsage, p = 0.7) {
             const codons = Object.keys(codonUsage[aa]);
             const frequencies = Object.values(codonUsage[aa]);
@@ -378,6 +425,22 @@
             return { orf: longestORF, start: longestORFStart, end: longestORFEnd };
         }
 
+        function toggleAdvancedSettings() {
+            const advancedSettings = document.getElementById('advancedSettings');
+            advancedSettings.style.display = advancedSettings.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function getAlignmentParameters() {
+            return {
+                gapOpen: parseFloat(document.getElementById('gapOpen').value),
+                gapExtend: parseFloat(document.getElementById('gapExtend').value),
+                matchCost: parseFloat(document.getElementById('matchCost').value),
+                mismatchCost: parseFloat(document.getElementById('mismatchCost').value),
+                boundaryGapFactor: parseFloat(document.getElementById('boundaryGapFactor').value),
+                topP: parseFloat(document.getElementById('topP').value)
+            };
+        }
+
         function processSingleMutation(originalDNA, mutatedAA) {
             let bestAlignment = null;
             let bestFrame = 0;
@@ -385,6 +448,7 @@
             let bestORF = null;
 
             let codonUsage = getCurrentCodonUsage();
+            const alignParams = getAlignmentParameters();
 
             // Check both strands
             for (const strand of ['+', '-']) {
@@ -392,7 +456,9 @@
                 const { orf, start, end } = findLongestORF(dna);
                 const orfAA = translateDNA(orf, geneticCode);
 
-                const [alignedOrig, alignedMutated] = affineNWAlign(orfAA, mutatedAA);
+                const [alignedOrig, alignedMutated] = affineNWAlign(orfAA, mutatedAA, 
+                    alignParams.gapOpen, alignParams.gapExtend, alignParams.matchCost, 
+                    alignParams.mismatchCost, alignParams.boundaryGapFactor);
 
                 const score = alignedOrig.split('').reduce((score, char, index) => 
                     score + (char === alignedMutated[index] ? 1 : 0), 0);
@@ -446,7 +512,7 @@
                 if (bestAlignment.alignedOrig[alignmentIndex] === '-' && bestAlignment.alignedMutated[alignmentIndex] !== '-') {
                     // Insertion
                     const insertedAA = bestAlignment.alignedMutated[alignmentIndex];
-                    const insertedCodon = sampleCodon(insertedAA, codonUsage);
+                    const insertedCodon = sampleCodon(insertedAA, codonUsage, alignParams.topP);
                     workingDNA = workingDNA.slice(0, dnaIndex) + insertedCodon + workingDNA.slice(dnaIndex);
                     mutations.push({
                         type: 'insertion',
@@ -466,7 +532,7 @@
                 } else if (bestAlignment.alignedOrig[alignmentIndex] !== bestAlignment.alignedMutated[alignmentIndex]) {
                     // Substitution
                     const newAA = bestAlignment.alignedMutated[alignmentIndex];
-                    const newCodon = sampleCodon(newAA, codonUsage);
+                    const newCodon = sampleCodon(newAA, codonUsage, alignParams.topP);
                     workingDNA = workingDNA.slice(0, dnaIndex) + newCodon + workingDNA.slice(dnaIndex + 3);
                     mutations.push({
                         type: 'substitution',
