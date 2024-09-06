@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mutation Assistant (Batch)</title>
+    <title>Codon-aware Mutation Designer</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
         textarea { width: 100%; height: 200px; margin-bottom: 10px; }
@@ -153,7 +153,7 @@
         }    
 
         // Correct affine alignment function
-        function affineNWAlign(s1, s2, gapOpen = -2.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -1.0) {
+        function affineNWAlign(s1, s2, gapOpen = -2.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -1.0, boundaryGapFactor = 10) {
             const s1arr = s1.split('');
             const s1len = s1arr.length;
             const s2arr = s2.split('');
@@ -189,11 +189,18 @@
                     const IX2M = IX[i - 1][j - 1] + diagCost;
                     const IY2M = IY[i - 1][j - 1] + diagCost;
                     [M[i][j], traceM[i][j]] = findMax([diagM, IX2M, IY2M]);
+
+                    // Reduce gap extension cost at X boundary (end of s1)
+                    const boundaryGapExtendX = (i === s1len) ? gapExtend / boundaryGapFactor : gapExtend;
+                    // Reduce gap extension cost at Y boundary (end of s2)
+                    const boundaryGapExtendY = (j === s2len) ? gapExtend / boundaryGapFactor : gapExtend;
+                    
                     const M2IX = M[i - 1][j] + gapOpen;
-                    const IXextend = IX[i - 1][j] + gapExtend;
+                    const IXextend = IX[i - 1][j] + boundaryGapExtendY;
                     [IX[i][j], traceIX[i][j]] = findMax([M2IX, IXextend]);
+
                     const M2IY = M[i][j - 1] + gapOpen;
-                    const IYextend = IY[i][j - 1] + gapExtend;
+                    const IYextend = IY[i][j - 1] + boundaryGapExtendX;
                     [IY[i][j], traceIY[i][j]] = findMax([M2IY, -Infinity, IYextend]);
                 }
             }
@@ -338,6 +345,173 @@
             return sequences;
         }
 
+        function findLongestORF(sequence) {
+            const stopCodons = ['TAA', 'TAG', 'TGA'];
+            let longestORF = '';
+            let longestORFStart = 0;
+            let longestORFEnd = 0;
+
+            for (let frame = 0; frame < 3; frame++) {
+                let currentORF = '';
+                let start = frame;
+                for (let i = frame; i < sequence.length - 2; i += 3) {
+                    const codon = sequence.slice(i, i + 3);
+                    if (stopCodons.includes(codon)) {
+                        if (currentORF.length > longestORF.length) {
+                            longestORF = currentORF;
+                            longestORFStart = start;
+                            longestORFEnd = i;
+                        }
+                        currentORF = '';
+                        start = i + 3;
+                    } else {
+                        currentORF += codon;
+                    }
+                }
+                if (currentORF.length > longestORF.length) {
+                    longestORF = currentORF;
+                    longestORFStart = start;
+                    longestORFEnd = sequence.length;
+                }
+            }
+
+            return { orf: longestORF, start: longestORFStart, end: longestORFEnd };
+        }
+
+        function processSingleMutation(originalDNA, mutatedAA) {
+            let bestAlignment = null;
+            let bestFrame = 0;
+            let bestStrand = '+';
+            let bestORF = null;
+
+            let codonUsage = getCurrentCodonUsage();
+
+            // Check both strands
+            for (const strand of ['+', '-']) {
+                const dna = strand === '+' ? originalDNA : reverseComplement(originalDNA);
+                const { orf, start, end } = findLongestORF(dna);
+                const orfAA = translateDNA(orf, geneticCode);
+
+                const [alignedOrig, alignedMutated] = affineNWAlign(orfAA, mutatedAA);
+
+                const score = alignedOrig.split('').reduce((score, char, index) => 
+                    score + (char === alignedMutated[index] ? 1 : 0), 0);
+
+                if (!bestAlignment || score > bestAlignment.score) {
+                    bestAlignment = {score, alignedOrig, alignedMutated};
+                    bestFrame = start % 3;
+                    bestStrand = strand;
+                    bestORF = { orf, start, end };
+                }
+            }
+
+            // Process mutations, including indels, while preserving flanks
+            let workingDNA = bestStrand === '+' ? originalDNA : reverseComplement(originalDNA);
+            let mutations = [];
+            let dnaIndex = bestORF.start;
+            let alignmentIndex = 0;
+
+            // Preserve left flank
+            let leftFlank = workingDNA.slice(0, bestORF.start);
+            let rightFlank = workingDNA.slice(bestORF.end);
+
+            // Find start and end of non-gap region in mutated sequence
+            let mutatedStart = 0;
+            let mutatedEnd = bestAlignment.alignedMutated.length - 1;
+
+            for (let i = 0; i < bestAlignment.alignedMutated.length; i++) {
+                if (bestAlignment.alignedMutated[i] !== '-') {
+                    mutatedStart = i;
+                    break;
+                }
+            }
+
+            for (let i = bestAlignment.alignedMutated.length - 1; i >= 0; i--) {
+                if (bestAlignment.alignedMutated[i] !== '-') {
+                    mutatedEnd = i;
+                    break;
+                }
+            }
+
+            // Adjust DNA index for left truncation
+            dnaIndex += mutatedStart * 3;
+
+            while (alignmentIndex < bestAlignment.alignedMutated.length) {
+                if (alignmentIndex < mutatedStart || alignmentIndex > mutatedEnd) {
+                    // Skip truncated regions
+                    alignmentIndex++;
+                    continue;
+                }
+
+                if (bestAlignment.alignedOrig[alignmentIndex] === '-' && bestAlignment.alignedMutated[alignmentIndex] !== '-') {
+                    // Insertion
+                    const insertedAA = bestAlignment.alignedMutated[alignmentIndex];
+                    const insertedCodon = sampleCodon(insertedAA, codonUsage);
+                    workingDNA = workingDNA.slice(0, dnaIndex) + insertedCodon + workingDNA.slice(dnaIndex);
+                    mutations.push({
+                        type: 'insertion',
+                        position: Math.floor(dnaIndex / 3) + 1,
+                        inserted: insertedAA,
+                        insertedCodon: insertedCodon
+                    });
+                    dnaIndex += 3;
+                } else if (bestAlignment.alignedOrig[alignmentIndex] !== '-' && bestAlignment.alignedMutated[alignmentIndex] === '-') {
+                    // Deletion
+                    workingDNA = workingDNA.slice(0, dnaIndex) + workingDNA.slice(dnaIndex + 3);
+                    mutations.push({
+                        type: 'deletion',
+                        position: Math.floor(dnaIndex / 3) + 1,
+                        deleted: bestAlignment.alignedOrig[alignmentIndex]
+                    });
+                } else if (bestAlignment.alignedOrig[alignmentIndex] !== bestAlignment.alignedMutated[alignmentIndex]) {
+                    // Substitution
+                    const newAA = bestAlignment.alignedMutated[alignmentIndex];
+                    const newCodon = sampleCodon(newAA, codonUsage);
+                    workingDNA = workingDNA.slice(0, dnaIndex) + newCodon + workingDNA.slice(dnaIndex + 3);
+                    mutations.push({
+                        type: 'substitution',
+                        position: Math.floor(dnaIndex / 3) + 1,
+                        original: bestAlignment.alignedOrig[alignmentIndex],
+                        mutated: newAA,
+                        mutatedCodon: newCodon
+                    });
+                    dnaIndex += 3;
+                } else {
+                    // No change
+                    dnaIndex += 3;
+                }
+                alignmentIndex++;
+            }
+
+            // Preserve right flank
+            let mutatedDNA = leftFlank + workingDNA.slice(bestORF.start, dnaIndex) + rightFlank;
+
+            if (bestStrand === '-') {
+                mutatedDNA = reverseComplement(mutatedDNA);
+            }
+
+            // Visual alignment output
+            let visualOutput = ``;
+            visualOutput += `Original: `;
+            let mutatedOutput = `Mutated:  `;
+
+            for (let i = 0; i < bestAlignment.alignedOrig.length; i++) {
+                if (bestAlignment.alignedOrig[i] !== bestAlignment.alignedMutated[i]) {
+                    visualOutput += `<span class="mutation">${bestAlignment.alignedOrig[i]}</span>`;
+                    mutatedOutput += `<span class="mutation">${bestAlignment.alignedMutated[i]}</span>`;
+                } else {
+                    visualOutput += bestAlignment.alignedOrig[i];
+                    mutatedOutput += bestAlignment.alignedMutated[i];
+                }
+            }
+
+            visualOutput += `\n${mutatedOutput}\n`;
+
+            let output = `<div class="visual-alignment">${visualOutput}</div>`;
+
+            return { output, mutatedDNA };
+        }
+
         function processBatchMutations() {
             const originalDNA = document.getElementById('originalDNA').value.toUpperCase();
             const mutatedAAFasta = document.getElementById('mutatedAAFasta').value;
@@ -362,135 +536,6 @@
 
             // Store mutated DNA FASTA in a global variable for download
             window.mutatedDNAFasta = mutatedDNAFasta;
-        }
-
-        function processSingleMutation(originalDNA, mutatedAA) {
-            let bestAlignment = null;
-            let bestFrame = 0;
-            let bestStrand = '+';
-
-            let codonUsage = getCurrentCodonUsage();
-
-            // Check all 6 reading frames
-            for (let frame = 0; frame < 3; frame++) {
-                const forwardDNA = originalDNA.slice(frame);
-                const reverseDNA = reverseComplement(originalDNA).slice(frame);
-
-                const forwardAA = translateDNA(forwardDNA, geneticCode);
-                const reverseAA = translateDNA(reverseDNA, geneticCode);
-
-                const [forwardAlignedOrig, forwardAlignedMutated] = affineNWAlign(forwardAA, mutatedAA);
-                const [reverseAlignedOrig, reverseAlignedMutated] = affineNWAlign(reverseAA, mutatedAA);
-
-                const forwardScore = forwardAlignedOrig.split('').reduce((score, char, index) => 
-                    score + (char === forwardAlignedMutated[index] ? 1 : 0), 0);
-                const reverseScore = reverseAlignedOrig.split('').reduce((score, char, index) => 
-                    score + (char === reverseAlignedMutated[index] ? 1 : 0), 0);
-
-                if (!bestAlignment || forwardScore > bestAlignment.score) {
-                    bestAlignment = {score: forwardScore, alignedOrig: forwardAlignedOrig, alignedMutated: forwardAlignedMutated};
-                    bestFrame = frame;
-                    bestStrand = '+';
-                }
-
-                if (reverseScore > bestAlignment.score) {
-                    bestAlignment = {score: reverseScore, alignedOrig: reverseAlignedOrig, alignedMutated: reverseAlignedMutated};
-                    bestFrame = frame;
-                    bestStrand = '-';
-                }
-            }
-
-            // Process mutations, including indels, while preserving flanks
-            let workingDNA = bestStrand === '+' ? originalDNA : reverseComplement(originalDNA);
-            let mutations = [];
-            let dnaIndex = bestFrame;
-            let alignmentIndex = 0;
-            let alignmentStart = bestAlignment.alignedMutated.indexOf(mutatedAA[0]);
-            let alignmentEnd = bestAlignment.alignedMutated.lastIndexOf(mutatedAA[mutatedAA.length - 1]);
-
-            // Preserve left flank
-            let leftFlank = workingDNA.slice(0, dnaIndex + alignmentStart * 3);
-            let rightFlank = '';
-
-            while (alignmentIndex < bestAlignment.alignedMutated.length) {
-                if (alignmentIndex < alignmentStart || alignmentIndex > alignmentEnd) {
-                    // Skip flanking regions
-                    if (bestAlignment.alignedOrig[alignmentIndex] !== '-') {
-                        dnaIndex += 3;
-                    }
-                } else {
-                    if (bestAlignment.alignedOrig[alignmentIndex] === '-' && bestAlignment.alignedMutated[alignmentIndex] !== '-') {
-                        // Insertion
-                        const insertedAA = bestAlignment.alignedMutated[alignmentIndex];
-                        const insertedCodon = sampleCodon(insertedAA, codonUsage);
-                        workingDNA = workingDNA.slice(0, dnaIndex) + insertedCodon + workingDNA.slice(dnaIndex);
-                        mutations.push({
-                            type: 'insertion',
-                            position: Math.floor(dnaIndex / 3) + 1,
-                            inserted: insertedAA,
-                            insertedCodon: insertedCodon
-                        });
-                        dnaIndex += 3;
-                    } else if (bestAlignment.alignedOrig[alignmentIndex] !== '-' && bestAlignment.alignedMutated[alignmentIndex] === '-') {
-                        // Deletion
-                        workingDNA = workingDNA.slice(0, dnaIndex) + workingDNA.slice(dnaIndex + 3);
-                        mutations.push({
-                            type: 'deletion',
-                            position: Math.floor(dnaIndex / 3) + 1,
-                            deleted: bestAlignment.alignedOrig[alignmentIndex]
-                        });
-                    } else if (bestAlignment.alignedOrig[alignmentIndex] !== bestAlignment.alignedMutated[alignmentIndex]) {
-                        // Substitution
-                        const newAA = bestAlignment.alignedMutated[alignmentIndex];
-                        const newCodon = sampleCodon(newAA, codonUsage);
-                        workingDNA = workingDNA.slice(0, dnaIndex) + newCodon + workingDNA.slice(dnaIndex + 3);
-                        mutations.push({
-                            type: 'substitution',
-                            position: Math.floor(dnaIndex / 3) + 1,
-                            original: bestAlignment.alignedOrig[alignmentIndex],
-                            mutated: newAA,
-                            mutatedCodon: newCodon
-                        });
-                        dnaIndex += 3;
-                    } else {
-                        // No change
-                        dnaIndex += 3;
-                    }
-                }
-                alignmentIndex++;
-            }
-
-            // Preserve right flank
-            rightFlank = workingDNA.slice(dnaIndex);
-            let mutatedDNA = leftFlank + workingDNA.slice(leftFlank.length, dnaIndex) + rightFlank;
-
-            if (bestStrand === '-') {
-                mutatedDNA = reverseComplement(mutatedDNA);
-            }
-
-            // Visual alignment output
-            let visualOutput = ``;
-            visualOutput += `Original: `;
-            let mutatedOutput = `Mutated:  `;
-
-            for (let i = 0; i < bestAlignment.alignedOrig.length; i++) {
-                if (i < alignmentStart || i > alignmentEnd) {
-                    visualOutput += `<span class="flank">${bestAlignment.alignedOrig[i]}</span>`;
-                    mutatedOutput += `<span class="flank">${bestAlignment.alignedMutated[i]}</span>`;
-                } else if (bestAlignment.alignedOrig[i] !== bestAlignment.alignedMutated[i]) {
-                    visualOutput += `<span class="mutation">${bestAlignment.alignedOrig[i]}</span>`;
-                    mutatedOutput += `<span class="mutation">${bestAlignment.alignedMutated[i]}</span>`;
-                } else {
-                    visualOutput += bestAlignment.alignedOrig[i];
-                    mutatedOutput += bestAlignment.alignedMutated[i];
-                }
-            }
-
-            visualOutput += `\n${mutatedOutput}\n`;
-
-            let output = `<div class="visual-alignment">${visualOutput}</div>`;
-
-            return { output, mutatedDNA };
         }
 
         function downloadMutatedDNA() {
