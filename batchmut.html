@@ -567,7 +567,12 @@
             let mutatedOutput = `Mutated:  `;
 
             for (let i = 0; i < bestAlignment.alignedOrig.length; i++) {
-                if (bestAlignment.alignedOrig[i] !== bestAlignment.alignedMutated[i]) {
+                if (i < mutatedStart || i > mutatedEnd) {
+                    // Color alignment missing flanks blue
+                    visualOutput += `<span class="flank">${bestAlignment.alignedOrig[i]}</span>`;
+                    mutatedOutput += `<span class="flank">${bestAlignment.alignedMutated[i]}</span>`;
+                } else if (bestAlignment.alignedOrig[i] !== bestAlignment.alignedMutated[i]) {
+                    // Color internal mismatches and indels red
                     visualOutput += `<span class="mutation">${bestAlignment.alignedOrig[i]}</span>`;
                     mutatedOutput += `<span class="mutation">${bestAlignment.alignedMutated[i]}</span>`;
                 } else {
