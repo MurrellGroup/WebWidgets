@@ -61,6 +61,20 @@
         <h3>Codon Sampling Parameters</h3>
         <label for="topP">Top-p (Nucleus Sampling):</label>
         <input type="number" id="topP" value="0.7" min="0" max="1" step="0.1">
+        <div id="flankSettings">
+            <h3>Flank Treatment</h3>
+            <label for="leftFlankTreatment">Left Flank:</label>
+            <select id="leftFlankTreatment">
+                <option value="missing" selected>Treat as Missing</option>
+                <option value="deletion">Treat as Deletion</option>
+            </select>
+            <br>
+            <label for="rightFlankTreatment">Right Flank:</label>
+            <select id="rightFlankTreatment">
+                <option value="missing" selected>Treat as Missing</option>
+                <option value="deletion">Treat as Deletion</option>
+            </select>
+        </div>
     </div>
     
     <button onclick="processBatchMutations()">Process Batch</button>
@@ -74,6 +88,7 @@
         <ul>
             <li>Paste in the original (unmutated) DNA sequence, including the flanks you'll use for eg. Gibson assembly. Don't worry about the reading frame.</li>
             <li>Paste in the .fasta file containing one or more mutated amino acid sequences (that are derived from the above sequence).</li>
+            <li>Choose how to treat the left and right flanks in the advanced settings: either as "missing" (reconstructed from original DNA) or as "deletions" (removed from the sequence).</li>
             <li>Click to process, and carefully inspect the alignments to check that they make sense. The alignments will only show the longest translatable AA sequence from the original DNA.</li>
             <li>Download the fasta file containing the mutated DNA sequences. Check these carefully!</li>
         </ul>
@@ -85,15 +100,22 @@
             <li><strong>Substitutions:</strong> When an amino acid differs between the original and mutated sequences, a new codon is sampled for the mutated amino acid and replaces the original codon.</li>
             <li><strong>Overhangs and Truncations:</strong>
                 <ul>
-                    <li>If the query (mutated) sequence is shorter than the reference at either end, this is treated as "missing flanks". The tool preserves the corresponding DNA from the original sequence, effectively extending the mutated sequence.</li>
+                    <li>If the query (mutated) sequence is shorter than the reference at either end, this is treated according to your flank settings: either as "missing" (reconstructed from original DNA) or as "deletions" (removed from the sequence).</li>
                     <li>If the query sequence is longer than the reference at either end, this is treated as an insertion. New codons are sampled for these overhanging amino acids.</li>
                 </ul>
             </li>
             <li><strong>Flanking Regions:</strong> DNA sequences outside the aligned region (before the first or after the last AA in the longest alignable reading frame) are preserved from the original sequence.</li>
         </ul>
 
+        <h4>Alignment Coloring</h4>
+        <p>In the visual alignment output:</p>
+        <ul>
+            <li><span style="color: blue;">Blue</span> text indicates alignment flanks that are treated as "missing" and reconstructed from the original DNA.</li>
+            <li><span style="color: red;">Red</span> text shows actual edits: insertions, deletions, or substitutions in the aligned region, as well as flanks treated as deletions.</li>
+        </ul>
+
         <h4>Codon Sampling</h4>
-        <p>Species-specific codon usage frequencies are respected, and rare codons are excluded, whilst not being completely deterministic, using an approach called "top-p" or "nucleus sampling". this method selects from a dynamic set of most likely codons whose cumulative probability mass exceeds a threshold p. This balances between always choosing the most common codon and sampling purely based on frequencies</p>
+        <p>Species-specific codon usage frequencies are respected, and rare codons are excluded, whilst not being completely deterministic, using an approach called "top-p" or "nucleus sampling". This method selects from a dynamic set of most likely codons whose cumulative probability mass exceeds a threshold p. This balances between always choosing the most common codon and sampling purely based on frequencies.</p>
         
     </div>
 
@@ -441,6 +463,13 @@
             };
         }
 
+        function getFlankTreatment() {
+            return {
+                left: document.getElementById('leftFlankTreatment').value,
+                right: document.getElementById('rightFlankTreatment').value
+            };
+        }
+
         function processSingleMutation(originalDNA, mutatedAA) {
             let bestAlignment = null;
             let bestFrame = 0;
@@ -449,6 +478,7 @@
 
             let codonUsage = getCurrentCodonUsage();
             const alignParams = getAlignmentParameters();
+            const flankTreatment = getFlankTreatment();
 
             // Check both strands
             for (const strand of ['+', '-']) {
@@ -485,17 +515,21 @@
             let mutatedStart = 0;
             let mutatedEnd = bestAlignment.alignedMutated.length - 1;
 
-            for (let i = 0; i < bestAlignment.alignedMutated.length; i++) {
-                if (bestAlignment.alignedMutated[i] !== '-') {
-                    mutatedStart = i;
-                    break;
+            if (flankTreatment.left === 'missing') {
+                for (let i = 0; i < bestAlignment.alignedMutated.length; i++) {
+                    if (bestAlignment.alignedMutated[i] !== '-') {
+                        mutatedStart = i;
+                        break;
+                    }
                 }
             }
 
-            for (let i = bestAlignment.alignedMutated.length - 1; i >= 0; i--) {
-                if (bestAlignment.alignedMutated[i] !== '-') {
-                    mutatedEnd = i;
-                    break;
+            if (flankTreatment.right === 'missing') {
+                for (let i = bestAlignment.alignedMutated.length - 1; i >= 0; i--) {
+                    if (bestAlignment.alignedMutated[i] !== '-') {
+                        mutatedEnd = i;
+                        break;
+                    }
                 }
             }
 
@@ -505,7 +539,8 @@
             let dnaEndIndex = dnaIndex + (bestAlignment.alignedOrig.length - mutatedEnd - 1) * 3;
 
             while (alignmentIndex < bestAlignment.alignedMutated.length) {
-                if (alignmentIndex < mutatedStart || alignmentIndex > mutatedEnd) {
+                if ((flankTreatment.left === 'missing' && alignmentIndex < mutatedStart) || 
+                    (flankTreatment.right === 'missing' && alignmentIndex > mutatedEnd)) {
                     // Skip truncated regions
                     alignmentIndex++;
                     continue;
@@ -567,7 +602,8 @@
             let mutatedOutput = `Mutated:  `;
 
             for (let i = 0; i < bestAlignment.alignedOrig.length; i++) {
-                if (i < mutatedStart || i > mutatedEnd) {
+                if ((flankTreatment.left === 'missing' && i < mutatedStart) || 
+                    (flankTreatment.right === 'missing' && i > mutatedEnd)) {
                     // Color alignment missing flanks blue
                     visualOutput += `<span class="flank">${bestAlignment.alignedOrig[i]}</span>`;
                     mutatedOutput += `<span class="flank">${bestAlignment.alignedMutated[i]}</span>`;
