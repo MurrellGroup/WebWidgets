@@ -502,6 +502,8 @@
             // Adjust DNA index for left truncation
             dnaIndex += mutatedStart * 3;
 
+            let dnaEndIndex = dnaIndex + (bestAlignment.alignedOrig.length - mutatedEnd - 1) * 3;
+
             while (alignmentIndex < bestAlignment.alignedMutated.length) {
                 if (alignmentIndex < mutatedStart || alignmentIndex > mutatedEnd) {
                     // Skip truncated regions
@@ -549,8 +551,11 @@
                 alignmentIndex++;
             }
 
-            // Preserve right flank
-            let mutatedDNA = leftFlank + workingDNA.slice(bestORF.start, dnaIndex) + rightFlank;
+            // Adjust the right flank
+            rightFlank = workingDNA.slice(dnaEndIndex);
+
+            // Preserve flanks
+            let mutatedDNA = leftFlank + workingDNA.slice(bestORF.start, dnaEndIndex) + rightFlank;
 
             if (bestStrand === '-') {
                 mutatedDNA = reverseComplement(mutatedDNA);
