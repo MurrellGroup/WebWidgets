@@ -59,11 +59,12 @@
         #scale-container label {
             margin-right: 8px;
             font-weight: bold;
+            font-size: 10px; /* Smaller font size for Scale label */
         }
 
         .slider-input {
-            width: 150px;
-            height: 6px;
+            width: 120px; /* Made horizontal slider smaller */
+            height: 5px;
             background: #ddd;
             border-radius: 3px;
         }
@@ -174,19 +175,20 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         .vertical-slider-container input {
-            width: 60px;
+            width: 45px;
             writing-mode: bt-lr;
             -webkit-appearance: slider-vertical;
-            height: 150px;
+            height: 80px; /* Reduced from 150px */
         }
         
         .vertical-slider-container label {
             font-weight: bold;
-            margin-bottom: 5px;
+            margin-bottom: 3px;
+            font-size: 10px; /* Smaller font for slider labels */
         }
 
         #mode-controls {
@@ -196,23 +198,26 @@
         }
         
         #mode-controls strong {
-            margin-bottom: 5px;
+            margin-bottom: 3px;
             border-bottom: 1px solid #ccc;
             width: 100%;
-            padding-bottom: 3px;
+            padding-bottom: 2px;
+            font-size: 11px; /* Smaller font for section headers */
         }
         
         #mode-controls medium {
             font-weight: bold;
-            margin: 8px 0 3px 0;
+            margin: 6px 0 2px 0;
             display: block;
+            font-size: 10px; /* Smaller font for sub-headers */
         }
 
         #mode-controls button {
-            margin-bottom: 5px;
+            margin-bottom: 3px;
             width: 100%;
             text-align: left;
-            padding: 4px 5px;
+            padding: 3px 4px;
+            font-size: 12px; /* Increased button text size from 10px to 12px (30% larger) */
         }
 
         #svgContainer {
@@ -256,17 +261,47 @@
             user-select: none;
         }
         
+        // Add CSS for reroot button
+        button.reroot-active {
+            background-color: #ffcc00;
+            font-weight: bold;
+            border-color: #cc9900;
+        }
+        
+        button.reroot-active:hover {
+            background-color: #ffbb00;
+        }
+        
         input[type=text] {
             padding: 4px 8px;
             border: 1px solid #ccc;
             border-radius: 4px;
+        }
+        
+        /* Reroot button styles */
+        button.reroot-active {
+            background-color: #ffcc00;
+            font-weight: bold;
+            border-color: #cc9900;
+        }
+        
+        button.reroot-active:hover {
+            background-color: #ffbb00;
+        }
+        
+        /* Root proportion display */
+        #rootProportionValue {
+            font-size: 12px;
+            text-align: center;
+            display: block;
+            margin-top: 5px;
         }
     </style>
 </head>
 
 <body>
     <div id="main-container">
-        <strong>----(Phylotagger)----</strong>
+        <strong>Phylotagger</strong>
         <div id="top-panel">
             <div class="top-row">
                 <label for="newickInput">Newick:</label>
@@ -290,6 +325,10 @@
                     <button onclick="fitVertical()" title="Auto-fit tree vertically" class="fit-button">Fit</button>
                 </div>
                 <div id="tag-buttons">
+                    <button onclick="toggleRerootMode()" id="rerootMode"
+                        title="Toggle reroot mode: click a node to reroot the tree at that node">Reroot</button>
+                    <button onclick="doLadderize()" id="ladderizeButton"
+                        title="Reorder nodes to create a ladder-like appearance">Ladderize</button>
                     <input type="text" id="regexInput" placeholder="Enter regex"
                         title="Enter a regular expression to match node names">
                     <button onclick="selectRegexMatches()"
@@ -314,6 +353,12 @@
                     <label for="textSize" title="Adjust the size of the node labels">Text</label>
                     <input type="range" id="textSize" min="0" max="40" value="10" orient="vertical"
                         title="Adjust the size of the node labels">
+                </div>
+                <div class="vertical-slider-container">
+                    <label for="rootProportion" title="Adjust the proportion of branch split when rerooting">Root</label>
+                    <input type="range" id="rootProportion" min="0" max="100" value="50" orient="vertical"
+                        title="Adjust the proportion of branch split when rerooting" oninput="updateRootProportion()">
+                    <span id="rootProportionValue">0.50</span>
                 </div>
                 <div id="mode-controls">
                     <strong>Selection</strong>
@@ -387,6 +432,56 @@
             // Reset the file input so the same file can be loaded again
             document.getElementById('treeFileInput').value = '';
         };
+        
+        // Make the ladderize function and its helpers globally available for the button
+        window.doLadderize = function() {
+            console.log("Ladderizing tree...");
+            
+            // First pass: calculate the height of each node (max distance to leaves)
+            window.calculateNodeHeights(root);
+            
+            // Second pass: sort children by height (descending)
+            window.sortChildrenByHeight(root);
+            
+            // Redraw the tree
+            drawSVG();
+            console.log("Tree ladderized successfully");
+        };
+        
+        // Helper function to calculate node heights
+        window.calculateNodeHeights = function(node) {
+            if (!node) return 0;
+            
+            // Leaf nodes have height 0
+            if (node.children.length === 0) {
+                node.height = 0;
+                return 0;
+            }
+            
+            // Calculate heights of all children
+            let maxHeight = 0;
+            for (const child of node.children) {
+                const childHeight = window.calculateNodeHeights(child);
+                maxHeight = Math.max(maxHeight, childHeight + child.length);
+            }
+            
+            // Store height in node
+            node.height = maxHeight;
+            return maxHeight;
+        };
+        
+        // Helper function to sort children by height - now with reversed order
+        window.sortChildrenByHeight = function(node) {
+            if (!node || node.children.length <= 1) return;
+            
+            // Sort children by height (smallest to largest) - reversed order
+            node.children.sort((a, b) => a.height - b.height);
+            
+            // Process children recursively
+            for (const child of node.children) {
+                window.sortChildrenByHeight(child);
+            }
+        };
 
         let root;
         let horizontalScale = 200;
@@ -452,15 +547,30 @@
             return maxChildDepth;
         }
 
+        // Helper to ensure a number is valid (not NaN)
+        function ensureValidNumber(value, defaultValue = 0) {
+            return (typeof value === 'number' && !isNaN(value)) ? value : defaultValue;
+        }
+        
+        // Calculate maximum tree distance with NaN protection
         function calculateMaxTreeDistance(node, currentDistance = 0) {
+            // Ensure we have a valid node with valid distance
+            if (!node) return currentDistance;
+            currentDistance = ensureValidNumber(currentDistance);
+            
             if (node.children.length === 0) {
                 return currentDistance;
             }
+            
             let maxDistance = 0;
             for (let child of node.children) {
-                const childDistance = calculateMaxTreeDistance(child, currentDistance + child.length);
+                // Ensure child length is a valid number
+                const childLength = ensureValidNumber(child.length);
+                
+                const childDistance = calculateMaxTreeDistance(child, currentDistance + childLength);
                 maxDistance = Math.max(maxDistance, childDistance);
             }
+            
             return maxDistance;
         }
 
@@ -698,27 +808,34 @@
             circle.setAttribute('class', 'node-circle');
             circle.setAttribute('data-node-id', node.id);
             
-            // Add direct click handler
+            // Add direct click handler with reroot logic
             circle.onclick = function(e) {
                 e.stopPropagation();
+                console.log("Node clicked, reroot mode:", rerootMode);
                 
-                // Apply selection based on mode
-                switch (selectionMode) {
-                    case 'clade':
-                        selectClade(node);
-                        break;
-                    case 'node':
-                        selectNode(node);
-                        break;
-                    case 'nodeToRoot':
-                        selectNodeToRoot(node);
-                        break;
-                    case 'nodeToTag':
-                        selectNodeToTag(node);
-                        break;
+                if (rerootMode) {
+                    console.log("Rerooting at node:", node.name || "unnamed");
+                    rerootTree(node);
+                    toggleRerootMode(); // Turn off reroot mode after rerooting
+                } else {
+                    // Normal selection logic
+                    switch (selectionMode) {
+                        case 'clade':
+                            selectClade(node);
+                            break;
+                        case 'node':
+                            selectNode(node);
+                            break;
+                        case 'nodeToRoot':
+                            selectNodeToRoot(node);
+                            break;
+                        case 'nodeToTag':
+                            selectNodeToTag(node);
+                            break;
+                    }
                 }
                 
-                // Redraw to update selections
+                // Redraw to update selections or new tree structure
                 drawSVG();
             };
             
@@ -753,12 +870,48 @@
             drawSVG();
         }
 
+        // Initialize variables with console logging
+        let rerootMode = false;
+        console.log("Initial rerootMode:", rerootMode);
+        
+        // Toggle reroot mode function
+        function toggleRerootMode() {
+            console.log("toggleRerootMode called, current state:", rerootMode);
+            
+            // Explicitly set the mode rather than toggling
+            rerootMode = !rerootMode;
+            
+            console.log("New rerootMode state:", rerootMode);
+            
+            // Update button styling
+            const rerootButton = document.getElementById('rerootMode');
+            if (rerootMode) {
+                rerootButton.classList.add('reroot-active');
+                console.log("Added reroot-active class");
+                clearSelection();
+            } else {
+                rerootButton.classList.remove('reroot-active');
+                console.log("Removed reroot-active class");
+            }
+            
+            // Update the root proportion slider visibility based on root children count
+            updateRootProportionVisibility();
+        }
+        
+        // Handle node clicks for rerooting
         function handleNodeClick(event, node) {
             // Stop event propagation to prevent conflicts
             event.stopPropagation();
             event.preventDefault();
+            
+            // Handle rerooting if in reroot mode
+            if (rerootMode) {
+                rerootTree(node);
+                toggleRerootMode(); // Turn off reroot mode after rerooting
+                return;
+            }
 
-            // Apply the appropriate selection based on mode
+            // If not in reroot mode, handle normal selection
             switch (selectionMode) {
                 case 'clade':
                     selectClade(node);
@@ -776,6 +929,233 @@
 
             // Make sure to redraw the SVG to show the selection changes
             drawSVG();
+        }
+        
+        // Find the path from the root to a given node
+        function findPathToNode(current, target, path = []) {
+            if (current === target) {
+                return [...path, current];
+            }
+            
+            for (let child of current.children) {
+                const result = findPathToNode(child, target, [...path, current]);
+                if (result) return result;
+            }
+            
+            return null;
+        }
+        
+        // Add a function to update root proportion slider visibility
+        function updateRootProportionVisibility() {
+            const rootProportionContainer = document.querySelector('.vertical-slider-container:nth-child(3)');
+            
+            // Disable root proportion slider if root has >2 children
+            if (root && root.children.length > 2) {
+                rootProportionContainer.style.opacity = "0.5";
+                rootProportionContainer.title = "Root proportion slider disabled: current root has more than 2 children";
+                document.getElementById('rootProportion').disabled = true;
+            } else {
+                rootProportionContainer.style.opacity = "1";
+                rootProportionContainer.title = "Adjust the proportion of branch split when rerooting";
+                document.getElementById('rootProportion').disabled = false;
+            }
+        }
+        
+        // Add dynamic update for root proportion slider - with explicit debugging
+        function updateRootProportion() {
+            console.log("updateRootProportion function called!");
+            
+            // Get the current slider value
+            const slider = document.getElementById('rootProportion');
+            const sliderValue = slider.value;
+            const proportion = sliderValue / 100;
+            
+            console.log("Slider value:", sliderValue, "Proportion:", proportion);
+            
+            // Update the displayed value
+            const valueDisplay = document.getElementById('rootProportionValue');
+            valueDisplay.textContent = proportion.toFixed(2);
+            console.log("Updated display to:", valueDisplay.textContent);
+            
+            // Store the value in the global variable
+            rootProportion = proportion;
+            
+            // If we have a rerooted tree (with 2 children from root), update it dynamically
+            if (root && root.children.length === 2) {
+                console.log("Tree has 2 children - updating branch lengths");
+                
+                // Store the current subtrees and their base lengths
+                const subtree1 = root.children[0];
+                const subtree2 = root.children[1];
+                
+                // Calculate total length (original branch length)
+                // Avoid division by zero or previous proportion
+                const totalLength = subtree1.length + subtree2.length;
+                console.log("Total length:", totalLength);
+                
+                // Update the lengths based on the new proportion
+                subtree1.length = totalLength * proportion;
+                subtree2.length = totalLength * (1 - proportion);
+                console.log("New lengths:", subtree1.length, subtree2.length);
+                
+                // Recalculate tree distances
+                maxTreeDistance = calculateMaxTreeDistance(root);
+                
+                // Redraw the tree
+                drawSVG();
+            } else {
+                console.log("Tree does not have exactly 2 children from root - no dynamic update needed");
+            }
+        }
+        
+        // Reroot the tree at the specified node
+        function rerootTree(newRootNode) {
+            console.log("Rerooting at node:", newRootNode.name || "unnamed node");
+            
+            if (!newRootNode || newRootNode === root) {
+                console.log("Cannot reroot: invalid node or already root");
+                return;
+            }
+            
+            // Find the parent of the new root
+            const parent = findParent(root, newRootNode);
+            if (!parent) {
+                console.log("Cannot find parent of new root");
+                return;
+            }
+            
+            console.log("Parent of new root:", parent.name || "unnamed");
+            
+            // Create a new root node (we'll give it a temporary name)
+            const newRoot = new Node("", 0);
+            
+            // Create the reversed path from new root to old root
+            const pathToRoot = [];
+            let currentNode = parent;
+            while (currentNode !== null) {
+                pathToRoot.push(currentNode);
+                currentNode = findParent(root, currentNode);
+            }
+            
+            console.log("Path to root:", pathToRoot.map(n => n.name || "(unnamed)").join(" -> "));
+            
+            // CRITICAL FIX: Get root proportion value directly from the slider
+            const sliderValue = document.getElementById('rootProportion').value;
+            const rootProportionValue = sliderValue ? parseFloat(sliderValue) / 100 : 0.5;
+            console.log("Root proportion slider value:", sliderValue, "Calculated proportion:", rootProportionValue);
+            
+            // Validate lengths to avoid NaN
+            const newRootLength = ensureValidNumber(newRootNode.length);
+            console.log("New root length:", newRootLength);
+            
+            // First subtree: clone the new root node and all its subtrees
+            const subtree1 = cloneSubtree(newRootNode);
+            subtree1.length = newRootLength * rootProportionValue;
+            console.log("Subtree1 length:", subtree1.length);
+            newRoot.children.push(subtree1);
+            
+            // Second subtree: create a new subtree from the parent back to the old root
+            if (pathToRoot.length > 0) {
+                // Start with parent and assign the split branch length
+                const subtree2 = new Node(parent.name, newRootLength * (1 - rootProportionValue));
+                console.log("Subtree2 length:", subtree2.length);
+                subtree2.tag = parent.tag;
+                
+                // Add subtree2 to the new root
+                newRoot.children.push(subtree2);
+                
+                // Current node for building the reversed path
+                let currentNewNode = subtree2;
+                
+                // Add all children of the parent except the new root node
+                for (const child of parent.children) {
+                    if (child !== newRootNode) {
+                        currentNewNode.children.push(cloneSubtree(child));
+                    }
+                }
+                
+                // Now handle the rest of the path to the old root
+                for (let i = 1; i < pathToRoot.length; i++) {
+                    const pathNode = pathToRoot[i];
+                    const prevPathNodeLength = ensureValidNumber(pathToRoot[i-1].length);
+                    
+                    // Create a new node for this segment
+                    const newPathNode = new Node(pathNode.name, prevPathNodeLength);
+                    console.log(`Path node ${i} length:`, newPathNode.length);
+                    newPathNode.tag = pathNode.tag;
+                    
+                    // First, add all children of this node except the one in our path
+                    for (const child of pathNode.children) {
+                        if (child !== pathToRoot[i-1]) {
+                            newPathNode.children.push(cloneSubtree(child));
+                        }
+                    }
+                    
+                    // Add this path node to the current node's children
+                    currentNewNode.children.push(newPathNode);
+                    
+                    // Move to the new node for the next iteration
+                    currentNewNode = newPathNode;
+                }
+            }
+            
+            // Update the root reference
+            root = newRoot;
+            
+            // CRITICAL FIX: Recalculate the maxTreeDistance for proper branch length scaling
+            maxTreeDistance = calculateMaxTreeDistance(root);
+            console.log("New maxTreeDistance after rerooting:", maxTreeDistance);
+            
+            // Clean up singleton nodes (nodes with only one child)
+            cleanupSingletonNodes(root);
+            console.log("Cleaned up singleton nodes");
+            
+            // Update root proportion slider visibility
+            updateRootProportionVisibility();
+            
+            // Redraw the tree
+            drawSVG();
+        }
+        
+        // Clone a subtree (for preserving parts of the tree during rerooting)
+        function cloneSubtree(node) {
+            if (!node) return null;
+            
+            const clone = new Node(node.name, node.length);
+            clone.tag = node.tag;
+            clone.selected = node.selected;
+            
+            for (let child of node.children) {
+                const childClone = cloneSubtree(child);
+                clone.children.push(childClone);
+            }
+            
+            return clone;
+        }
+        
+        // Clean up nodes with only one child (collapse them)
+        function cleanupSingletonNodes(node) {
+            // We don't process the root separately - it's allowed to have one child
+            
+            // Process children first (depth-first)
+            for (let i = 0; i < node.children.length; i++) {
+                const child = node.children[i];
+                cleanupSingletonNodes(child);
+                
+                // If this child has exactly one child, collapse it
+                if (child.children.length === 1) {
+                    const grandchild = child.children[0];
+                    
+                    // If the child has a tag or name, we don't collapse it
+                    if (!child.tag && !child.name) {
+                        // Transfer length
+                        grandchild.length += child.length;
+                        
+                        // Replace the child with its child
+                        node.children[i] = grandchild;
+                    }
+                }
+            }
         }
 
         function selectNode(node) {
@@ -1075,6 +1455,12 @@
             horizontalScale = parseInt(document.getElementById('horizontalScale').value);
             verticalScale = parseInt(document.getElementById('verticalScale').value);
             textSize = parseInt(document.getElementById('textSize').value);
+            
+            // Update root proportion - IMPORTANT FIX: store the actual numeric value, not the HTML element
+            const rootProportionSlider = document.getElementById('rootProportion');
+            rootProportion = parseInt(rootProportionSlider.value) / 100;
+            document.getElementById('rootProportionValue').textContent = rootProportion.toFixed(2);
+            
             if (root) {
                 drawSVG();
             }
