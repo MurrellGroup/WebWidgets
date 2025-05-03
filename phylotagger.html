@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Phylotagger</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M20,80 L20,20 L50,50 L80,20 L80,80' stroke='%238b5cf6' stroke-width='8' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" type="image/svg+xml">
-  
     <style>
         body,
         html {
@@ -303,7 +302,7 @@
 
 <body>
     <div id="main-container">
-        <strong>Phylotagger</strong>
+        <center><strong><---Phylotagger---></strong></center>
         <div id="top-panel">
             <div class="top-row">
                 <label for="newickInput">Newick:</label>
@@ -439,49 +438,48 @@
         window.doLadderize = function() {
             console.log("Ladderizing tree...");
             
-            // First pass: calculate the height of each node (max distance to leaves)
-            window.calculateNodeHeights(root);
+            // First pass: count terminal nodes beneath each node
+            window.countTerminalNodes(root);
             
-            // Second pass: sort children by height (descending)
-            window.sortChildrenByHeight(root);
+            // Second pass: sort children by terminal node count
+            window.sortChildrenByTerminalCount(root);
             
             // Redraw the tree
             drawSVG();
             console.log("Tree ladderized successfully");
         };
         
-        // Helper function to calculate node heights
-        window.calculateNodeHeights = function(node) {
+        // Helper function to count terminal nodes (leaves) beneath a node
+        window.countTerminalNodes = function(node) {
             if (!node) return 0;
             
-            // Leaf nodes have height 0
+            // Leaf nodes are terminal nodes (count as 1)
             if (node.children.length === 0) {
-                node.height = 0;
-                return 0;
+                node.terminalCount = 1;
+                return 1;
             }
             
-            // Calculate heights of all children
-            let maxHeight = 0;
+            // Count terminal nodes in all children
+            let count = 0;
             for (const child of node.children) {
-                const childHeight = window.calculateNodeHeights(child);
-                maxHeight = Math.max(maxHeight, childHeight + child.length);
+                count += window.countTerminalNodes(child);
             }
             
-            // Store height in node
-            node.height = maxHeight;
-            return maxHeight;
+            // Store terminal count in node
+            node.terminalCount = count;
+            return count;
         };
         
-        // Helper function to sort children by height - now with reversed order
-        window.sortChildrenByHeight = function(node) {
+        // Helper function to sort children by terminal node count
+        window.sortChildrenByTerminalCount = function(node) {
             if (!node || node.children.length <= 1) return;
             
-            // Sort children by height (smallest to largest) - reversed order
-            node.children.sort((a, b) => a.height - b.height);
+            // Sort children by terminal node count (smallest to largest)
+            node.children.sort((a, b) => a.terminalCount - b.terminalCount);
             
             // Process children recursively
             for (const child of node.children) {
-                window.sortChildrenByHeight(child);
+                window.sortChildrenByTerminalCount(child);
             }
         };
 
