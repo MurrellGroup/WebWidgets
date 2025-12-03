@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastAlign: Sequence Viewer</title>
+    <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --panel-bg: #ffffff;
+            --border-color: #d1d5db;
+            --primary: #2563eb;
+            --text-color: #1f2937;
+            --header-height: 80px;
+            --ruler-height: 30px;
+            --names-width: 220px;
+            --row-height: 20px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden; /* Prevent body scroll */
+        }
+
+        /* --- Main Layout --- */
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Controls Header */
+        #controls {
+            height: var(--header-height);
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            flex-shrink: 0;
+            z-index: 20;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #6b7280; }
+
+        button, select, input[type="file"] {
+            padding: 6px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            background: white;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        
+        button:hover { background-color: #f3f4f6; }
+        button.active { background-color: var(--primary); color: white; border-color: var(--primary); }
+        
+        /* Grid Layout for Viewer */
+        #viewer-grid {
+            flex: 1;
+            display: grid;
+            /* 
+               IMPORTANT: minmax(0, 1fr) prevents the sequence column from 
+               forcing the grid wider than the screen, which would break layout.
+            */
+            grid-template-columns: var(--names-width) minmax(0, 1fr);
+            grid-template-rows: var(--ruler-height) minmax(0, 1fr);
+            grid-template-areas: 
+                "corner ruler"
+                "names  seq";
+            overflow: hidden;
+            position: relative;
+            background: #fff;
+        }
+
+        /* Grid Areas */
+        #area-corner {
+            grid-area: corner;
+            background: #f3f4f6;
+            border-right: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            z-index: 10;
+        }
+
+        #area-ruler {
+            grid-area: ruler;
+            background: #f3f4f6;
+            border-bottom: 1px solid var(--border-color);
+            overflow: hidden; /* JS updates this canvas */
+            position: relative;
+        }
+
+        #area-names {
+            grid-area: names;
+            background: #fff;
+            border-right: 1px solid var(--border-color);
+            overflow: hidden; /* JS updates this canvas */
+            position: relative;
+            z-index: 5;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+        }
+
+        #area-seq {
+            grid-area: seq;
+            overflow: auto; /* This is the only scrolling element */
+            position: relative;
+            background: #fff;
+            /* Smooth scrolling */
+            scroll-behavior: auto; 
+        }
+
+        /* Canvases */
+        canvas { display: block; }
+        
+        /* The sequence canvas sticks to the top-left of the scrolling viewport */
+        #cvs-seq {
+            position: sticky;
+            top: 0;
+            left: 0;
+        }
+
+        /* The sizer expands the scrollable area */
+        #scroll-sizer {
+            position: absolute;
+            top: 0; 
+            left: 0;
+            width: 1px; 
+            height: 1px;
+            z-index: -1;
+        }
+
+        /* Loading Overlay */
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.95);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 9999;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        #overlay.active { opacity: 1; pointer-events: all; }
+        .spinner {
+            width: 30px; height: 30px;
+            border: 3px solid #e5e7eb; border-top: 3px solid var(--primary);
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="controls">
+        <div class="control-group">
+            <label>Load Data</label>
+            <input type="file" id="inp-file" accept=".fasta,.fa,.txt">
+        </div>
+        <div class="control-group">
+            <label>Demo</label>
+            <button id="btn-example">Load Example</button>
+        </div>
+
+        <div style="width:1px; height:30px; background:#e5e7eb; margin:0 10px;"></div>
+
+        <div class="control-group">
+            <label>View Mode</label>
+            <div style="display:flex;">
+                <button id="btn-nt" class="active" style="border-top-right-radius:0; border-bottom-right-radius:0;">Nucleotide</button>
+                <button id="btn-aa" style="border-top-left-radius:0; border-bottom-left-radius:0; border-left:none;">Amino Acid</button>
+            </div>
+        </div>
+
+        <div class="control-group" id="grp-frame" style="opacity:0.4; pointer-events:none;">
+            <label>Reading Frame</label>
+            <select id="sel-frame">
+                <option value="1">Frame 1</option>
+                <option value="2">Frame 2</option>
+                <option value="3">Frame 3</option>
+            </select>
+        </div>
+
+        <div class="control-group" style="margin-left:auto;">
+            <label>Status</label>
+            <div id="lbl-status" style="font-size:12px;">Ready</div>
+        </div>
+    </div>
+
+    <!-- The Viewer Grid -->
+    <div id="viewer-grid">
+        <div id="area-corner"></div>
+        
+        <div id="area-ruler">
+            <canvas id="cvs-ruler"></canvas>
+        </div>
+        
+        <div id="area-names">
+            <canvas id="cvs-names"></canvas>
+        </div>
+        
+        <div id="area-seq">
+            <div id="scroll-sizer"></div>
+            <canvas id="cvs-seq"></canvas>
+        </div>
+    </div>
+</div>
+
+<div id="overlay">
+    <div class="spinner"></div>
+    <div style="margin-top:10px; font-weight:500;">Processing Alignment...</div>
+</div>
+
+<script>
+/**
+ * FastAlign Logic
+ * Uses Canvas Virtual Scrolling for high performance.
+ */
+
+// Configuration
+const CONFIG = {
+    font: "13px 'Courier New', monospace", // Monospace essential for alignment
+    labelFont: "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    charWidth: 10,  // Width of one nucleotide/AA block
+    rowHeight: 22,  // Height of one sequence row
+    rulerTickStep: 10,
+    colors: {
+        // Nucleotides
+        NT: {
+            'A': '#c8e6c9', // Green-ish
+            'G': '#fff9c4', // Yellow-ish
+            'C': '#b3e5fc', // Blue-ish
+            'T': '#ffcdd2', // Red-ish
+            'U': '#ffcdd2', 
+            '-': '#ffffff',
+            'N': '#eeeeee',
+            'default': '#ffffff'
+        },
+        // Amino Acids (Clustal / Taylor-ish)
+        AA: {
+            'A': '#80a0f0', 'R': '#f01505', 'N': '#00ff00', 'D': '#c048c0',
+            'C': '#f08080', 'Q': '#00ff00', 'E': '#c048c0', 'G': '#f09048',
+            'H': '#15a4a4', 'I': '#80a0f0', 'L': '#80a0f0', 'K': '#f01505',
+            'M': '#80a0f0', 'F': '#80a0f0', 'P': '#ffff00', 'S': '#00ff00',
+            'T': '#00ff00', 'W': '#80a0f0', 'Y': '#15a4a4', 'V': '#80a0f0',
+            '*': '#999999', '-': '#ffffff', 'default': '#ffffff'
+        }
+    }
+};
+
+const CODON_TABLE = {
+    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M',
+    'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
+    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K',
+    'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
+    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L',
+    'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
+    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q',
+    'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
+    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V',
+    'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
+    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E',
+    'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
+    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S',
+    'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
+    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*',
+    'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W',
+};
+
+// Application State
+const state = {
+    rawSequences: [], // {name, seq} (Nucleotide)
+    sequences: [],    // Currently displayed sequences (NT or AA)
+    mode: 'NT',       // 'NT' | 'AA'
+    frame: 1,         // 1, 2, 3
+    maxLength: 0,
+    width: 0,
+    height: 0
+};
+
+// DOM Cache
+const dom = {
+    file: document.getElementById('inp-file'),
+    btnEx: document.getElementById('btn-example'),
+    btnNt: document.getElementById('btn-nt'),
+    btnAa: document.getElementById('btn-aa'),
+    grpFrame: document.getElementById('grp-frame'),
+    selFrame: document.getElementById('sel-frame'),
+    status: document.getElementById('lbl-status'),
+    overlay: document.getElementById('overlay'),
+    
+    // Areas
+    areaNames: document.getElementById('area-names'),
+    areaRuler: document.getElementById('area-ruler'),
+    areaSeq: document.getElementById('area-seq'),
+    
+    // Canvases
+    cvsNames: document.getElementById('cvs-names'),
+    cvsRuler: document.getElementById('cvs-ruler'),
+    cvsSeq: document.getElementById('cvs-seq'),
+    
+    sizer: document.getElementById('scroll-sizer')
+};
+
+const ctxNames = dom.cvsNames.getContext('2d');
+const ctxRuler = dom.cvsRuler.getContext('2d');
+const ctxSeq = dom.cvsSeq.getContext('2d', { alpha: false }); // Optimize
+
+// --- Initialization ---
+
+function init() {
+    // Inputs
+    dom.file.addEventListener('change', e => loadFile(e.target.files[0]));
+    dom.btnEx.addEventListener('click', loadExample);
+    
+    // Controls
+    dom.btnNt.addEventListener('click', () => switchMode('NT'));
+    dom.btnAa.addEventListener('click', () => switchMode('AA'));
+    dom.selFrame.addEventListener('change', () => {
+        state.frame = parseInt(dom.selFrame.value);
+        recalcSequences();
+    });
+
+    // Scrolling & Resizing
+    // We attach scroll listener to the Sequence Area (which has overflow:auto)
+    dom.areaSeq.addEventListener('scroll', onScroll);
+    window.addEventListener('resize', onResize);
+    
+    // Initial Sizing
+    onResize();
+}
+
+// --- Data Loading ---
+
+function setStatus(msg) { dom.status.textContent = msg; }
+function toggleOverlay(show) { 
+    if(show) dom.overlay.classList.add('active'); 
+    else dom.overlay.classList.remove('active'); 
+}
+
+function loadFile(file) {
+    if(!file) return;
+    toggleOverlay(true);
+    setStatus("Reading file...");
+    
+    const reader = new FileReader();
+    reader.onload = e => {
+        parseFasta(e.target.result);
+        toggleOverlay(false);
+    };
+    reader.readAsText(file);
+}
+
+function loadExample() {
+    toggleOverlay(true);
+    setStatus("Generating example...");
+    
+    // Generate async to allow UI update
+    setTimeout(() => {
+        let sb = [];
+        const bases = ['A','C','G','T'];
+        for(let i=1; i<=100; i++) {
+            sb.push(`>Seq_${i}_Example_Organism`);
+            let s = "";
+            for(let j=0; j<1000; j++) {
+                if(Math.random()<0.02) s+="-";
+                else s += bases[Math.floor(Math.random()*4)];
+            }
+            sb.push(s);
+        }
+        parseFasta(sb.join('\n'));
+        toggleOverlay(false);
+    }, 50);
+}
+
+function parseFasta(text) {
+    const lines = text.split(/\r?\n/);
+    const seqs = [];
+    let name = null;
+    let buffer = [];
+
+    for(let line of lines) {
+        line = line.trim();
+        if(!line) continue;
+        if(line.startsWith('>')) {
+            if(name) seqs.push({name, seq: buffer.join('')});
+            name = line.substring(1).trim();
+            buffer = [];
+        } else {
+            buffer.push(line.toUpperCase().replace(/[^A-Z-]/g, ''));
+        }
+    }
+    if(name) seqs.push({name, seq: buffer.join('')});
+
+    state.rawSequences = seqs;
+    recalcSequences();
+}
+
+// --- Logic & Translation ---
+
+function switchMode(mode) {
+    if(state.mode === mode) return;
+    state.mode = mode;
+    
+    // UI Toggle
+    if(mode === 'NT') {
+        dom.btnNt.classList.add('active');
+        dom.btnAa.classList.remove('active');
+        dom.grpFrame.style.opacity = '0.4';
+        dom.grpFrame.style.pointerEvents = 'none';
+    } else {
+        dom.btnAa.classList.add('active');
+        dom.btnNt.classList.remove('active');
+        dom.grpFrame.style.opacity = '1';
+        dom.grpFrame.style.pointerEvents = 'auto';
+    }
+    
+    recalcSequences();
+}
+
+function recalcSequences() {
+    if(!state.rawSequences.length) return;
+
+    if(state.mode === 'NT') {
+        state.sequences = state.rawSequences;
+    } else {
+        // Translate
+        state.sequences = state.rawSequences.map(s => {
+            return {
+                name: s.name,
+                seq: translate(s.seq, state.frame)
+            };
+        });
+    }
+
+    // Calc max length
+    state.maxLength = 0;
+    state.sequences.forEach(s => {
+        if(s.seq.length > state.maxLength) state.maxLength = s.seq.length;
+    });
+
+    // Update Scroll Sizer dimensions
+    const totalW = state.maxLength * CONFIG.charWidth;
+    const totalH = state.sequences.length * CONFIG.rowHeight;
+    
+    dom.sizer.style.width = totalW + 'px';
+    dom.sizer.style.height = totalH + 'px';
+
+    setStatus(`Loaded ${state.sequences.length} sequences. Mode: ${state.mode}`);
+    render();
+}
+
+function translate(dna, frame) {
+    const offset = frame - 1;
+    let aa = "";
+    // Simple translation strategy: 3 chars = 1 AA.
+    // If gap exists, output gap. (Simplification for visualization)
+    for(let i=offset; i<dna.length; i+=3) {
+        if(i+2 >= dna.length) break;
+        const codon = dna.substr(i, 3);
+        if(codon.includes('-')) aa += '-';
+        else aa += CODON_TABLE[codon] || 'X';
+    }
+    return aa;
+}
+
+// --- Rendering ---
+
+function onResize() {
+    // Resize canvases to fill their grid cells
+    const wName = dom.areaNames.clientWidth;
+    const hName = dom.areaNames.clientHeight;
+    
+    const wRuler = dom.areaRuler.clientWidth;
+    const hRuler = dom.areaRuler.clientHeight;
+    
+    const wSeq = dom.areaSeq.clientWidth;
+    const hSeq = dom.areaSeq.clientHeight;
+
+    // Set internal resolution
+    dom.cvsNames.width = wName;
+    dom.cvsNames.height = hName;
+    
+    dom.cvsRuler.width = wRuler;
+    dom.cvsRuler.height = hRuler;
+    
+    dom.cvsSeq.width = wSeq;
+    dom.cvsSeq.height = hSeq;
+
+    requestAnimationFrame(render);
+}
+
+function onScroll() {
+    requestAnimationFrame(render);
+}
+
+function render() {
+    if(!state.sequences.length) return;
+
+    // Get Scroll Position
+    const scrollTop = dom.areaSeq.scrollTop;
+    const scrollLeft = dom.areaSeq.scrollLeft;
+    
+    // Viewport dimensions
+    const vW = dom.cvsSeq.width;
+    const vH = dom.cvsSeq.height;
+
+    // Determine Visible Grid Range
+    const startRow = Math.floor(scrollTop / CONFIG.rowHeight);
+    const endRow = Math.min(state.sequences.length, Math.ceil((scrollTop + vH) / CONFIG.rowHeight));
+    
+    const startCol = Math.floor(scrollLeft / CONFIG.charWidth);
+    const endCol = Math.min(state.maxLength, Math.ceil((scrollLeft + vW) / CONFIG.charWidth));
+
+    // --- 1. Render Sequence (Main View) ---
+    ctxSeq.fillStyle = '#ffffff';
+    ctxSeq.fillRect(0, 0, vW, vH);
+    ctxSeq.font = CONFIG.font;
+    ctxSeq.textBaseline = 'middle';
+    ctxSeq.textAlign = 'center';
+
+    const colors = state.mode === 'NT' ? CONFIG.colors.NT : CONFIG.colors.AA;
+
+    for(let r = startRow; r < endRow; r++) {
+        const seq = state.sequences[r].seq;
+        const yBase = (r * CONFIG.rowHeight) - scrollTop;
+        
+        // Draw Chars
+        for(let c = startCol; c < endCol; c++) {
+            if(c >= seq.length) break;
+            const char = seq[c];
+            const xBase = (c * CONFIG.charWidth) - scrollLeft;
+            
+            // Box Color
+            let fill = colors[char] || colors['default'];
+            ctxSeq.fillStyle = fill;
+            ctxSeq.fillRect(xBase, yBase, CONFIG.charWidth, CONFIG.rowHeight);
+            
+            // Text
+            if(char !== '-') {
+                ctxSeq.fillStyle = '#000';
+                ctxSeq.fillText(char, xBase + (CONFIG.charWidth/2), yBase + (CONFIG.rowHeight/2));
+            }
+        }
+    }
+
+    // --- 2. Render Names (Left Column) ---
+    ctxNames.fillStyle = '#ffffff';
+    ctxNames.fillRect(0, 0, dom.cvsNames.width, dom.cvsNames.height);
+    ctxNames.font = CONFIG.labelFont;
+    ctxNames.textBaseline = 'middle';
+    ctxNames.textAlign = 'left';
+
+    for(let r = startRow; r < endRow; r++) {
+        const name = state.sequences[r].name;
+        const yBase = (r * CONFIG.rowHeight) - scrollTop;
+
+        // Alternating row background
+        if(r % 2 === 0) {
+            ctxNames.fillStyle = '#f9fafb';
+            ctxNames.fillRect(0, yBase, dom.cvsNames.width, CONFIG.rowHeight);
+        }
+
+        ctxNames.fillStyle = '#374151';
+        // Clip text to fit
+        ctxNames.save();
+        ctxNames.beginPath();
+        ctxNames.rect(0, yBase, dom.cvsNames.width - 5, CONFIG.rowHeight);
+        ctxNames.clip();
+        ctxNames.fillText(name, 10, yBase + (CONFIG.rowHeight/2));
+        ctxNames.restore();
+    }
+
+    // --- 3. Render Ruler (Top Row) ---
+    ctxRuler.fillStyle = '#f3f4f6';
+    ctxRuler.fillRect(0, 0, dom.cvsRuler.width, dom.cvsRuler.height);
+    ctxRuler.fillStyle = '#6b7280'; // Text color
+    ctxRuler.font = "10px sans-serif";
+    ctxRuler.textAlign = "center";
+    ctxRuler.strokeStyle = "#9ca3af";
+    ctxRuler.lineWidth = 1;
+    ctxRuler.beginPath();
+
+    for(let c = startCol; c < endCol; c++) {
+        const index = c + 1; // 1-based index
+        
+        // Only draw ticks occasionally or it gets too crowded
+        if(index === 1 || index % CONFIG.rulerTickStep === 0) {
+            const xBase = (c * CONFIG.charWidth) - scrollLeft + (CONFIG.charWidth/2);
+            
+            // Long tick
+            ctxRuler.moveTo(xBase, 18);
+            ctxRuler.lineTo(xBase, 30);
+            
+            // Number
+            ctxRuler.fillText(index, xBase, 14);
+        } else if (index % (CONFIG.rulerTickStep/2) === 0) {
+            // Short tick
+            const xBase = (c * CONFIG.charWidth) - scrollLeft + (CONFIG.charWidth/2);
+            ctxRuler.moveTo(xBase, 24);
+            ctxRuler.lineTo(xBase, 30);
+        }
+    }
+    ctxRuler.stroke();
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>
