@@ -12,7 +12,8 @@
             --primary: #2563eb;
             --header-height: 90px;
             --ruler-height: 30px;
-            --names-width: 220px;
+            --names-width: 200px;
+            --tree-width: 0px; /* Dynamic */
         }
 
         * { box-sizing: border-box; }
@@ -53,21 +54,38 @@
 
         #viewer-grid {
             flex: 1; display: grid;
-            grid-template-columns: var(--names-width) minmax(0, 1fr);
+            grid-template-columns: var(--tree-width) 5px var(--names-width) minmax(0, 1fr);
             grid-template-rows: var(--ruler-height) minmax(0, 1fr);
-            grid-template-areas: "corner ruler" "names seq";
+            grid-template-areas: 
+                "corner-tree resizer corner-names ruler" 
+                "tree        resizer names        seq";
             overflow: hidden; position: relative;
             background: #fff;
         }
 
-        #area-corner { grid-area: corner; background: #f3f4f6; border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); z-index: 10; }
-        
+        #area-corner-tree { grid-area: corner-tree; background: #f3f4f6; border-bottom: 1px solid var(--border-color); }
+        #area-corner-names { grid-area: corner-names; background: #f3f4f6; border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
+
         #area-ruler {
             grid-area: ruler; background: #f3f4f6;
             border-bottom: 1px solid var(--border-color);
             position: relative; overflow: hidden; cursor: s-resize;
         }
-        #area-ruler:hover { background: #e5e7eb; }
+
+        #area-tree {
+            grid-area: tree; background: #fff;
+            position: relative; overflow: hidden;
+            border-right: 1px solid #e5e7eb;
+        }
+
+        #resizer-tree {
+            grid-area: resizer; background: #f3f4f6;
+            border-right: 1px solid var(--border-color);
+            cursor: col-resize; z-index: 15;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #resizer-tree:hover { background: #d1d5db; }
+        #resizer-tree::after { content: ''; width: 1px; height: 20px; background: #9ca3af; }
 
         #area-names {
             grid-area: names; background: #fff;
@@ -75,12 +93,10 @@
             position: relative; overflow: hidden; z-index: 5;
             box-shadow: 2px 0 5px rgba(0,0,0,0.05); cursor: e-resize;
         }
-        #area-names:hover { background: #f9fafb; }
 
         #area-seq {
             grid-area: seq; overflow: auto; position: relative;
-            background: #fff; outline: none;
-            cursor: text;
+            background: #fff; outline: none; cursor: text;
         }
         #area-seq.grabbing { cursor: grabbing; }
 
@@ -115,8 +131,12 @@
 <div id="app">
     <div id="controls">
         <div class="control-group">
-            <label>Load Data</label>
-            <input type="file" id="inp-file" accept=".fasta,.fa,.txt">
+            <label>Sequences</label>
+            <input type="file" id="inp-file">
+        </div>
+        <div class="control-group">
+            <label>Phylogeny</label>
+            <input type="file" id="inp-tree">
         </div>
         <div class="control-group">
             <label>Demo</label>
@@ -144,14 +164,18 @@
             </select>
         </div>
         <div class="hint-text">
-            <strong>Full Edit Support</strong><br>
-            <span class="tag">Drag Panels</span> Select Row/Col <br>
+            <strong>Tree Support Active</strong><br>
+            <span class="tag">Drag Divider</span> Resize Tree Panel<br>
             <span class="tag">Cmd+Z</span> Undo
         </div>
     </div>
 
     <div id="viewer-grid">
-        <div id="area-corner"></div>
+        <div id="area-corner-tree"></div>
+        <div id="resizer-tree"></div>
+        <div id="area-corner-names"></div>
+        
+        <div id="area-tree"><canvas id="cvs-tree"></canvas></div>
         <div id="area-ruler"><canvas id="cvs-ruler"></canvas></div>
         <div id="area-names"><canvas id="cvs-names"></canvas></div>
         <div id="area-seq" tabindex="0"><div id="scroll-sizer"></div><canvas id="cvs-seq"></canvas></div>
@@ -171,7 +195,7 @@ const CONFIG = {
     charWidth: 12,
     rowHeight: 24,
     rulerTickStep: 10,
-    maxHistory: 30, // Limit memory usage
+    maxHistory: 30,
     colors: {
         NT: { 'A': '#c8e6c9', 'G': '#fff9c4', 'C': '#b3e5fc', 'T': '#ffcdd2', 'U': '#ffcdd2', '-': '#ffffff', 'default': '#f5f5f5' },
         AA: { 'A': '#80a0f0', 'R': '#f01505', 'N': '#00ff00', 'D': '#c048c0', 'C': '#f08080', 'Q': '#00ff00', 'E': '#c048c0', 'G': '#f09048', 'H': '#15a4a4', 'I': '#80a0f0', 'L': '#80a0f0', 'K': '#f01505', 'M': '#80a0f0', 'F': '#80a0f0', 'P': '#ffff00', 'S': '#00ff00', 'T': '#00ff00', 'W': '#80a0f0', 'Y': '#15a4a4', 'V': '#80a0f0', '*': '#999999', '-': '#ffffff', 'default': '#ffffff' }
@@ -193,18 +217,21 @@ const CODON_TABLE = {
 const state = {
     rawSequences: [],
     viewSequences: [],
-    history: [], // Undo stack
-    dragSaved: false, // Flag to ensure we only save once per drag operation
+    history: [],
+    dragSaved: false,
     mode: 'NT',
     frame: 1,
     maxLength: 0,
     selection: null, 
+    tree: null, 
+    treeWidth: 0, 
     mouse: { isDown: false, target: null, startR: 0, startC: 0, lastHoverC: 0 }
 };
 
 // --- DOM ---
 const dom = {
     file: document.getElementById('inp-file'),
+    fileTree: document.getElementById('inp-tree'),
     btnEx: document.getElementById('btn-example'),
     btnUndo: document.getElementById('btn-undo'),
     btnNt: document.getElementById('btn-nt'),
@@ -212,22 +239,29 @@ const dom = {
     selFrame: document.getElementById('sel-frame'),
     grpFrame: document.getElementById('grp-frame'),
     overlay: document.getElementById('overlay'),
+    
     areaSeq: document.getElementById('area-seq'),
     areaNames: document.getElementById('area-names'),
     areaRuler: document.getElementById('area-ruler'),
+    areaTree: document.getElementById('area-tree'),
+    resizerTree: document.getElementById('resizer-tree'),
+    
     cvsSeq: document.getElementById('cvs-seq'),
     cvsNames: document.getElementById('cvs-names'),
     cvsRuler: document.getElementById('cvs-ruler'),
+    cvsTree: document.getElementById('cvs-tree'),
     sizer: document.getElementById('scroll-sizer')
 };
 
 const ctxSeq = dom.cvsSeq.getContext('2d', { alpha: false });
 const ctxNames = dom.cvsNames.getContext('2d');
 const ctxRuler = dom.cvsRuler.getContext('2d');
+const ctxTree = dom.cvsTree.getContext('2d');
 
 // --- Init ---
 function init() {
     dom.file.addEventListener('change', e => loadFile(e.target.files[0]));
+    dom.fileTree.addEventListener('change', e => loadTreeFile(e.target.files[0]));
     dom.btnEx.addEventListener('click', loadExample);
     dom.btnUndo.addEventListener('click', undo);
     dom.btnNt.addEventListener('click', () => setMode('NT'));
@@ -237,17 +271,20 @@ function init() {
     dom.areaSeq.addEventListener('scroll', () => requestAnimationFrame(render));
     window.addEventListener('resize', onResize);
     
-    // Mouse
     dom.areaSeq.addEventListener('mousedown', (e) => onMouseDown(e, 'SEQ'));
     dom.areaNames.addEventListener('mousedown', (e) => { e.preventDefault(); onMouseDown(e, 'NAMES'); });
     dom.areaRuler.addEventListener('mousedown', (e) => { e.preventDefault(); onMouseDown(e, 'RULER'); });
     
+    dom.resizerTree.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        state.mouse.isDown = true;
+        state.mouse.target = 'RESIZE_TREE';
+    });
+
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     
-    // Keyboard
     dom.areaSeq.addEventListener('keydown', onKeyDown);
-    // Global key listener for Ctrl+Z even if focus is slightly off, though ideally areaSeq should have focus
     window.addEventListener('keydown', (e) => {
         if((e.ctrlKey || e.metaKey) && e.key === 'z') {
             e.preventDefault();
@@ -258,38 +295,38 @@ function init() {
     onResize();
 }
 
-// --- History / Undo ---
-
+// --- History ---
 function saveState() {
-    // Deep copy sequences. JSON parse/stringify is fast enough for typical alignment sizes (up to few MBs)
-    // For larger datasets, a more sophisticated differential tracking would be needed.
     const snapshot = {
         seqs: JSON.parse(JSON.stringify(state.rawSequences)),
         sel: state.selection ? { ...state.selection } : null
     };
-
     state.history.push(snapshot);
-    if(state.history.length > CONFIG.maxHistory) {
-        state.history.shift();
-    }
+    if(state.history.length > CONFIG.maxHistory) state.history.shift();
 }
 
 function undo() {
     if(state.history.length === 0) return;
-    
     const prev = state.history.pop();
     state.rawSequences = prev.seqs;
     state.selection = prev.sel;
-    
     recalc();
 }
 
-// --- Data ---
+// --- Loading ---
 function loadFile(file) {
     if(!file) return;
     showOverlay(true);
     const reader = new FileReader();
     reader.onload = e => parseFasta(e.target.result);
+    reader.readAsText(file);
+}
+
+function loadTreeFile(file) {
+    if(!file) return;
+    showOverlay(true);
+    const reader = new FileReader();
+    reader.onload = e => parseTree(e.target.result);
     reader.readAsText(file);
 }
 
@@ -308,6 +345,12 @@ function loadExample() {
             sb.push(s);
         }
         parseFasta(sb.join('\n'));
+        
+        // Example tree with lengths
+        setTimeout(() => {
+            const exampleTree = "((((Seq_1:0.1,Seq_2:0.2):0.1,(Seq_3:0.2,Seq_4:0.1):0.3):0.2,(Seq_5:0.4,Seq_6:0.3):0.1):0.2,Seq_7:0.5);";
+            parseTree(exampleTree);
+        }, 100);
     }, 50);
 }
 
@@ -327,11 +370,121 @@ function parseFasta(text) {
         }
     }
     if(name) seqs.push({name, seq: buf.join('').split('')});
+    
     state.rawSequences = seqs;
     state.selection = null;
-    state.history = []; // Clear history on new load
+    state.history = [];
+    state.tree = null;
+    setTreeWidth(0);
     recalc();
     showOverlay(false);
+}
+
+// --- Newick Parser ---
+function parseTree(newick) {
+    if(!state.rawSequences.length) {
+        alert("Please load sequences first.");
+        showOverlay(false);
+        return;
+    }
+    
+    saveState();
+
+    // Clean newlines
+    let s = newick.replace(/[\r\n]/g, '').trim();
+    if(s.endsWith(';')) s = s.slice(0, -1);
+
+    // Tokenize: keep delimiters, filter empties
+    const tokens = s.split(/([(),:;])/).map(t => t.trim()).filter(t => t !== '');
+    
+    let stack = [];
+    let current = { children: [], name: null, len: 0 }; // Root
+    let root = current;
+
+    for(let i=0; i<tokens.length; i++) {
+        let t = tokens[i];
+        if(t === '(') {
+            let node = { children: [], name: null, len: 0, parent: current };
+            current.children.push(node);
+            stack.push(current);
+            current = node;
+        } else if (t === ',') {
+            current = stack[stack.length-1]; // Go to parent
+            let node = { children: [], name: null, len: 0, parent: current };
+            current.children.push(node);
+            current = node;
+        } else if (t === ')') {
+            current = stack.pop();
+        } else if (t === ':') {
+            i++;
+            let lenStr = tokens[i];
+            let val = parseFloat(lenStr);
+            if(!isNaN(val)) current.len = val;
+        } else {
+            // Remove quotes if present
+            current.name = t.replace(/^['"]|['"]$/g, '');
+        }
+    }
+
+    // 1. Get Leaf Order
+    const leafOrder = [];
+    function traverse(node) {
+        if(!node.children || node.children.length === 0) {
+            if(node.name) leafOrder.push(node.name);
+        } else {
+            node.children.forEach(traverse);
+        }
+    }
+    traverse(root);
+
+    // 2. Reorder Sequences
+    const seqMap = new Map();
+    state.rawSequences.forEach(s => seqMap.set(s.name, s));
+    
+    const newSeqList = [];
+    leafOrder.forEach(name => {
+        if(seqMap.has(name)) {
+            newSeqList.push(seqMap.get(name));
+            seqMap.delete(name);
+        }
+    });
+    // Append orphans
+    for(let s of seqMap.values()) newSeqList.push(s);
+    state.rawSequences = newSeqList;
+
+    // 3. Calc Depths
+    // First pass to see if we have valid lengths
+    let totalLen = 0;
+    function checkLen(n) { totalLen += (n.len || 0); n.children.forEach(checkLen); }
+    checkLen(root);
+
+    const useCladogram = (totalLen === 0);
+    let maxDepth = 0;
+
+    function layoutX(node, currentDepth) {
+        // If cladogram, length is always 1 (or 0 for root if you prefer, but 1 makes steps visible)
+        let dist = useCladogram ? (node === root ? 0 : 1) : (node.len || 0);
+        
+        node.xDepth = currentDepth + dist;
+        if(node.xDepth > maxDepth) maxDepth = node.xDepth;
+        
+        node.children.forEach(c => layoutX(c, node.xDepth));
+    }
+    
+    // Explicitly set root len to 0 for layout origin
+    root.len = 0; 
+    layoutX(root, 0);
+
+    state.tree = { root, maxDepth };
+    setTreeWidth(200);
+    recalc();
+    showOverlay(false);
+}
+
+function setTreeWidth(w) {
+    state.treeWidth = Math.max(0, w);
+    document.documentElement.style.setProperty('--tree-width', state.treeWidth + 'px');
+    onResize();
 }
 
 function setMode(m) {
@@ -348,11 +501,11 @@ function setMode(m) {
 }
 
 function recalc() {
-    // Update Button State
     dom.btnUndo.disabled = (state.history.length === 0);
     dom.btnUndo.style.opacity = (state.history.length === 0) ? "0.5" : "1";
 
     if(!state.rawSequences.length) return;
+
     if(state.mode === 'NT') {
         state.viewSequences = state.rawSequences.map(s => ({ name: s.name, seq: s.seq }));
     } else {
@@ -376,11 +529,56 @@ function recalc() {
     
     dom.sizer.style.width = (max * CONFIG.charWidth + 200) + 'px';
     dom.sizer.style.height = (state.viewSequences.length * CONFIG.rowHeight) + 'px';
+    
+    // Compute Y Coords
+    if(state.tree) {
+        const nameToRow = new Map();
+        state.viewSequences.forEach((s, i) => nameToRow.set(s.name, i));
+        
+        let matchedCount = 0;
+        
+        function computeY(node) {
+            if(!node.children || node.children.length === 0) {
+                // Leaf
+                if(node.name && nameToRow.has(node.name)) {
+                    node.yRow = nameToRow.get(node.name);
+                    node.hidden = false;
+                    matchedCount++;
+                } else {
+                    node.yRow = 0;
+                    node.hidden = true;
+                }
+            } else {
+                let sumY = 0, count = 0;
+                let minC = Infinity, maxC = -Infinity;
+                let allHidden = true;
+                
+                node.children.forEach(c => {
+                    computeY(c);
+                    if(!c.hidden) {
+                        sumY += c.yRow;
+                        if(c.yRow < minC) minC = c.yRow;
+                        if(c.yRow > maxC) maxC = c.yRow;
+                        count++;
+                        allHidden = false;
+                    }
+                });
+                node.hidden = allHidden;
+                // Rectangular tree: Parent Y is midpoint of children extents
+                node.yRow = count ? (minC + maxC) / 2 : 0;
+            }
+        }
+        computeY(state.tree.root);
+
+        if(matchedCount === 0) {
+            alert("No tree leaves matched sequence names. Check for ID mismatches.");
+        }
+    }
+
     render();
 }
 
-// --- Inputs ---
-
+// --- Interactions ---
 function getCoords(e, type) {
     let r = 0, c = 0;
     const rect = (type==='SEQ'?dom.areaSeq:(type==='NAMES'?dom.areaNames:dom.areaRuler)).getBoundingClientRect();
@@ -412,6 +610,8 @@ function onMouseDown(e, type) {
     if(type === 'SEQ' && isInsideSelection(r, c) && !e.shiftKey) {
         state.mouse.target = 'MOVE';
         dom.areaSeq.classList.add('grabbing');
+    } else if (state.mouse.target === 'RESIZE_TREE') {
+        // handled
     } else {
         state.mouse.target = type;
         if(type === 'SEQ') {
@@ -427,6 +627,13 @@ function onMouseDown(e, type) {
 
 function onMouseMove(e) {
     if(!state.mouse.isDown) return;
+
+    if(state.mouse.target === 'RESIZE_TREE') {
+        const x = e.clientX;
+        const newW = Math.max(20, Math.min(600, x));
+        setTreeWidth(newW);
+        return;
+    }
     
     const { r, c } = getCoords(e, 'SEQ');
     const safeR = Math.max(0, Math.min(state.viewSequences.length-1, r));
@@ -451,11 +658,7 @@ function onMouseMove(e) {
     } else if(state.mouse.target === 'MOVE') {
         const delta = safeC - state.mouse.lastHoverC;
         if(delta !== 0) {
-            // Save state right before the first drag move occurs
-            if(!state.dragSaved) {
-                saveState();
-                state.dragSaved = true;
-            }
+            if(!state.dragSaved) { saveState(); state.dragSaved = true; }
             attemptMoveSelection(delta);
             state.mouse.lastHoverC = safeC;
         }
@@ -465,7 +668,7 @@ function onMouseMove(e) {
 function onMouseUp() {
     state.mouse.isDown = false;
     state.mouse.target = null;
-    state.dragSaved = false; // Reset drag save flag
+    state.dragSaved = false;
     dom.areaSeq.classList.remove('grabbing');
 }
 
@@ -475,29 +678,16 @@ function isInsideSelection(r, c) {
     return r >= s.r1 && r <= s.r2 && c >= s.c1 && c <= s.c2;
 }
 
-// --- Logic ---
-
+// --- Editing Logic ---
 function onKeyDown(e) {
     if(!state.selection) return;
-    
-    // Ignore if Ctrl is pressed (let global handler take Ctrl+Z)
     if(e.ctrlKey || e.metaKey) return;
 
-    if(e.key === ' ') {
-        e.preventDefault();
-        saveState();
-        insertGap();
-    } else if (e.key === 'Backspace' || e.key === 'Delete') {
-        e.preventDefault();
-        saveState();
-        handleDeletion();
-    } else if (state.mode === 'NT') {
+    if(e.key === ' ') { e.preventDefault(); saveState(); insertGap(); }
+    else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); saveState(); handleDeletion(); }
+    else if (state.mode === 'NT') {
         const char = e.key.toUpperCase();
-        if(/^[ACGTUN-]$/.test(char)) {
-            e.preventDefault();
-            saveState();
-            overwriteBlock(char);
-        }
+        if(/^[ACGTUN-]$/.test(char)) { e.preventDefault(); saveState(); overwriteBlock(char); }
     }
 }
 
@@ -505,29 +695,20 @@ function handleDeletion() {
     const { r1, r2, c1, c2 } = state.selection;
     const allRows = state.viewSequences.length;
 
-    if(c1 === 0 && c2 >= 99999) { // Full Row
+    if(c1 === 0 && c2 >= 99999) {
         state.rawSequences.splice(r1, r2 - r1 + 1);
         state.selection = null;
-        recalc();
-        return;
+        recalc(); return;
     }
-    if(r1 === 0 && r2 >= allRows - 1) { // Full Col
+    if(r1 === 0 && r2 >= allRows - 1) {
         const count = c2 - c1 + 1;
         state.rawSequences.forEach(s => {
             const dna = s.seq;
-            if(state.mode === 'NT') {
-                if(c1 < dna.length) dna.splice(c1, count);
-            } else {
-                const off = state.frame - 1;
-                const idx = (c1 * 3) + off;
-                if(idx < dna.length) dna.splice(idx, count * 3);
-            }
+            if(state.mode === 'NT') { if(c1 < dna.length) dna.splice(c1, count); }
+            else { const off = state.frame - 1; const idx = (c1 * 3) + off; if(idx < dna.length) dna.splice(idx, count * 3); }
         });
-        state.selection = null;
-        recalc();
-        return;
+        state.selection = null; recalc(); return;
     }
-
     deleteBlock();
 }
 
@@ -540,16 +721,14 @@ function deleteBlock() {
     for(let r=r1; r<=r2; r++) {
         if(!state.rawSequences[r]) continue;
         const dna = state.rawSequences[r].seq;
-        if(state.mode === 'NT') {
-            dna.splice(c1, safeCount);
-        } else {
+        if(state.mode === 'NT') dna.splice(c1, safeCount);
+        else {
             const off = state.frame - 1;
             const idx = (c1 * 3) + off;
             if(idx < dna.length) dna.splice(idx, safeCount * 3);
         }
     }
-    state.selection = { r1, r2, c1, c2: c1 };
-    recalc();
+    state.selection = { r1, r2, c1, c2: c1 }; recalc();
 }
 
 function insertGap() {
@@ -557,12 +736,8 @@ function insertGap() {
     for(let r=r1; r<=r2; r++) {
         if(!state.rawSequences[r]) continue;
         const dna = state.rawSequences[r].seq;
-        if(state.mode === 'NT') {
-            dna.splice(c1, 0, '-');
-        } else {
-            const idx = (c1 * 3) + (state.frame - 1);
-            dna.splice(idx, 0, '-', '-', '-');
-        }
+        if(state.mode === 'NT') dna.splice(c1, 0, '-');
+        else { const idx = (c1 * 3) + (state.frame - 1); dna.splice(idx, 0, '-', '-', '-'); }
     }
     recalc();
 }
@@ -573,10 +748,8 @@ function overwriteBlock(char) {
         if(!state.rawSequences[r]) continue;
         const dna = state.rawSequences[r].seq;
         const effectiveC2 = Math.min(c2, dna.length + 50); 
-        
         for(let c=c1; c<=effectiveC2; c++) {
-            if(c < dna.length) dna[c] = char;
-            else dna.push(char);
+            if(c < dna.length) dna[c] = char; else dna.push(char);
         }
     }
     recalc();
@@ -585,66 +758,44 @@ function overwriteBlock(char) {
 function attemptMoveSelection(dir) {
     if(dir === 0) return;
     const { r1, r2, c1, c2 } = state.selection;
-    
-    // 1. Validation
     let canMove = true;
     for(let r=r1; r<=r2; r++) {
         if(!state.rawSequences[r]) continue;
         const dna = state.rawSequences[r].seq;
-        
         let start, end, step;
         if(state.mode === 'NT') { start = c1; end = c2; step = 1; }
         else { const off = state.frame - 1; start = c1*3+off; end = c2*3+off+2; step = 3; }
-
         const checkEnd = Math.min(end, dna.length - 1);
 
         if(dir > 0) {
-            for(let k=1; k<=step; k++) {
-                if(checkEnd + k < dna.length && dna[checkEnd + k] !== '-') { canMove = false; break; }
-            }
+            for(let k=1; k<=step; k++) if(checkEnd + k < dna.length && dna[checkEnd + k] !== '-') { canMove = false; break; }
         } else {
             if(start - step < 0) { canMove = false; break; }
-            for(let k=1; k<=step; k++) {
-                if(dna[start - k] !== '-') { canMove = false; break; }
-            }
+            for(let k=1; k<=step; k++) if(dna[start - k] !== '-') { canMove = false; break; }
         }
         if(!canMove) break;
     }
-
     if(!canMove) return;
 
-    // 2. Execution
     for(let r=r1; r<=r2; r++) {
         if(!state.rawSequences[r]) continue;
         const dna = state.rawSequences[r].seq;
-        
         let start, end, step;
         if(state.mode === 'NT') { start = c1; end = c2; step = 1; }
         else { const off = state.frame - 1; start = c1*3+off; end = c2*3+off+2; step = 3; }
-
         const effectiveEnd = Math.min(end, dna.length - 1);
 
         if(dir > 0) {
             while(dna.length <= effectiveEnd + step) dna.push('-');
-            for(let i = effectiveEnd; i >= start; i--) {
-                dna[i+step] = dna[i];
-                dna[i] = '-';
-            }
+            for(let i = effectiveEnd; i >= start; i--) { dna[i+step] = dna[i]; dna[i] = '-'; }
         } else {
-            for(let i = start; i <= effectiveEnd; i++) {
-                dna[i-step] = dna[i];
-                dna[i] = '-';
-            }
+            for(let i = start; i <= effectiveEnd; i++) { dna[i-step] = dna[i]; dna[i] = '-'; }
         }
     }
-    
-    state.selection.c1 += (dir>0?1:-1);
-    state.selection.c2 += (dir>0?1:-1);
-    recalc();
+    state.selection.c1 += (dir>0?1:-1); state.selection.c2 += (dir>0?1:-1); recalc();
 }
 
 // --- Render ---
-
 function showOverlay(b) { dom.overlay.classList.toggle('active', b); }
 
 function onResize() {
@@ -654,6 +805,10 @@ function onResize() {
     dom.cvsRuler.height = dom.areaRuler.clientHeight;
     dom.cvsSeq.width = dom.areaSeq.clientWidth;
     dom.cvsSeq.height = dom.areaSeq.clientHeight;
+    if(state.treeWidth > 0) {
+        dom.cvsTree.width = dom.areaTree.clientWidth;
+        dom.cvsTree.height = dom.areaTree.clientHeight;
+    }
     render();
 }
 
@@ -695,7 +850,7 @@ function render() {
     // Selection
     if(state.selection) {
         const { r1, r2, c1, c2 } = state.selection;
-        const visC2 = Math.min(c2, state.maxLength + 20); // visual clamp
+        const visC2 = Math.min(c2, state.maxLength + 20);
         const sx = (c1 * CONFIG.charWidth) - scrollLeft;
         const sy = (r1 * CONFIG.rowHeight) - scrollTop;
         const w = Math.max(4, (visC2 - c1 + 1) * CONFIG.charWidth);
@@ -738,6 +893,63 @@ function render() {
         }
     }
     ctxRuler.stroke();
+
+    // Tree
+    if(state.treeWidth > 0 && state.tree) {
+        ctxTree.clearRect(0, 0, dom.cvsTree.width, dom.cvsTree.height);
+        ctxTree.save();
+        ctxTree.translate(0, -scrollTop);
+        ctxTree.strokeStyle = '#374151';
+        ctxTree.lineWidth = 1;
+
+        const padding = 15;
+        const availableW = dom.cvsTree.width - padding;
+        const xScale = state.tree.maxDepth > 0 ? (availableW / state.tree.maxDepth) : 1;
+
+        const drawNode = (node) => {
+            if(node.hidden) return;
+            const x = (node.xDepth * xScale) + 5;
+            const y = (node.yRow * CONFIG.rowHeight) + (CONFIG.rowHeight/2);
+
+            if(node.children && node.children.length > 0) {
+                let minY = Infinity, maxY = -Infinity;
+                node.children.forEach(c => {
+                    if(c.hidden) return;
+                    drawNode(c);
+                    const cx = (c.xDepth * xScale) + 5;
+                    const cy = (c.yRow * CONFIG.rowHeight) + (CONFIG.rowHeight/2);
+                    
+                    ctxTree.beginPath();
+                    ctxTree.moveTo(x, cy);
+                    ctxTree.lineTo(cx, cy);
+                    ctxTree.stroke();
+
+                    if(cy < minY) minY = cy;
+                    if(cy > maxY) maxY = cy;
+                });
+
+                if(minY !== Infinity) {
+                    ctxTree.beginPath();
+                    ctxTree.moveTo(x, minY);
+                    ctxTree.lineTo(x, maxY);
+                    ctxTree.stroke();
+                }
+            } else {
+                // Leaf connector
+                ctxTree.save();
+                ctxTree.setLineDash([2, 4]);
+                ctxTree.strokeStyle = '#d1d5db';
+                ctxTree.beginPath();
+                ctxTree.moveTo(x, y);
+                ctxTree.lineTo(dom.cvsTree.width, y);
+                ctxTree.stroke();
+                ctxTree.restore();
+            }
+        };
+
+        drawNode(state.tree.root);
+        ctxTree.restore();
+    }
 }
 
 init();
