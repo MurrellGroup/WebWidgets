@@ -529,7 +529,7 @@ function startAsyncAlignment() {
         while(currentIndex < total && (performance.now() - startT < 30)) {
             if(currentIndex !== state.refIndex) {
                 const query = seqsToAlign[currentIndex];
-                const [alnRef, alnQuery] = affineNWAlign(refStr, query.str);
+                const [alnRef, alnQuery] = doubleDP_nwalign(refStr, query.str);
                 results[currentIndex] = { alignedRef: alnRef, alignedQuery: alnQuery };
             }
             currentIndex++;
@@ -606,7 +606,7 @@ function reconstructAlignment(results, seqsToAlign, alignMode, isAA) {
                     if(!polishedCache.has(item.seqIdx)) polishedCache.set(item.seqIdx, new Map());
                     polishedCache.get(item.seqIdx).set(i, leader);
                 } else {
-                    const [ _, polishedQuery ] = affineNWAlign(leader, item.str);
+                    const [ _, polishedQuery ] = doubleDP_nwalign(leader, item.str);
                     if(!polishedCache.has(item.seqIdx)) polishedCache.set(item.seqIdx, new Map());
                     polishedCache.get(item.seqIdx).set(i, polishedQuery);
                     if(polishedQuery.length > maxPolishedLen) maxPolishedLen = polishedQuery.length;
@@ -780,7 +780,7 @@ function realignSelection() {
     // 2. Align everyone to template pairwise
     const results = blockSeqs.map(b => {
         if(b.str === templateStr) return { alignedRef: templateStr, alignedQuery: templateStr };
-        const [aRef, aQuery] = affineNWAlign(templateStr, b.str);
+        const [aRef, aQuery] = doubleDP_nwalign(templateStr, b.str);
         return { alignedRef: aRef, alignedQuery: aQuery };
     });
     
