@@ -6,6 +6,8 @@
     <title>FastAlign: Ultimate Editor</title>
     <!-- Included the NW Alignment Library -->
     <script src="https://murrellgroup.github.io/WebWidgets/nw.js"></script>
+    <!-- Included the Phylogenetic Tools Library -->
+    <script src="https://murrellgroup.github.io/WebWidgets/phylotools.js"></script>
     <style>
         :root {
             --bg-color: #f8f9fa;
@@ -173,7 +175,11 @@
         </div>
         <div class="control-group">
             <label>Phylogeny</label>
-            <input type="file" id="inp-tree">
+            <div style="display:flex; gap:5px; align-items:center;">
+                <button id="btn-infer-tree" title="Infer NJ tree from sequences">Infer</button>
+                <input type="file" id="inp-tree">
+                <button id="btn-export-tree" title="Export current tree as Newick">Export</button>
+            </div>
         </div>
         <div style="width:1px; height:30px; background:#e5e7eb; margin:0 10px;"></div>
         <div class="control-group">
@@ -327,6 +333,8 @@ const state = {
 const dom = {
     file: document.getElementById('inp-file'),
     fileTree: document.getElementById('inp-tree'),
+    btnInferTree: document.getElementById('btn-infer-tree'),
+    btnExportTree: document.getElementById('btn-export-tree'),
     btnUndo: document.getElementById('btn-undo'),
     btnNt: document.getElementById('btn-nt'),
     btnAa: document.getElementById('btn-aa'),
@@ -368,6 +376,8 @@ const ctxTree = dom.cvsTree.getContext('2d');
 function init() {
     dom.file.addEventListener('change', e => loadFile(e.target.files[0]));
     dom.fileTree.addEventListener('change', e => loadTreeFile(e.target.files[0]));
+    dom.btnInferTree.addEventListener('click', inferTree);
+    dom.btnExportTree.addEventListener('click', exportTree);
     dom.btnUndo.addEventListener('click', undo);
     dom.btnNt.addEventListener('click', () => setMode('NT'));
     dom.btnAa.addEventListener('click', () => setMode('AA'));
@@ -970,6 +980,73 @@ function loadTreeFromURL(url) {
             alert("Failed to load tree from URL: " + err.message);
             showOverlay(false);
         });
+}
+
+// --- Infer Tree using PhyloTools ---
+function inferTree() {
+    if (!state.rawSequences || state.rawSequences.length < 2) {
+        alert("Need at least 2 sequences to infer a tree.");
+        return;
+    }
+    
+    showOverlay(true);
+    dom.overlayMsg.textContent = "Inferring phylogeny...";
+    dom.overlaySub.textContent = "Calculating distances and building NJ tree";
+    
+    setTimeout(() => {
+        try {
+            // Extract sequences (strip gaps for distance calculation)
+            const labels = state.rawSequences.map(s => s.name);
+            const seqs = state.rawSequences.map(s => s.seq.join(''));
+            
+            // Use PhyloTools to generate the Newick tree
+            const newick = PhyloTools.generatePhylogeny(seqs, labels);
+            
+            // Parse the generated tree
+            parseTree(newick);
+        } catch (err) {
+            console.error("Error inferring tree:", err);
+            alert("Failed to infer tree: " + err.message);
+            showOverlay(false);
+        }
+    }, 50);
+}
+
+// --- Export Tree as Newick ---
+function exportTree() {
+    if (!state.tree || !state.tree.root) {
+        alert("No tree to export. Load or infer a tree first.");
+        return;
+    }
+    
+    const newick = treeToNewick(state.tree.root) + ';';
+    
+    // Download as file
+    const blob = new Blob([newick], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "tree.nwk";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// --- Convert tree structure back to Newick format ---
+function treeToNewick(node) {
+    if (!node.children || node.children.length === 0) {
+        // Leaf node
+        const name = node.name || '';
+        const len = (node.len !== undefined && node.len !== 0) ? `:${node.len.toFixed(5)}` : '';
+        return name + len;
+    } else {
+        // Internal node
+        const childStrs = node.children.map(c => treeToNewick(c));
+        const name = node.name || '';
+        const len = (node.len !== undefined && node.len !== 0) ? `:${node.len.toFixed(5)}` : '';
+        return `(${childStrs.join(',')})${name}${len}`;
+    }
 }
 
 function parseFastq(text) {
