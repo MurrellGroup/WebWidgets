@@ -11,7 +11,8 @@
             --border-color: #d1d5db;
             --primary: #2563eb;
             --header-height: 90px;
-            --ruler-height: 30px;
+            /* UPDATED: Increased height for double ruler */
+            --ruler-height: 60px; 
             --names-width: 200px;
             --tree-width: 0px; /* Dynamic */
         }
@@ -124,6 +125,26 @@
             line-height: 1.3; background: #f3f4f6; padding: 5px 10px; border-radius: 4px; border: 1px solid #e5e7eb;
         }
         .tag { display: inline-block; padding: 1px 4px; background: #e5e7eb; border-radius: 3px; font-weight: 600; font-size: 10px; }
+
+        /* NEW: Context Menu */
+        #ctx-menu {
+            position: fixed; 
+            background: white; 
+            border: 1px solid #d1d5db; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+            border-radius: 4px; 
+            padding: 4px 0;
+            z-index: 10000;
+            display: none;
+            min-width: 150px;
+        }
+        #ctx-menu .item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            color: #374151;
+        }
+        #ctx-menu .item:hover { background-color: #f3f4f6; color: var(--primary); }
     </style>
 </head>
 <body>
@@ -131,8 +152,8 @@
 <div id="app">
     <div id="controls">
         <div class="control-group">
-            <label>Sequences</label>
-            <input type="file" id="inp-file">
+            <label>Sequences (Fasta/Fastq)</label>
+            <input type="file" id="inp-file" accept=".fasta,.fa,.fastq,.fq,.txt">
         </div>
         <div class="control-group">
             <label>Phylogeny</label>
@@ -164,7 +185,7 @@
             </select>
         </div>
         <div class="hint-text">
-            <strong>Tree Support Active</strong><br>
+            <strong>Right-click Name</strong> Set Reference<br>
             <span class="tag">Drag Divider</span> Resize Tree Panel<br>
             <span class="tag">Cmd+Z</span> Undo
         </div>
@@ -185,6 +206,10 @@
 <div id="overlay">
     <div class="spinner"></div>
     <div id="overlay-msg" style="margin-top:10px; font-weight:500;">Processing...</div>
+</div>
+
+<div id="ctx-menu">
+    <div class="item" id="ctx-btn-ref">Set as Reference</div>
 </div>
 
 <script>
@@ -225,7 +250,10 @@ const state = {
     selection: null, 
     tree: null, 
     treeWidth: 0, 
-    mouse: { isDown: false, target: null, startR: 0, startC: 0, lastHoverC: 0 }
+    refIndex: 0, // Index of the reference sequence in viewSequences
+    refMap: [],  // Maps column index to reference number
+    mouse: { isDown: false, target: null, startR: 0, startC: 0, lastHoverC: 0 },
+    ctxTargetRow: null
 };
 
 // --- DOM ---
@@ -239,6 +267,8 @@ const dom = {
     selFrame: document.getElementById('sel-frame'),
     grpFrame: document.getElementById('grp-frame'),
     overlay: document.getElementById('overlay'),
+    ctxMenu: document.getElementById('ctx-menu'),
+    ctxBtnRef: document.getElementById('ctx-btn-ref'),
     
     areaSeq: document.getElementById('area-seq'),
     areaNames: document.getElementById('area-names'),
@@ -272,9 +302,37 @@ function init() {
     window.addEventListener('resize', onResize);
     
     dom.areaSeq.addEventListener('mousedown', (e) => onMouseDown(e, 'SEQ'));
-    dom.areaNames.addEventListener('mousedown', (e) => { e.preventDefault(); onMouseDown(e, 'NAMES'); });
+    dom.areaNames.addEventListener('mousedown', (e) => { 
+        if(e.button === 2) return; // Right click handled by contextmenu
+        e.preventDefault(); onMouseDown(e, 'NAMES'); 
+    });
     dom.areaRuler.addEventListener('mousedown', (e) => { e.preventDefault(); onMouseDown(e, 'RULER'); });
     
+    // NEW: Context Menu Logic
+    dom.areaNames.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const { r } = getCoords(e, 'NAMES');
+        if(r >= 0 && r < state.viewSequences.length) {
+            state.ctxTargetRow = r;
+            dom.ctxMenu.style.display = 'block';
+            dom.ctxMenu.style.left = e.clientX + 'px';
+            dom.ctxMenu.style.top = e.clientY + 'px';
+        }
+    });
+
+    dom.ctxBtnRef.addEventListener('click', () => {
+        if(state.ctxTargetRow !== null) {
+            state.refIndex = state.ctxTargetRow;
+            recalc();
+        }
+        dom.ctxMenu.style.display = 'none';
+    });
+
+    // Close menu on click elsewhere
+    window.addEventListener('mousedown', (e) => {
+        if(!dom.ctxMenu.contains(e.target)) dom.ctxMenu.style.display = 'none';
+    });
+
     dom.resizerTree.addEventListener('mousedown', (e) => {
         e.preventDefault();
         state.mouse.isDown = true;
@@ -299,7 +357,8 @@ function init() {
 function saveState() {
     const snapshot = {
         seqs: JSON.parse(JSON.stringify(state.rawSequences)),
-        sel: state.selection ? { ...state.selection } : null
+        sel: state.selection ? { ...state.selection } : null,
+        refIdx: state.refIndex
     };
     state.history.push(snapshot);
     if(state.history.length > CONFIG.maxHistory) state.history.shift();
@@ -310,6 +369,10 @@ function undo() {
     const prev = state.history.pop();
     state.rawSequences = prev.seqs;
     state.selection = prev.sel;
+    // Restore reference index if safe
+    if(prev.refIdx < state.rawSequences.length) state.refIndex = prev.refIdx;
+    else state.refIndex = 0;
+    
     recalc();
 }
 
@@ -318,7 +381,15 @@ function loadFile(file) {
     if(!file) return;
     showOverlay(true);
     const reader = new FileReader();
-    reader.onload = e => parseFasta(e.target.result);
+    
+    // NEW: Check file extension
+    const name = file.name.toLowerCase();
+    const isFastq = name.endsWith('.fastq') || name.endsWith('.fq');
+
+    reader.onload = e => {
+        if(isFastq) parseFastq(e.target.result);
+        else parseFasta(e.target.result);
+    };
     reader.readAsText(file);
 }
 
@@ -354,6 +425,32 @@ function loadExample() {
     }, 50);
 }
 
+// NEW: Fastq Parser
+function parseFastq(text) {
+    const lines = text.split(/\r?\n/);
+    const seqs = [];
+    // Fastq is usually 4 lines per record.
+    // Line 1: @ID
+    // Line 2: Sequence
+    // Line 3: +
+    // Line 4: Qualities (Ignored)
+    for(let i=0; i<lines.length; i++) {
+        const line = lines[i].trim();
+        if(!line) continue;
+        if(line.startsWith('@')) {
+            const name = line.substring(1); // Remove @
+            // Look ahead for sequence
+            if(i + 1 < lines.length) {
+                const seqStr = lines[i+1].trim().toUpperCase().replace(/[^A-Z-]/g, '');
+                seqs.push({ name: name, seq: seqStr.split('') });
+                i += 3; // Skip sequence, +, quality
+            }
+        }
+    }
+    
+    finalizeLoad(seqs);
+}
+
 function parseFasta(text) {
     const lines = text.split(/\r?\n/);
     const seqs = [];
@@ -371,10 +468,15 @@ function parseFasta(text) {
     }
     if(name) seqs.push({name, seq: buf.join('').split('')});
     
+    finalizeLoad(seqs);
+}
+
+function finalizeLoad(seqs) {
     state.rawSequences = seqs;
     state.selection = null;
     state.history = [];
     state.tree = null;
+    state.refIndex = 0; // Reset reference to first
     setTreeWidth(0);
     recalc();
     showOverlay(false);
@@ -390,15 +492,13 @@ function parseTree(newick) {
     
     saveState();
 
-    // Clean newlines
     let s = newick.replace(/[\r\n]/g, '').trim();
     if(s.endsWith(';')) s = s.slice(0, -1);
 
-    // Tokenize: keep delimiters, filter empties
     const tokens = s.split(/([(),:;])/).map(t => t.trim()).filter(t => t !== '');
     
     let stack = [];
-    let current = { children: [], name: null, len: 0 }; // Root
+    let current = { children: [], name: null, len: 0 };
     let root = current;
 
     for(let i=0; i<tokens.length; i++) {
@@ -409,7 +509,7 @@ function parseTree(newick) {
             stack.push(current);
             current = node;
         } else if (t === ',') {
-            current = stack[stack.length-1]; // Go to parent
+            current = stack[stack.length-1]; 
             let node = { children: [], name: null, len: 0, parent: current };
             current.children.push(node);
             current = node;
@@ -421,12 +521,10 @@ function parseTree(newick) {
             let val = parseFloat(lenStr);
             if(!isNaN(val)) current.len = val;
         } else {
-            // Remove quotes if present
             current.name = t.replace(/^['"]|['"]$/g, '');
         }
     }
 
-    // 1. Get Leaf Order
     const leafOrder = [];
     function traverse(node) {
         if(!node.children || node.children.length === 0) {
@@ -437,7 +535,6 @@ function parseTree(newick) {
     }
     traverse(root);
 
-    // 2. Reorder Sequences
     const seqMap = new Map();
     state.rawSequences.forEach(s => seqMap.set(s.name, s));
     
@@ -448,12 +545,12 @@ function parseTree(newick) {
             seqMap.delete(name);
         }
     });
-    // Append orphans
     for(let s of seqMap.values()) newSeqList.push(s);
     state.rawSequences = newSeqList;
+    
+    // Reset ref index if reordered, or find where it went (keeping it simple: reset to 0)
+    state.refIndex = 0;
 
-    // 3. Calc Depths
-    // First pass to see if we have valid lengths
     let totalLen = 0;
     function checkLen(n) { totalLen += (n.len || 0); n.children.forEach(checkLen); }
     checkLen(root);
@@ -462,16 +559,12 @@ function parseTree(newick) {
     let maxDepth = 0;
 
     function layoutX(node, currentDepth) {
-        // If cladogram, length is always 1 (or 0 for root if you prefer, but 1 makes steps visible)
         let dist = useCladogram ? (node === root ? 0 : 1) : (node.len || 0);
-        
         node.xDepth = currentDepth + dist;
         if(node.xDepth > maxDepth) maxDepth = node.xDepth;
-        
         node.children.forEach(c => layoutX(c, node.xDepth));
     }
     
-    // Explicitly set root len to 0 for layout origin
     root.len = 0; 
     layoutX(root, 0);
 
@@ -523,10 +616,26 @@ function recalc() {
         });
     }
 
+    // Safety check for reference index
+    if(state.refIndex >= state.viewSequences.length) state.refIndex = 0;
+
     let max = 0;
     state.viewSequences.forEach(s => max = Math.max(max, s.seq.length));
     state.maxLength = max;
     
+    // NEW: Precalculate Reference Coordinates
+    state.refMap = new Int32Array(max + 1);
+    if(state.viewSequences[state.refIndex]) {
+        const refSeq = state.viewSequences[state.refIndex].seq;
+        let count = 0;
+        for(let i=0; i<max; i++) {
+            // If i exceeds ref length, we treat it as gap
+            const char = (i < refSeq.length) ? refSeq[i] : '-';
+            if(char !== '-') count++;
+            state.refMap[i] = count;
+        }
+    }
+
     dom.sizer.style.width = (max * CONFIG.charWidth + 200) + 'px';
     dom.sizer.style.height = (state.viewSequences.length * CONFIG.rowHeight) + 'px';
     
@@ -539,7 +648,6 @@ function recalc() {
         
         function computeY(node) {
             if(!node.children || node.children.length === 0) {
-                // Leaf
                 if(node.name && nameToRow.has(node.name)) {
                     node.yRow = nameToRow.get(node.name);
                     node.hidden = false;
@@ -564,7 +672,6 @@ function recalc() {
                     }
                 });
                 node.hidden = allHidden;
-                // Rectangular tree: Parent Y is midpoint of children extents
                 node.yRow = count ? (minC + maxC) / 2 : 0;
             }
         }
@@ -866,33 +973,84 @@ function render() {
     for(let r=startRow; r<endRow; r++) {
         const y = (r * CONFIG.rowHeight) - scrollTop;
         let isSel = state.selection && (r >= state.selection.r1 && r <= state.selection.r2);
-        ctxNames.fillStyle = isSel ? '#eff6ff' : (r%2===0 ? '#f9fafb' : '#fff');
+        
+        // Highlight Reference Sequence name
+        if(r === state.refIndex) ctxNames.fillStyle = '#eff6ff'; // Light blue bg for reference
+        else ctxNames.fillStyle = isSel ? '#eff6ff' : (r%2===0 ? '#f9fafb' : '#fff');
+        
         ctxNames.fillRect(0, y, dom.cvsNames.width, CONFIG.rowHeight);
-        ctxNames.fillStyle = isSel ? '#1e40af' : '#374151';
-        ctxNames.fillText(state.viewSequences[r].name, 10, y + CONFIG.rowHeight/2);
+        
+        if(r === state.refIndex) {
+            ctxNames.fillStyle = '#2563eb'; 
+            ctxNames.font = "bold " + CONFIG.labelFont;
+        } else {
+            ctxNames.fillStyle = isSel ? '#1e40af' : '#374151';
+            ctxNames.font = CONFIG.labelFont;
+        }
+        
+        let label = state.viewSequences[r].name;
+        if(r === state.refIndex) label += " [Ref]";
+        ctxNames.fillText(label, 10, y + CONFIG.rowHeight/2);
     }
 
     // Ruler
     ctxRuler.fillStyle = '#f3f4f6'; ctxRuler.fillRect(0,0,dom.cvsRuler.width, dom.cvsRuler.height);
-    ctxRuler.font = "10px sans-serif"; ctxRuler.textAlign = "center"; ctxRuler.strokeStyle = "#9ca3af";
-    ctxRuler.beginPath();
+    ctxRuler.font = "10px sans-serif"; ctxRuler.textAlign = "center"; 
+    
+    // UPDATED: Draw Two Tracks
+    // Track 1: Reference (Top, y=0 to 30)
+    // Track 2: Alignment (Bottom, y=30 to 60)
+    
+    const h = dom.cvsRuler.height;
+    const mid = h / 2;
+
+    // Draw separator line
+    ctxRuler.strokeStyle = '#e5e7eb';
+    ctxRuler.beginPath(); ctxRuler.moveTo(0, mid); ctxRuler.lineTo(dom.cvsRuler.width, mid); ctxRuler.stroke();
+
+    ctxRuler.strokeStyle = "#9ca3af";
+
     for(let c=startCol; c<endCol; c++) {
         const x = (c * CONFIG.charWidth) - scrollLeft + (CONFIG.charWidth/2);
         let isSel = state.selection && (c >= state.selection.c1 && c <= state.selection.c2);
+        
         if(isSel) {
             ctxRuler.fillStyle = "rgba(37, 99, 235, 0.2)";
-            ctxRuler.fillRect((c*CONFIG.charWidth)-scrollLeft, 0, CONFIG.charWidth, 30);
-            ctxRuler.fillStyle = "#000";
-        } else { ctxRuler.fillStyle = "#6b7280"; }
+            ctxRuler.fillRect((c*CONFIG.charWidth)-scrollLeft, 0, CONFIG.charWidth, h);
+        }
 
-        const idx = c + 1;
-        if(idx===1 || idx % CONFIG.rulerTickStep === 0) {
-            ctxRuler.moveTo(x, 15); ctxRuler.lineTo(x, 30); ctxRuler.fillText(idx, x, 12);
-        } else if(idx % (CONFIG.rulerTickStep/2)===0) {
-            ctxRuler.moveTo(x, 22); ctxRuler.lineTo(x, 30);
+        // --- Alignment Track (Bottom) ---
+        const alnIdx = c + 1;
+        ctxRuler.fillStyle = "#6b7280";
+        if(alnIdx===1 || alnIdx % CONFIG.rulerTickStep === 0) {
+            ctxRuler.moveTo(x, mid + 15); ctxRuler.lineTo(x, h);
+            ctxRuler.fillText(alnIdx, x, mid + 12);
+        } else if(alnIdx % (CONFIG.rulerTickStep/2)===0) {
+            ctxRuler.moveTo(x, mid + 22); ctxRuler.lineTo(x, h);
+        }
+
+        // --- Reference Track (Top) ---
+        const refIdx = state.refMap[c];
+        const prevRefIdx = (c > 0) ? state.refMap[c-1] : 0;
+        
+        // Only draw tick if ref index changed (i.e., not a gap in ref)
+        if(refIdx !== prevRefIdx) {
+            ctxRuler.fillStyle = "#2563eb"; // Blue for reference
+            if(refIdx===1 || refIdx % CONFIG.rulerTickStep === 0) {
+                ctxRuler.moveTo(x, 0); ctxRuler.lineTo(x, 15);
+                ctxRuler.fillText(refIdx, x, 25);
+            } else if(refIdx % (CONFIG.rulerTickStep/2)===0) {
+                ctxRuler.moveTo(x, 0); ctxRuler.lineTo(x, 8);
+            }
         }
     }
     ctxRuler.stroke();
+    
+    // Labels for tracks
+    ctxRuler.fillStyle = "#2563eb"; ctxRuler.font = "9px sans-serif"; ctxRuler.textAlign = "left";
+    ctxRuler.fillText("Ref", 2, 12);
+    ctxRuler.fillStyle = "#6b7280";
+    ctxRuler.fillText("Aln", 2, mid + 12);
 
     // Tree
     if(state.treeWidth > 0 && state.tree) {
