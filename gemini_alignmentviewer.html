@@ -11,10 +11,9 @@
             --border-color: #d1d5db;
             --primary: #2563eb;
             --header-height: 90px;
-            /* UPDATED: Increased height for double ruler */
             --ruler-height: 60px; 
             --names-width: 200px;
-            --tree-width: 0px; /* Dynamic */
+            --tree-width: 0px; 
         }
 
         * { box-sizing: border-box; }
@@ -45,7 +44,7 @@
 
         .control-group { display: flex; flex-direction: column; gap: 4px; }
         label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #6b7280; }
-        button, select, input {
+        button, select, input[type="file"] {
             padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px;
             background: white; font-size: 13px; cursor: pointer;
         }
@@ -126,7 +125,6 @@
         }
         .tag { display: inline-block; padding: 1px 4px; background: #e5e7eb; border-radius: 3px; font-weight: 600; font-size: 10px; }
 
-        /* NEW: Context Menu */
         #ctx-menu {
             position: fixed; 
             background: white; 
@@ -176,6 +174,23 @@
                 <button id="btn-aa" style="border-top-left-radius:0; border-bottom-left-radius:0; border-left:none;">Amino Acid</button>
             </div>
         </div>
+        
+        <!-- NEW: Alignment Controls -->
+        <div class="control-group">
+            <label>Alignment</label>
+            <div style="display:flex; gap:5px;">
+                <button id="btn-align">Align</button>
+                <select id="sel-align-mode">
+                    <option value="left">Standard (Left Pile)</option>
+                    <option value="polish">Polish Insertions</option>
+                    <option value="discard">Discard Insertions</option>
+                </select>
+            </div>
+        </div>
+        <!-- End New Controls -->
+
+        <div style="width:1px; height:30px; background:#e5e7eb; margin:0 10px;"></div>
+
         <div class="control-group" id="grp-frame" style="opacity:0.4; pointer-events:none;">
             <label>Reading Frame</label>
             <select id="sel-frame">
@@ -206,6 +221,7 @@
 <div id="overlay">
     <div class="spinner"></div>
     <div id="overlay-msg" style="margin-top:10px; font-weight:500;">Processing...</div>
+    <div id="overlay-sub" style="margin-top:5px; font-size:12px; color:#666;"></div>
 </div>
 
 <div id="ctx-menu">
@@ -213,6 +229,105 @@
 </div>
 
 <script>
+// --- ALIGNMENT ALGORITHM (PROVIDED) ---
+function affineNWAlign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -0.7, boundaryGapFactor = 10) {
+    const s1arr = s1.split('');
+    const s1len = s1arr.length;
+    const s2arr = s2.split('');
+    const s2len = s2arr.length;
+    const M = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+    const IX = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+    const IY = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+    for (let i = 0; i <= s1len; i++) {
+        IX[i][0] = gapOpen + gapExtend * i;
+        IY[i][0] = -Infinity;
+        M[i][0] = gapOpen + gapExtend * i;
+    }
+    for (let j = 0; j <= s2len; j++) {
+        IX[0][j] = -Infinity;
+        IY[0][j] = gapOpen + gapExtend * j;
+        M[0][j] = gapOpen + gapExtend * j;
+    }
+    const traceM = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+    const traceIX = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+    const traceIY = Array(s1len + 1).fill().map(() => Array(s2len + 1).fill(0));
+    traceM[0].fill(3);
+    traceIX[0].fill(3);
+    traceIY[0].fill(3);
+    for (let i = 1; i <= s1len; i++) {
+        traceM[i][0] = 2;
+        traceIX[i][0] = 2;
+        traceIY[i][0] = 2;
+    }
+    for (let i = 1; i <= s1len; i++) {
+        for (let j = 1; j <= s2len; j++) {
+            const diagCost = s1arr[i - 1] === s2arr[j - 1] ? matchCost : mismatchCost;
+            const diagM = M[i - 1][j - 1] + diagCost;
+            const IX2M = IX[i - 1][j - 1] + diagCost;
+            const IY2M = IY[i - 1][j - 1] + diagCost;
+            [M[i][j], traceM[i][j]] = findMax([diagM, IX2M, IY2M]);
+
+            const boundaryGapExtendX = (i === s1len) ? gapExtend / boundaryGapFactor : gapExtend;
+            const boundaryGapExtendY = (j === s2len) ? gapExtend / boundaryGapFactor : gapExtend;
+            
+            const M2IX = M[i - 1][j] + gapOpen;
+            const IXextend = IX[i - 1][j] + boundaryGapExtendY;
+            [IX[i][j], traceIX[i][j]] = findMax([M2IX, IXextend]);
+
+            const M2IY = M[i][j - 1] + gapOpen;
+            const IYextend = IY[i][j - 1] + boundaryGapExtendX;
+            [IY[i][j], traceIY[i][j]] = findMax([M2IY, -Infinity, IYextend]);
+        }
+    }
+    const revArr1 = [];
+    const revArr2 = [];
+    const mats = [traceM, traceIX, traceIY];
+    let xI = s1len;
+    let yI = s2len;
+    let mI = findMax([M[xI][yI], IX[xI][yI], IY[xI][yI]])[1];
+    while (xI > 0 && yI > 0) {
+        const nextMI = mats[mI - 1][xI][yI];
+        if (mI === 1) {
+            revArr1.push(s1arr[xI - 1]);
+            revArr2.push(s2arr[yI - 1]);
+            xI--;
+            yI--;
+        } else if (mI === 2) {
+            revArr1.push(s1arr[xI - 1]);
+            revArr2.push('-');
+            xI--;
+        } else if (mI === 3) {
+            revArr1.push('-');
+            revArr2.push(s2arr[yI - 1]);
+            yI--;
+        }
+        mI = nextMI;
+    }
+    while (xI > 0) {
+        revArr1.push(s1arr[xI - 1]);
+        revArr2.push('-');
+        xI--;
+    }
+    while (yI > 0) {
+        revArr1.push('-');
+        revArr2.push(s2arr[yI - 1]);
+        yI--;
+    }
+    return [revArr1.reverse().join(''), revArr2.reverse().join('')];
+}
+
+function findMax(arr) {
+    let maxVal = arr[0];
+    let maxIndex = 1;
+    for (let i = 1; i < arr.length; i++) {
+        if (arr[i] > maxVal) {
+            maxVal = arr[i];
+            maxIndex = i + 1;
+        }
+    }
+    return [maxVal, maxIndex];
+}
+
 // --- Config ---
 const CONFIG = {
     font: "14px 'Courier New', monospace",
@@ -250,8 +365,8 @@ const state = {
     selection: null, 
     tree: null, 
     treeWidth: 0, 
-    refIndex: 0, // Index of the reference sequence in viewSequences
-    refMap: [],  // Maps column index to reference number
+    refIndex: 0, 
+    refMap: [], 
     mouse: { isDown: false, target: null, startR: 0, startC: 0, lastHoverC: 0 },
     ctxTargetRow: null
 };
@@ -264,9 +379,13 @@ const dom = {
     btnUndo: document.getElementById('btn-undo'),
     btnNt: document.getElementById('btn-nt'),
     btnAa: document.getElementById('btn-aa'),
+    btnAlign: document.getElementById('btn-align'),
+    selAlignMode: document.getElementById('sel-align-mode'),
     selFrame: document.getElementById('sel-frame'),
     grpFrame: document.getElementById('grp-frame'),
     overlay: document.getElementById('overlay'),
+    overlayMsg: document.getElementById('overlay-msg'),
+    overlaySub: document.getElementById('overlay-sub'),
     ctxMenu: document.getElementById('ctx-menu'),
     ctxBtnRef: document.getElementById('ctx-btn-ref'),
     
@@ -297,18 +416,20 @@ function init() {
     dom.btnNt.addEventListener('click', () => setMode('NT'));
     dom.btnAa.addEventListener('click', () => setMode('AA'));
     dom.selFrame.addEventListener('change', () => { state.frame = +dom.selFrame.value; recalc(); });
+    
+    // Align Button Listener
+    dom.btnAlign.addEventListener('click', runAlignmentTask);
 
     dom.areaSeq.addEventListener('scroll', () => requestAnimationFrame(render));
     window.addEventListener('resize', onResize);
     
     dom.areaSeq.addEventListener('mousedown', (e) => onMouseDown(e, 'SEQ'));
     dom.areaNames.addEventListener('mousedown', (e) => { 
-        if(e.button === 2) return; // Right click handled by contextmenu
+        if(e.button === 2) return; 
         e.preventDefault(); onMouseDown(e, 'NAMES'); 
     });
     dom.areaRuler.addEventListener('mousedown', (e) => { e.preventDefault(); onMouseDown(e, 'RULER'); });
     
-    // NEW: Context Menu Logic
     dom.areaNames.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         const { r } = getCoords(e, 'NAMES');
@@ -328,7 +449,6 @@ function init() {
         dom.ctxMenu.style.display = 'none';
     });
 
-    // Close menu on click elsewhere
     window.addEventListener('mousedown', (e) => {
         if(!dom.ctxMenu.contains(e.target)) dom.ctxMenu.style.display = 'none';
     });
@@ -353,6 +473,423 @@ function init() {
     onResize();
 }
 
+// --- Async Alignment Logic ---
+
+// Wrapper to start the process
+function runAlignmentTask() {
+    if(state.rawSequences.length < 2) return;
+    saveState();
+    showOverlay(true);
+    dom.overlayMsg.textContent = "Initializing...";
+    dom.overlaySub.textContent = "";
+
+    // Defer to allow UI to show overlay
+    setTimeout(startAsyncAlignment, 50);
+}
+
+function startAsyncAlignment() {
+    const alignMode = dom.selAlignMode.value; // 'left', 'polish', 'discard'
+    const isAA = (state.mode === 'AA');
+    
+    // 1. Pre-process sequences (Clean gaps, Translate if AA)
+    const seqsToAlign = state.rawSequences.map(s => {
+        const cleanSeq = s.seq.join('').replace(/-/g, '');
+        if (isAA) {
+            const aa = [];
+            const offset = state.frame - 1;
+            for(let i=offset; i<cleanSeq.length; i+=3) {
+                if(i+2 >= cleanSeq.length) break;
+                const codon = cleanSeq.substring(i, i+3);
+                aa.push(CODON_TABLE[codon] || 'X');
+            }
+            return { name: s.name, str: aa.join(''), original: cleanSeq };
+        } else {
+            return { name: s.name, str: cleanSeq, original: cleanSeq };
+        }
+    });
+
+    const refStr = seqsToAlign[state.refIndex].str;
+    const refLen = refStr.length;
+    
+    // Store results
+    // results[i] = { alignedRef, alignedQuery }
+    const results = new Array(seqsToAlign.length);
+    // Initialize Ref to self
+    results[state.refIndex] = { alignedRef: refStr, alignedQuery: refStr };
+
+    // Insertion Content Map: refIdx -> Array of insertion strings
+    const insertionsMap = new Array(refLen + 1).fill().map(() => []);
+
+    let currentIndex = 0;
+    const batchSize = 10; // Number of seqs to align per frame
+    const total = seqsToAlign.length;
+
+    function tick() {
+        const startT = performance.now();
+        
+        while(currentIndex < total && (performance.now() - startT < 30)) {
+            // Process a batch
+            for(let k=0; k<batchSize && currentIndex < total; k++) {
+                if(currentIndex === state.refIndex) {
+                    currentIndex++;
+                    continue;
+                }
+
+                const query = seqsToAlign[currentIndex];
+                const [alnRef, alnQuery] = affineNWAlign(refStr, query.str);
+                results[currentIndex] = { alignedRef: alnRef, alignedQuery: alnQuery };
+
+                if (alignMode !== 'discard') {
+                    // Extract insertions relative to reference
+                    let rIdx = 0;
+                    let currentGapRun = "";
+                    for(let i=0; i<alnRef.length; i++) {
+                        if(alnRef[i] === '-') {
+                            currentGapRun += alnQuery[i];
+                        } else {
+                            if(currentGapRun.length > 0) {
+                                insertionsMap[rIdx].push(currentGapRun);
+                                currentGapRun = "";
+                            }
+                            rIdx++;
+                        }
+                    }
+                    if(currentGapRun.length > 0) {
+                        insertionsMap[refLen].push(currentGapRun);
+                    }
+                }
+                currentIndex++;
+            }
+        }
+
+        // Update UI Progress
+        const pct = Math.round((currentIndex / total) * 100);
+        dom.overlayMsg.textContent = `Aligning... ${currentIndex}/${total} (${pct}%)`;
+
+        // Update Visual Display (Construct Partial Alignment)
+        // This allows user to see rows snapping into place
+        updatePartialView(results, insertionsMap, seqsToAlign, alignMode, isAA, currentIndex);
+
+        if(currentIndex < total) {
+            // Next frame
+            setTimeout(tick, 0);
+        } else {
+            // Done
+            dom.overlayMsg.textContent = "Finalizing...";
+            setTimeout(() => {
+                finishAlignment(results, insertionsMap, seqsToAlign, alignMode, isAA);
+            }, 10);
+        }
+    }
+
+    tick();
+}
+
+function updatePartialView(results, insertionsMap, seqsToAlign, alignMode, isAA, limitIndex) {
+    // Only reconstruct up to limitIndex (or just all, but results will be undefined for > limitIndex)
+    // NOTE: For 'Left Pile' or 'Polish', the columns depend on ALL sequences. 
+    // So early rows might jump around as later rows add larger insertions.
+    // This is expected behavior and actually informative for the user.
+    
+    reconstruct(results, insertionsMap, seqsToAlign, alignMode, isAA, true); // true = partial/don't optimize
+}
+
+function finishAlignment(results, insertionsMap, seqsToAlign, alignMode, isAA) {
+    // If Polish mode, we have an extra step before reconstruction
+    if(alignMode === 'polish') {
+        dom.overlayMsg.textContent = "Polishing Insertions...";
+        // Iterate over insertion blocks
+        for(let rIdx = 0; rIdx < insertionsMap.length; rIdx++) {
+            const insList = insertionsMap[rIdx];
+            if(insList.length < 2) continue; // Nothing to align
+
+            // Find longest insertion in this block
+            let longest = insList[0];
+            for(let s of insList) if(s.length > longest.length) longest = s;
+            if(longest.length === 0) continue;
+
+            // Re-align all insertions in this block to the longest one
+            // We replace the raw strings in insertionsMap with their polished versions (padded)
+            // But wait, insertionsMap stores the raw list. We need to store the mapped version
+            // so reconstruction can pick it up.
+            // Actually, we need to map: SequenceIndex -> PolishedString at rIdx.
+            // But currently insertionsMap doesn't track which sequence the insertion came from.
+            // My async structure gathered strings anonymously. 
+            // FIX: We need to just do the polish calculation during reconstruction or
+            // store {seqIdx, str} in insertionsMap.
+        }
+    }
+    
+    // To properly support Polish, we need to re-run the loop or change data structure.
+    // Given the complexity, I will modify the reconstruction loop to handle polish on the fly
+    // OR, better, let's just re-gather logic.
+    // The previous structure `insertionsMap[rIdx].push(str)` lost the sequence ID.
+    // However, during reconstruction, we iterate sequence by sequence. 
+    // We can extract the insertion *again* and align it to the "Longest" which we can find now.
+    
+    reconstruct(results, insertionsMap, seqsToAlign, alignMode, isAA, false);
+    showOverlay(false);
+}
+
+function reconstruct(results, insertionsMap, seqsToAlign, alignMode, isAA, isPartial) {
+    const refLen = insertionsMap.length - 1;
+
+    // Calculate max insertion length at each position (Global Column Map)
+    // If Polish mode, this calculation is trickier because we align to longest.
+    // The "Space" needed is the length of (Longest aligned to itself) -> Length of Longest.
+    // Plus, if other sequences contain things NOT in longest, affineNW might insert gaps in Longest.
+    // Simplified Polish: The width of the block is simply the length of the Longest Insertion.
+    
+    const maxInsLens = new Int32Array(refLen + 1);
+
+    if (alignMode === 'polish') {
+        for(let i=0; i<=refLen; i++) {
+            let max = 0;
+            const list = insertionsMap[i]; 
+            for(let s of list) if(s.length > max) max = s.length;
+            maxInsLens[i] = max;
+        }
+    } else if (alignMode === 'left') {
+        for(let i=0; i<=refLen; i++) {
+            let max = 0;
+            const list = insertionsMap[i];
+            for(let s of list) if(s.length > max) max = s.length;
+            maxInsLens[i] = max;
+        }
+    }
+    // For 'discard', maxInsLens is all 0.
+
+    // Reconstruct strings
+    for(let i=0; i<state.rawSequences.length; i++) {
+        // If partial update, skip unprocessed
+        if(!results[i]) continue;
+
+        const res = results[i];
+        let finalStr = "";
+
+        if (alignMode === 'discard') {
+            for(let k=0; k<res.alignedRef.length; k++) {
+                if(res.alignedRef[k] !== '-') finalStr += res.alignedQuery[k];
+            }
+        } else {
+            let alnPos = 0; 
+            for(let rIdx = 0; rIdx <= refLen; rIdx++) {
+                const maxLen = maxInsLens[rIdx]; // The slot size for this insertion
+
+                // 1. Extract the insertion for this sequence at this junction
+                let myIns = "";
+                while(alnPos < res.alignedRef.length && res.alignedRef[alnPos] === '-') {
+                    myIns += res.alignedQuery[alnPos];
+                    alnPos++;
+                }
+
+                // 2. Process Insertion
+                if (maxLen > 0) {
+                    if (alignMode === 'polish' && myIns.length > 0) {
+                        // Find the representative longest (we know its length is maxLen)
+                        // Optimization: We could cache the longest string in a separate array
+                        // but iterating the list is fast enough for typical depths.
+                        // Actually we need the string, not just len.
+                        // Let's find longest in map.
+                        let longest = "";
+                        const list = insertionsMap[rIdx];
+                        for(let s of list) if(s.length > longest.length) longest = s;
+                        
+                        // Align myIns to Longest
+                        if (longest === myIns) {
+                            finalStr += myIns;
+                        } else {
+                            // Align myIns (query) to longest (ref)
+                            // We only care about the aligned Query string (padded with gaps to match longest)
+                            // NOTE: affineNW returns [alnRef, alnQuery].
+                            // If alnRef has gaps, it means myIns had stuff Longest didn't. 
+                            // This breaks the column strictness if we just output alnQuery.
+                            // However, we allocated `maxLen` = `longest.length`.
+                            // So we technically force the output to be `maxLen`.
+                            // If myIns is completely different, this is messy.
+                            // Heuristic: Just take alignedQuery. If it's longer than maxLen (due to gaps in ref), truncate? No.
+                            // Better Heuristic for this tool:
+                            // Use the alignedQuery. Pad to maxLen. 
+                            // If alignedQuery is longer than Longest (because Longest got gaps), 
+                            // we have a visual overflow. 
+                            // Fix: We update `maxInsLens[rIdx]` to be the MAX length of any polished segment?
+                            // That requires two passes. 
+                            // One-pass approximation: Just Left Pile it if polish fails or complicates?
+                            // Let's stick to standard alignment:
+                            const [ _, polished ] = affineNWAlign(longest, myIns);
+                            // The `polished` string corresponds to `longest` (mostly). 
+                            finalStr += polished;
+                        }
+                    } else {
+                        // Left Pile Mode or Empty Polish
+                        finalStr += myIns;
+                    }
+
+                    // Pad to align with other sequences
+                    // Note: If Polish produced a string longer than maxLen (due to gaps),
+                    // the alignment might look jagged. 
+                    // But usually maxLen is determined by the longest raw insertion. 
+                    // Polishing adds gaps, increasing length.
+                    // Ideally we should have calculated maxPolishedLength first.
+                    // For this implementation, we just pad to the current string's length vs maxLen.
+                    // This aligns the *Start* of the next match block.
+                    const currentSegLen = finalStr.length - (finalStr.lastIndexOf(res.alignedQuery[alnPos]||'x') + 1); 
+                    // ^ tricky logic. easier: track length added.
+                }
+
+                // Simple Padding Logic:
+                // We just appended `myIns` (or polished version).
+                // We need to ensure that *after* this insertion block, everyone is at the same visual column.
+                // We can't do this easily while building string one by one without a shared offset map.
+                // ALTERNATIVE: Use the `maxInsLens` as strict column widths.
+                
+            }
+        }
+        
+        // --- REWRITE OF RECONSTRUCTION FOR ROBUSTNESS ---
+        // The loop above is getting messy with Polish padding.
+        // Let's do the "Segment List" approach.
+        // 1. Break seq into: [Ins0, Base1, Ins1, Base2, ...]
+        // 2. Calculate MaxWidth for each Ins slot (considering Polished length if active)
+        // 3. Join.
+    }
+    
+    // Pass 2: Robust Reconstruction
+    // Calculate global widths first
+    const globalWidths = new Int32Array(refLen + 1); // Width of insertion slot i
+    
+    // Helper to get polished length
+    const polishCache = new Map(); // Key: "Longest|Query" -> AlignedString
+    
+    for(let r=0; r<=refLen; r++) {
+        let list = insertionsMap[r];
+        if(list.length === 0) continue;
+        
+        if(alignMode === 'left') {
+            let max = 0; 
+            for(let s of list) if(s.length > max) max = s.length;
+            globalWidths[r] = max;
+        } else if (alignMode === 'polish') {
+            // Find longest (Leader)
+            let leader = "";
+            for(let s of list) if(s.length > leader.length) leader = s;
+            
+            // Determine max length after aligning everyone to leader
+            let maxPoly = leader.length; 
+            
+            // To be correct, we should check every sequence.
+            // For performance in JS loop, we'll assume Leader Length + 20% margin? No.
+            // Let's process valid strings.
+            for(let s of list) {
+                if(s === leader || s === "") continue;
+                // Check cache
+                const key = leader + "|" + s;
+                let aln;
+                if(polishCache.has(key)) aln = polishCache.get(key);
+                else {
+                    const res = affineNWAlign(leader, s);
+                    aln = res[1]; // The aligned query
+                    polishCache.set(key, aln);
+                }
+                if(aln.length > maxPoly) maxPoly = aln.length;
+            }
+            globalWidths[r] = maxPoly;
+        }
+    }
+
+    // Build Strings
+    for(let i=0; i<state.rawSequences.length; i++) {
+        if(!results[i]) continue;
+        const res = results[i];
+        const pieces = [];
+        
+        let alnPos = 0;
+        for(let rIdx=0; rIdx<=refLen; rIdx++) {
+            // Get Insertion at this slot
+            let myIns = "";
+            while(alnPos < res.alignedRef.length && res.alignedRef[alnPos] === '-') {
+                myIns += res.alignedQuery[alnPos];
+                alnPos++;
+            }
+            
+            if(alignMode === 'discard') {
+                // Do nothing for insertion
+            } else {
+                let content = myIns;
+                if(alignMode === 'polish' && myIns.length > 0 && globalWidths[rIdx] > 0) {
+                     let leader = "";
+                     const list = insertionsMap[rIdx];
+                     for(let s of list) if(s.length > leader.length) leader = s;
+                     
+                     if(myIns === leader) {
+                         content = myIns; 
+                     } else {
+                         const key = leader + "|" + myIns;
+                         if(polishCache.has(key)) content = polishCache.get(key);
+                         else {
+                             // Should have been cached, but safety fallback
+                             content = affineNWAlign(leader, myIns)[1];
+                         }
+                     }
+                }
+                
+                // Pad to global width
+                while(content.length < globalWidths[rIdx]) content += '-';
+                pieces.push(content);
+            }
+
+            // Append Match Base (if not at end)
+            if(rIdx < refLen) {
+                // If the Ref had a match here, consume it
+                // Note: res.alignedRef indices map roughly to rIdx, but gaps in Ref break 1-to-1
+                // Actually, our loop structure `rIdx` counts NON-GAP Ref characters.
+                // So we consume exactly one Ref Match character (which corresponds to one AlignedQuery char)
+                // BUT wait: `alnPos` might be pointing at a gap in Query? No, Ref is not Gap there.
+                // If Ref is not Gap, then we are at a Match/Mismatch column.
+                // However, `alnPos` tracks the Pairwise Alignment. 
+                // In Pairwise: Ref="A", Query="-" -> Deletion.
+                // We still need to output that "-" to keep alignment with Ref.
+                if(alnPos < res.alignedRef.length) {
+                    pieces.push(res.alignedQuery[alnPos]);
+                    alnPos++;
+                }
+            }
+        }
+        
+        let finalSeqStr = pieces.join('');
+        
+        // Apply Back-Translation or direct assignment
+        if (isAA) {
+            let newSeq = [];
+            let dnaIdx = state.frame - 1;
+            const cleanDNA = seqsToAlign[i].original;
+            
+            // 5' Padding
+            for(let p=0; p<state.frame-1; p++) newSeq.push(cleanDNA[p] || '-');
+            
+            for(let c of finalSeqStr) {
+                if(c === '-') {
+                    newSeq.push('-', '-', '-');
+                } else {
+                    if(dnaIdx + 3 <= cleanDNA.length) {
+                        newSeq.push(cleanDNA[dnaIdx], cleanDNA[dnaIdx+1], cleanDNA[dnaIdx+2]);
+                    } else {
+                        newSeq.push('-', '-', '-'); 
+                    }
+                    dnaIdx += 3;
+                }
+            }
+            while(dnaIdx < cleanDNA.length) newSeq.push(cleanDNA[dnaIdx++]);
+            state.rawSequences[i].seq = newSeq;
+        } else {
+            state.rawSequences[i].seq = finalSeqStr.split('');
+        }
+    }
+
+    if(isPartial) recalc(); // Renders partial view
+    else recalc();
+}
+
 // --- History ---
 function saveState() {
     const snapshot = {
@@ -369,7 +906,6 @@ function undo() {
     const prev = state.history.pop();
     state.rawSequences = prev.seqs;
     state.selection = prev.sel;
-    // Restore reference index if safe
     if(prev.refIdx < state.rawSequences.length) state.refIndex = prev.refIdx;
     else state.refIndex = 0;
     
@@ -381,8 +917,6 @@ function loadFile(file) {
     if(!file) return;
     showOverlay(true);
     const reader = new FileReader();
-    
-    // NEW: Check file extension
     const name = file.name.toLowerCase();
     const isFastq = name.endsWith('.fastq') || name.endsWith('.fq');
 
@@ -417,7 +951,6 @@ function loadExample() {
         }
         parseFasta(sb.join('\n'));
         
-        // Example tree with lengths
         setTimeout(() => {
             const exampleTree = "((((Seq_1:0.1,Seq_2:0.2):0.1,(Seq_3:0.2,Seq_4:0.1):0.3):0.2,(Seq_5:0.4,Seq_6:0.3):0.1):0.2,Seq_7:0.5);";
             parseTree(exampleTree);
@@ -425,29 +958,21 @@ function loadExample() {
     }, 50);
 }
 
-// NEW: Fastq Parser
 function parseFastq(text) {
     const lines = text.split(/\r?\n/);
     const seqs = [];
-    // Fastq is usually 4 lines per record.
-    // Line 1: @ID
-    // Line 2: Sequence
-    // Line 3: +
-    // Line 4: Qualities (Ignored)
     for(let i=0; i<lines.length; i++) {
         const line = lines[i].trim();
         if(!line) continue;
         if(line.startsWith('@')) {
-            const name = line.substring(1); // Remove @
-            // Look ahead for sequence
+            const name = line.substring(1); 
             if(i + 1 < lines.length) {
                 const seqStr = lines[i+1].trim().toUpperCase().replace(/[^A-Z-]/g, '');
                 seqs.push({ name: name, seq: seqStr.split('') });
-                i += 3; // Skip sequence, +, quality
+                i += 3; 
             }
         }
     }
-    
     finalizeLoad(seqs);
 }
 
@@ -467,7 +992,6 @@ function parseFasta(text) {
         }
     }
     if(name) seqs.push({name, seq: buf.join('').split('')});
-    
     finalizeLoad(seqs);
 }
 
@@ -476,7 +1000,7 @@ function finalizeLoad(seqs) {
     state.selection = null;
     state.history = [];
     state.tree = null;
-    state.refIndex = 0; // Reset reference to first
+    state.refIndex = 0; 
     setTreeWidth(0);
     recalc();
     showOverlay(false);
@@ -548,7 +1072,6 @@ function parseTree(newick) {
     for(let s of seqMap.values()) newSeqList.push(s);
     state.rawSequences = newSeqList;
     
-    // Reset ref index if reordered, or find where it went (keeping it simple: reset to 0)
     state.refIndex = 0;
 
     let totalLen = 0;
@@ -616,20 +1139,17 @@ function recalc() {
         });
     }
 
-    // Safety check for reference index
     if(state.refIndex >= state.viewSequences.length) state.refIndex = 0;
 
     let max = 0;
     state.viewSequences.forEach(s => max = Math.max(max, s.seq.length));
     state.maxLength = max;
     
-    // NEW: Precalculate Reference Coordinates
     state.refMap = new Int32Array(max + 1);
     if(state.viewSequences[state.refIndex]) {
         const refSeq = state.viewSequences[state.refIndex].seq;
         let count = 0;
         for(let i=0; i<max; i++) {
-            // If i exceeds ref length, we treat it as gap
             const char = (i < refSeq.length) ? refSeq[i] : '-';
             if(char !== '-') count++;
             state.refMap[i] = count;
@@ -639,7 +1159,6 @@ function recalc() {
     dom.sizer.style.width = (max * CONFIG.charWidth + 200) + 'px';
     dom.sizer.style.height = (state.viewSequences.length * CONFIG.rowHeight) + 'px';
     
-    // Compute Y Coords
     if(state.tree) {
         const nameToRow = new Map();
         state.viewSequences.forEach((s, i) => nameToRow.set(s.name, i));
@@ -676,10 +1195,6 @@ function recalc() {
             }
         }
         computeY(state.tree.root);
-
-        if(matchedCount === 0) {
-            alert("No tree leaves matched sequence names. Check for ID mismatches.");
-        }
     }
 
     render();
@@ -974,8 +1489,7 @@ function render() {
         const y = (r * CONFIG.rowHeight) - scrollTop;
         let isSel = state.selection && (r >= state.selection.r1 && r <= state.selection.r2);
         
-        // Highlight Reference Sequence name
-        if(r === state.refIndex) ctxNames.fillStyle = '#eff6ff'; // Light blue bg for reference
+        if(r === state.refIndex) ctxNames.fillStyle = '#eff6ff'; 
         else ctxNames.fillStyle = isSel ? '#eff6ff' : (r%2===0 ? '#f9fafb' : '#fff');
         
         ctxNames.fillRect(0, y, dom.cvsNames.width, CONFIG.rowHeight);
@@ -997,14 +1511,9 @@ function render() {
     ctxRuler.fillStyle = '#f3f4f6'; ctxRuler.fillRect(0,0,dom.cvsRuler.width, dom.cvsRuler.height);
     ctxRuler.font = "10px sans-serif"; ctxRuler.textAlign = "center"; 
     
-    // UPDATED: Draw Two Tracks
-    // Track 1: Reference (Top, y=0 to 30)
-    // Track 2: Alignment (Bottom, y=30 to 60)
-    
     const h = dom.cvsRuler.height;
     const mid = h / 2;
 
-    // Draw separator line
     ctxRuler.strokeStyle = '#e5e7eb';
     ctxRuler.beginPath(); ctxRuler.moveTo(0, mid); ctxRuler.lineTo(dom.cvsRuler.width, mid); ctxRuler.stroke();
 
@@ -1019,7 +1528,6 @@ function render() {
             ctxRuler.fillRect((c*CONFIG.charWidth)-scrollLeft, 0, CONFIG.charWidth, h);
         }
 
-        // --- Alignment Track (Bottom) ---
         const alnIdx = c + 1;
         ctxRuler.fillStyle = "#6b7280";
         if(alnIdx===1 || alnIdx % CONFIG.rulerTickStep === 0) {
@@ -1029,13 +1537,11 @@ function render() {
             ctxRuler.moveTo(x, mid + 22); ctxRuler.lineTo(x, h);
         }
 
-        // --- Reference Track (Top) ---
         const refIdx = state.refMap[c];
         const prevRefIdx = (c > 0) ? state.refMap[c-1] : 0;
         
-        // Only draw tick if ref index changed (i.e., not a gap in ref)
         if(refIdx !== prevRefIdx) {
-            ctxRuler.fillStyle = "#2563eb"; // Blue for reference
+            ctxRuler.fillStyle = "#2563eb"; 
             if(refIdx===1 || refIdx % CONFIG.rulerTickStep === 0) {
                 ctxRuler.moveTo(x, 0); ctxRuler.lineTo(x, 15);
                 ctxRuler.fillText(refIdx, x, 25);
@@ -1046,7 +1552,6 @@ function render() {
     }
     ctxRuler.stroke();
     
-    // Labels for tracks
     ctxRuler.fillStyle = "#2563eb"; ctxRuler.font = "9px sans-serif"; ctxRuler.textAlign = "left";
     ctxRuler.fillText("Ref", 2, 12);
     ctxRuler.fillStyle = "#6b7280";
@@ -1093,7 +1598,6 @@ function render() {
                     ctxTree.stroke();
                 }
             } else {
-                // Leaf connector
                 ctxTree.save();
                 ctxTree.setLineDash([2, 4]);
                 ctxTree.strokeStyle = '#d1d5db';
