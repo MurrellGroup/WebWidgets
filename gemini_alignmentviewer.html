@@ -49,6 +49,7 @@
         }
         button:hover { background-color: #f3f4f6; }
         button.active { background-color: var(--primary); color: white; border-color: var(--primary); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
 
         #viewer-grid {
             flex: 1; display: grid;
@@ -123,6 +124,11 @@
         </div>
         <div style="width:1px; height:30px; background:#e5e7eb; margin:0 10px;"></div>
         <div class="control-group">
+            <label>History</label>
+            <button id="btn-undo" title="Ctrl+Z">⟲ Undo</button>
+        </div>
+        <div style="width:1px; height:30px; background:#e5e7eb; margin:0 10px;"></div>
+        <div class="control-group">
             <label>View Mode</label>
             <div style="display:flex;">
                 <button id="btn-nt" class="active" style="border-top-right-radius:0; border-bottom-right-radius:0;">Nucleotide</button>
@@ -140,7 +146,7 @@
         <div class="hint-text">
             <strong>Full Edit Support</strong><br>
             <span class="tag">Drag Panels</span> Select Row/Col <br>
-            <span class="tag">Move/Space/Type</span> Works on ALL selections
+            <span class="tag">Cmd+Z</span> Undo
         </div>
     </div>
 
@@ -165,6 +171,7 @@ const CONFIG = {
     charWidth: 12,
     rowHeight: 24,
     rulerTickStep: 10,
+    maxHistory: 30, // Limit memory usage
     colors: {
         NT: { 'A': '#c8e6c9', 'G': '#fff9c4', 'C': '#b3e5fc', 'T': '#ffcdd2', 'U': '#ffcdd2', '-': '#ffffff', 'default': '#f5f5f5' },
         AA: { 'A': '#80a0f0', 'R': '#f01505', 'N': '#00ff00', 'D': '#c048c0', 'C': '#f08080', 'Q': '#00ff00', 'E': '#c048c0', 'G': '#f09048', 'H': '#15a4a4', 'I': '#80a0f0', 'L': '#80a0f0', 'K': '#f01505', 'M': '#80a0f0', 'F': '#80a0f0', 'P': '#ffff00', 'S': '#00ff00', 'T': '#00ff00', 'W': '#80a0f0', 'Y': '#15a4a4', 'V': '#80a0f0', '*': '#999999', '-': '#ffffff', 'default': '#ffffff' }
@@ -186,10 +193,12 @@ const CODON_TABLE = {
 const state = {
     rawSequences: [],
     viewSequences: [],
+    history: [], // Undo stack
+    dragSaved: false, // Flag to ensure we only save once per drag operation
     mode: 'NT',
     frame: 1,
     maxLength: 0,
-    selection: null, // { r1, c1, r2, c2 }
+    selection: null, 
     mouse: { isDown: false, target: null, startR: 0, startC: 0, lastHoverC: 0 }
 };
 
@@ -197,6 +206,7 @@ const state = {
 const dom = {
     file: document.getElementById('inp-file'),
     btnEx: document.getElementById('btn-example'),
+    btnUndo: document.getElementById('btn-undo'),
     btnNt: document.getElementById('btn-nt'),
     btnAa: document.getElementById('btn-aa'),
     selFrame: document.getElementById('sel-frame'),
@@ -219,6 +229,7 @@ const ctxRuler = dom.cvsRuler.getContext('2d');
 function init() {
     dom.file.addEventListener('change', e => loadFile(e.target.files[0]));
     dom.btnEx.addEventListener('click', loadExample);
+    dom.btnUndo.addEventListener('click', undo);
     dom.btnNt.addEventListener('click', () => setMode('NT'));
     dom.btnAa.addEventListener('click', () => setMode('AA'));
     dom.selFrame.addEventListener('change', () => { state.frame = +dom.selFrame.value; recalc(); });
@@ -226,7 +237,7 @@ function init() {
     dom.areaSeq.addEventListener('scroll', () => requestAnimationFrame(render));
     window.addEventListener('resize', onResize);
     
-    // Mouse: PREVENT DEFAULT on headers to keep focus on areaSeq
+    // Mouse
     dom.areaSeq.addEventListener('mousedown', (e) => onMouseDown(e, 'SEQ'));
     dom.areaNames.addEventListener('mousedown', (e) => { e.preventDefault(); onMouseDown(e, 'NAMES'); });
     dom.areaRuler.addEventListener('mousedown', (e) => { e.preventDefault(); onMouseDown(e, 'RULER'); });
@@ -236,8 +247,41 @@ function init() {
     
     // Keyboard
     dom.areaSeq.addEventListener('keydown', onKeyDown);
+    // Global key listener for Ctrl+Z even if focus is slightly off, though ideally areaSeq should have focus
+    window.addEventListener('keydown', (e) => {
+        if((e.ctrlKey || e.metaKey) && e.key === 'z') {
+            e.preventDefault();
+            undo();
+        }
+    });
 
     onResize();
+}
+
+// --- History / Undo ---
+
+function saveState() {
+    // Deep copy sequences. JSON parse/stringify is fast enough for typical alignment sizes (up to few MBs)
+    // For larger datasets, a more sophisticated differential tracking would be needed.
+    const snapshot = {
+        seqs: JSON.parse(JSON.stringify(state.rawSequences)),
+        sel: state.selection ? { ...state.selection } : null
+    };
+
+    state.history.push(snapshot);
+    if(state.history.length > CONFIG.maxHistory) {
+        state.history.shift();
+    }
+}
+
+function undo() {
+    if(state.history.length === 0) return;
+    
+    const prev = state.history.pop();
+    state.rawSequences = prev.seqs;
+    state.selection = prev.sel;
+    
+    recalc();
 }
 
 // --- Data ---
@@ -285,6 +329,7 @@ function parseFasta(text) {
     if(name) seqs.push({name, seq: buf.join('').split('')});
     state.rawSequences = seqs;
     state.selection = null;
+    state.history = []; // Clear history on new load
     recalc();
     showOverlay(false);
 }
@@ -303,6 +348,10 @@ function setMode(m) {
 }
 
 function recalc() {
+    // Update Button State
+    dom.btnUndo.disabled = (state.history.length === 0);
+    dom.btnUndo.style.opacity = (state.history.length === 0) ? "0.5" : "1";
+
     if(!state.rawSequences.length) return;
     if(state.mode === 'NT') {
         state.viewSequences = state.rawSequences.map(s => ({ name: s.name, seq: s.seq }));
@@ -350,7 +399,6 @@ function getCoords(e, type) {
 }
 
 function onMouseDown(e, type) {
-    // Force focus to Sequence Area so it captures Keydown events immediately
     dom.areaSeq.focus();
     
     const { r, c } = getCoords(e, type);
@@ -369,10 +417,8 @@ function onMouseDown(e, type) {
         if(type === 'SEQ') {
             state.selection = { r1: r, c1: c, r2: r, c2: c };
         } else if (type === 'NAMES') {
-            // Select whole row (effectively infinite width)
             state.selection = { r1: r, r2: r, c1: 0, c2: 99999999 }; 
         } else if (type === 'RULER') {
-            // Select whole col
             state.selection = { r1: 0, r2: maxR, c1: c, c2: c };
         }
     }
@@ -405,6 +451,11 @@ function onMouseMove(e) {
     } else if(state.mouse.target === 'MOVE') {
         const delta = safeC - state.mouse.lastHoverC;
         if(delta !== 0) {
+            // Save state right before the first drag move occurs
+            if(!state.dragSaved) {
+                saveState();
+                state.dragSaved = true;
+            }
             attemptMoveSelection(delta);
             state.mouse.lastHoverC = safeC;
         }
@@ -414,6 +465,7 @@ function onMouseMove(e) {
 function onMouseUp() {
     state.mouse.isDown = false;
     state.mouse.target = null;
+    state.dragSaved = false; // Reset drag save flag
     dom.areaSeq.classList.remove('grabbing');
 }
 
@@ -427,17 +479,23 @@ function isInsideSelection(r, c) {
 
 function onKeyDown(e) {
     if(!state.selection) return;
+    
+    // Ignore if Ctrl is pressed (let global handler take Ctrl+Z)
+    if(e.ctrlKey || e.metaKey) return;
 
     if(e.key === ' ') {
         e.preventDefault();
+        saveState();
         insertGap();
     } else if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault();
+        saveState();
         handleDeletion();
     } else if (state.mode === 'NT') {
         const char = e.key.toUpperCase();
         if(/^[ACGTUN-]$/.test(char)) {
             e.preventDefault();
+            saveState();
             overwriteBlock(char);
         }
     }
@@ -447,7 +505,6 @@ function handleDeletion() {
     const { r1, r2, c1, c2 } = state.selection;
     const allRows = state.viewSequences.length;
 
-    // Structural Deletion Logic for Full Row/Cols
     if(c1 === 0 && c2 >= 99999) { // Full Row
         state.rawSequences.splice(r1, r2 - r1 + 1);
         state.selection = null;
@@ -471,14 +528,12 @@ function handleDeletion() {
         return;
     }
 
-    // Otherwise standard block delete
     deleteBlock();
 }
 
 function deleteBlock() {
     const { r1, r2, c1, c2 } = state.selection;
     const count = c2 - c1 + 1;
-    // Limit count for row selections to avoid massive splices
     const safeC2 = (c2 > 99999) ? state.maxLength + 10 : c2;
     const safeCount = safeC2 - c1 + 1;
 
@@ -517,8 +572,6 @@ function overwriteBlock(char) {
     for(let r=r1; r<=r2; r++) {
         if(!state.rawSequences[r]) continue;
         const dna = state.rawSequences[r].seq;
-        // Clamp overwrite to actual length of sequence + 1 (extend by 1 allowed)
-        // or just length. Here we allow extending.
         const effectiveC2 = Math.min(c2, dna.length + 50); 
         
         for(let c=c1; c<=effectiveC2; c++) {
@@ -543,17 +596,13 @@ function attemptMoveSelection(dir) {
         if(state.mode === 'NT') { start = c1; end = c2; step = 1; }
         else { const off = state.frame - 1; start = c1*3+off; end = c2*3+off+2; step = 3; }
 
-        // CLAMP End for validation logic to avoid checking index 999999
         const checkEnd = Math.min(end, dna.length - 1);
 
         if(dir > 0) {
-            // Right: If end is beyond length, we are safe (gap space). 
-            // Only check if inside bounds.
             for(let k=1; k<=step; k++) {
                 if(checkEnd + k < dna.length && dna[checkEnd + k] !== '-') { canMove = false; break; }
             }
         } else {
-            // Left
             if(start - step < 0) { canMove = false; break; }
             for(let k=1; k<=step; k++) {
                 if(dna[start - k] !== '-') { canMove = false; break; }
@@ -573,13 +622,10 @@ function attemptMoveSelection(dir) {
         if(state.mode === 'NT') { start = c1; end = c2; step = 1; }
         else { const off = state.frame - 1; start = c1*3+off; end = c2*3+off+2; step = 3; }
 
-        // Clamp End for execution logic
         const effectiveEnd = Math.min(end, dna.length - 1);
 
         if(dir > 0) {
-            // Extend array if moving past end
             while(dna.length <= effectiveEnd + step) dna.push('-');
-            
             for(let i = effectiveEnd; i >= start; i--) {
                 dna[i+step] = dna[i];
                 dna[i] = '-';
