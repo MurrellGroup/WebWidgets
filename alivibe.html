@@ -203,13 +203,13 @@
         <div class="control-group">
             <label>Alignment</label>
             <div style="display:flex; gap:5px;">
-                <button id="btn-align">Global Align</button>
+                <button id="btn-align">Align</button>
                 <select id="sel-align-mode">
-                    <option value="polish">Polish (Default)</option>
+                    <option value="polish">Polish</option>
                     <option value="left">Left Pile</option>
                     <option value="discard">Discard Ins</option>
                 </select>
-                <button id="btn-realign-sel" title="Realign within selection">Realign Sel</button>
+                <button id="btn-realign-sel" title="Realign within selection">Align Sel</button>
                 <button id="btn-strip" title="Strip all gaps from alignment">Strip Gaps</button>
             </div>
         </div>
@@ -254,10 +254,10 @@
         <h2>FastAlign Help</h2>
         <div class="help-row"><span class="help-key">Selection</span> <span>Click to select. Shift+Click to extend selection.</span></div>
         <div class="help-row"><span class="help-key">Editing</span> <span>Type [A-Z] to overwrite. Space to insert gap. Backspace to delete.</span></div>
-        <div class="help-row"><span class="help-key">Realign Selection</span> <span>Aligns rows inside selection box. Uses Ref if selected, else longest seq.</span></div>
+        <div class="help-row"><span class="help-key">Align Selection</span> <span>Aligns rows inside selection box. Uses Ref if selected, else longest seq.</span></div>
         <div class="help-row"><span class="help-key">Set Reference</span> <span>Right-click a sequence name.</span></div>
         <div class="help-row"><span class="help-key">Move Block</span> <span>Drag selection horizontally to shift sequences.</span></div>
-        <div class="help-row"><span class="help-key">Global Align</span> <span>Aligns all sequences. Supports Left, Polish, or Discard insertions modes.</span></div>
+        <div class="help-row"><span class="help-key">Align</span> <span>Aligns all sequences. Supports Left, Polish, or Discard insertions modes.</span></div>
         <div class="help-row"><span class="help-key">IUPAC</span> <span>Full IUPAC ambiguity codes supported in Nucleotide view.</span></div>
         <div class="help-row"><span class="help-key">Export</span> <span>Download or Copy current view (NT or AA) as FASTA.</span></div>
         <button class="close-help" onclick="document.getElementById('help-overlay').classList.remove('active')">Close</button>
