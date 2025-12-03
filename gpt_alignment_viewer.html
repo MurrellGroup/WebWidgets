@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Local FASTA Alignment Viewer</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+      color: #222;
+    }
+    header {
+      padding: 10px 20px;
+      background: #333;
+      color: #fff;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+    }
+    main {
+      padding: 10px 20px 20px;
+    }
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 20px;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    #controls label {
+      margin-right: 6px;
+      white-space: nowrap;
+    }
+    #controls-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: center;
+    }
+    .control-block {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    input[type="file"] {
+      font-size: 13px;
+    }
+    textarea {
+      width: 100%;
+      max-width: 100%;
+      min-height: 80px;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 6px;
+      box-sizing: border-box;
+      resize: vertical;
+      margin-top: 6px;
+    }
+    button {
+      font-size: 13px;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-radius: 4px;
+      border: 1px solid #999;
+      background: #fff;
+    }
+    button:hover {
+      background: #eee;
+    }
+    #status {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #444;
+    }
+    #alignment-wrapper {
+      margin-top: 12px;
+      border: 1px solid #ccc;
+      background: #fff;
+      height: 550px;
+      overflow: auto;
+      position: relative;
+    }
+    table.alignment-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-family: monospace;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    table.alignment-table th,
+    table.alignment-table td {
+      padding: 0;
+      margin: 0;
+      border: 1px solid #eee;
+      min-width: 13px;
+      height: 16px;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .coord-cell {
+      font-size: 9px;
+      color: #555;
+      background: #fafafa;
+    }
+    .header-cell {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #fafafa;
+    }
+    .label-cell {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: #fdfdfd;
+      text-align: left;
+      padding: 0 4px;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .corner-cell {
+      position: sticky;
+      top: 0;
+      left: 0;
+      z-index: 4;
+      background: #f0f0f0;
+      text-align: left;
+      padding: 0 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .gap-cell {
+      color: #999;
+    }
+    .legend {
+      margin-top: 10px;
+      font-size: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .legend-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .legend-title {
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      border: 1px solid #ddd;
+      background: #fff;
+    }
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      border: 1px solid #aaa;
+    }
+    /* Hide frame control when not applicable (nucleotide view) via class */
+    .frame-disabled {
+      opacity: 0.4;
+    }
+    .small {
+      font-size: 11px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Local FASTA Alignment Viewer</h1>
+  </header>
+  <main>
+    <section id="controls">
+      <div id="controls-group">
+        <div class="control-block">
+          <label for="fileInput"><strong>Load FASTA:</strong></label>
+          <input type="file" id="fileInput" accept=".fa,.fasta,.txt">
+        </div>
+        <div class="control-block">
+          <button id="loadTextareaBtn" title="Parse FASTA from the text area below">Load from text area</button>
+        </div>
+        <div class="control-block">
+          <span><strong>View:</strong></span>
+          <label><input type="radio" name="viewMode" value="nt" checked> Nucleotide</label>
+          <label><input type="radio" name="viewMode" value="aa"> Amino acid (translated)</label>
+        </div>
+        <div class="control-block" id="frameControl">
+          <label for="frameSelect"><strong>Reading frame:</strong></label>
+          <select id="frameSelect">
+            <option value="0">Frame 1 (offset 0)</option>
+            <option value="1">Frame 2 (offset 1)</option>
+            <option value="2">Frame 3 (offset 2)</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <label for="fastaTextarea" class="small">
+        Paste aligned nucleotide FASTA here (optional alternative to file upload):
+      </label>
+      <textarea id="fastaTextarea" placeholder=">seq1
+ATG-CCTGA...
+>seq2
+ATGACCTGA..."></textarea>
+      <div id="status">No alignment loaded.</div>
+    </section>
+
+    <section id="alignment-wrapper">
+      <!-- Alignment table injected here -->
+    </section>
+
+    <section class="legend">
+      <div class="legend-group">
+        <div class="legend-title">Nucleotide colors</div>
+        <div class="legend-row">
+          <div class="legend-item">
+            <span class="legend-color" style="background:#8dd3c7"></span><span>A</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#bebada"></span><span>C</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#ffffb3"></span><span>G</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#fb8072"></span><span>T/U</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#f0f0f0"></span><span>- (gap)</span>
+          </div>
+        </div>
+      </div>
+      <div class="legend-group">
+        <div class="legend-title">Amino acid colors (Clustal-like groups)</div>
+        <div class="legend-row">
+          <div class="legend-item">
+            <span class="legend-color" style="background:#ff9999"></span><span>D, E (acidic)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#9999ff"></span><span>K, R, H (basic)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#99ff99"></span><span>S, T, N, Q (polar)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#ffe680"></span><span>A, V, L, I, M (aliphatic)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#ffcc99"></span><span>F, W, Y (aromatic)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background:#cccccc"></span><span>G, P, others</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function() {
+      "use strict";
+
+      const state = {
+        labels: [],
+        seqs: [],
+        length: 0,
+        viewMode: 'nt', // 'nt' or 'aa'
+        frame: 0        // 0,1,2
+      };
+
+      const fileInput = document.getElementById('fileInput');
+      const textarea = document.getElementById('fastaTextarea');
+      const loadTextareaBtn = document.getElementById('loadTextareaBtn');
+      const statusEl = document.getElementById('status');
+      const alignmentWrapper = document.getElementById('alignment-wrapper');
+      const frameSelect = document.getElementById('frameSelect');
+      const frameControl = document.getElementById('frameControl');
+      const viewModeInputs = document.querySelectorAll('input[name="viewMode"]');
+
+      // FASTA parsing
+      function parseFasta(text) {
+        const lines = text.split(/\r?\n/);
+        const labels = [];
+        const seqs = [];
+        let currentLabel = null;
+        let currentSeq = [];
+        for (let rawLine of lines) {
+          let line = rawLine.trim();
+          if (!line) continue;
+          if (line.startsWith('>')) {
+            if (currentLabel !== null) {
+              labels.push(currentLabel);
+              seqs.push(currentSeq.join('').replace(/\s+/g, '').toUpperCase());
+            }
+            currentLabel = line.slice(1).trim() || ('seq' + (labels.length + 1));
+            currentSeq = [];
+          } else {
+            currentSeq.push(line);
+          }
+        }
+        if (currentLabel !== null) {
+          labels.push(currentLabel);
+          seqs.push(currentSeq.join('').replace(/\s+/g, '').toUpperCase());
+        }
+        if (labels.length === 0) {
+          throw new Error('No sequences found in FASTA.');
+        }
+        // Normalize lengths by padding with gaps
+        const maxLen = Math.max.apply(null, seqs.map(s => s.length));
+        const paddedSeqs = seqs.map(s => s.padEnd(maxLen, '-'));
+        return { labels, seqs: paddedSeqs, length: maxLen };
+      }
+
+      // Nucleotide color scheme
+      function nucleotideColor(base) {
+        const b = (base || '').toUpperCase();
+        switch (b) {
+          case 'A': return '#8dd3c7';
+          case 'C': return '#bebada';
+          case 'G': return '#ffffb3';
+          case 'T':
+          case 'U': return '#fb8072';
+          case '-': return '#f0f0f0';
+          default:  return '#dddddd';
+        }
+      }
+
+      // Amino acid color scheme (Clustal-like grouping)
+      function aminoColor(aa) {
+        const a = (aa || '').toUpperCase();
+        if (a === '-' || a === 'X' || a === '*') return '#f0f0f0';
+        if ('DE'.includes(a)) return '#ff9999';        // acidic
+        if ('KRH'.includes(a)) return '#9999ff';       // basic
+        if ('STNQ'.includes(a)) return '#99ff99';      // polar
+        if ('AVLIM'.includes(a)) return '#ffe680';     // aliphatic
+        if ('FWY'.includes(a)) return '#ffcc99';       // aromatic
+        if ('GP'.includes(a)) return '#cccccc';        // special
+        return '#cccccc';                              // other
+      }
+
+      // Simple standard genetic code
+      const codonTable = (function() {
+        const table = {};
+        function add(codons, aa) {
+          codons.split(' ').forEach(c => table[c] = aa);
+        }
+        add('TTT TTC', 'F');
+        add('TTA TTG CTT CTC CTA CTG', 'L');
+        add('ATT ATC ATA', 'I');
+        add('ATG', 'M');
+        add('GTT GTC GTA GTG', 'V');
+
+        add('TCT TCC TCA TCG AGT AGC', 'S');
+        add('CCT CCC CCA CCG', 'P');
+        add('ACT ACC ACA ACG', 'T');
+        add('GCT GCC GCA GCG', 'A');
+
+        add('TAT TAC', 'Y');
+        add('TAA TAG TGA', '*'); // stops
+        add('CAT CAC', 'H');
+        add('CAA CAG', 'Q');
+        add('AAT AAC', 'N');
+        add('AAA AAG', 'K');
+        add('GAT GAC', 'D');
+        add('GAA GAG', 'E');
+
+        add('TGT TGC', 'C');
+        add('TGG', 'W');
+        add('CGT CGC CGA CGG AGA AGG', 'R');
+        add('GGT GGC GGA GGG', 'G');
+        return table;
+      })();
+
+      function translateCodon(codon) {
+        const c = (codon || '').toUpperCase().replace(/U/g, 'T');
+        if (c.length !== 3) return 'X';
+        if (c.includes('-') || /[^ACGT]/.test(c)) return 'X';
+        return codonTable[c] || 'X';
+      }
+
+      function updateStatus(msg) {
+        statusEl.textContent = msg;
+      }
+
+      // Render nucleotide alignment
+      function renderNucleotideView() {
+        alignmentWrapper.innerHTML = '';
+        if (!state.length || state.seqs.length === 0) return;
+
+        const table = document.createElement('table');
+        table.className = 'alignment-table';
+
+        const headerRow = document.createElement('tr');
+
+        const corner = document.createElement('th');
+        corner.className = 'corner-cell header-cell';
+        corner.textContent = 'Seq / Pos';
+        headerRow.appendChild(corner);
+
+        for (let col = 0; col < state.length; col++) {
+          const th = document.createElement('th');
+          th.className = 'header-cell coord-cell';
+          const coord = col + 1;
+          if (coord % 10 === 0) {
+            th.textContent = coord;
+          } else {
+            th.textContent = '';
+          }
+          headerRow.appendChild(th);
+        }
+        table.appendChild(headerRow);
+
+        for (let i = 0; i < state.seqs.length; i++) {
+          const tr = document.createElement('tr');
+
+          const labelCell = document.createElement('th');
+          labelCell.className = 'label-cell';
+          labelCell.textContent = state.labels[i];
+          tr.appendChild(labelCell);
+
+          const seq = state.seqs[i];
+          for (let col = 0; col < state.length; col++) {
+            const ch = seq[col] || '-';
+            const td = document.createElement('td');
+            td.textContent = ch;
+            td.style.backgroundColor = nucleotideColor(ch);
+            if (ch === '-') {
+              td.classList.add('gap-cell');
+            }
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+
+        alignmentWrapper.appendChild(table);
+      }
+
+      // Render amino acid alignment based on current frame
+      function renderAminoView() {
+        alignmentWrapper.innerHTML = '';
+        if (!state.length || state.seqs.length === 0) return;
+
+        const L = state.length;
+        const frame = state.frame || 0;
+        const usable = L - frame;
+        if (usable < 3) {
+          const div = document.createElement('div');
+          div.textContent = 'Alignment too short for translation with this frame.';
+          alignmentWrapper.appendChild(div);
+          return;
+        }
+        const aaCols = Math.floor(usable / 3);
+
+        const aaSeqs = state.seqs.map(seq => {
+          const arr = [];
+          for (let j = 0; j < aaCols; j++) {
+            const start = frame + j * 3;
+            const codon = (seq[start] || '-') +
+                          (seq[start + 1] || '-') +
+                          (seq[start + 2] || '-');
+            if (codon.includes('-')) {
+              arr.push('-');
+            } else {
+              arr.push(translateCodon(codon));
+            }
+          }
+          return arr;
+        });
+
+        const table = document.createElement('table');
+        table.className = 'alignment-table';
+
+        const headerRow = document.createElement('tr');
+        const corner = document.createElement('th');
+        corner.className = 'corner-cell header-cell';
+        corner.textContent = 'Seq / AA pos';
+        headerRow.appendChild(corner);
+
+        for (let col = 0; col < aaCols; col++) {
+          const th = document.createElement('th');
+          th.className = 'header-cell coord-cell';
+          const coord = col + 1;
+          if (coord % 10 === 0) {
+            th.textContent = coord;
+          } else {
+            th.textContent = '';
+          }
+          headerRow.appendChild(th);
+        }
+        table.appendChild(headerRow);
+
+        for (let i = 0; i < aaSeqs.length; i++) {
+          const tr = document.createElement('tr');
+          const labelCell = document.createElement('th');
+          labelCell.className = 'label-cell';
+          labelCell.textContent = state.labels[i];
+          tr.appendChild(labelCell);
+
+          const aaArr = aaSeqs[i];
+          for (let col = 0; col < aaCols; col++) {
+            const aa = aaArr[col] || '-';
+            const td = document.createElement('td');
+            td.textContent = aa;
+            td.style.backgroundColor = aminoColor(aa);
+            if (aa === '-' || aa === '*') {
+              td.classList.add('gap-cell');
+            }
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+
+        alignmentWrapper.appendChild(table);
+      }
+
+      function render() {
+        if (!state.length) {
+          alignmentWrapper.innerHTML = '';
+          return;
+        }
+        // Visually disable frame control when not in AA mode
+        if (state.viewMode === 'aa') {
+          frameControl.classList.remove('frame-disabled');
+        } else {
+          frameControl.classList.add('frame-disabled');
+        }
+
+        if (state.viewMode === 'nt') {
+          renderNucleotideView();
+        } else {
+          renderAminoView();
+        }
+      }
+
+      function loadAlignmentFromText(text) {
+        try {
+          const parsed = parseFasta(text);
+          state.labels = parsed.labels;
+          state.seqs = parsed.seqs;
+          state.length = parsed.length;
+          updateStatus(`Loaded ${state.labels.length} sequences, aligned length ${state.length} (nucleotides).`);
+          render();
+        } catch (e) {
+          updateStatus('Error: ' + e.message);
+          alignmentWrapper.innerHTML = '';
+        }
+      }
+
+      // Event wiring
+      fileInput.addEventListener('change', function(ev) {
+        const file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const text = e.target.result || '';
+          loadAlignmentFromText(text);
+        };
+        reader.onerror = function() {
+          updateStatus('Error reading file.');
+        };
+        reader.readAsText(file);
+      });
+
+      loadTextareaBtn.addEventListener('click', function() {
+        const text = textarea.value || '';
+        if (!text.trim()) {
+          updateStatus('Textarea is empty.');
+          return;
+        }
+        loadAlignmentFromText(text);
+      });
+
+      viewModeInputs.forEach(el => {
+        el.addEventListener('change', function() {
+          if (this.checked) {
+            state.viewMode = this.value;
+            render();
+          }
+        });
+      });
+
+      frameSelect.addEventListener('change', function() {
+        const val = parseInt(this.value, 10);
+        if (!Number.isNaN(val)) {
+          state.frame = val;
+          if (state.viewMode === 'aa') {
+            render();
+          }
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
