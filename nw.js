@@ -104,22 +104,23 @@ function findMax(arr) {
 /**
  * ROBUST K-mer Seeded NW Alignment (Task 1)
  * 
- * Improvements:
- * - Uses O(N log N) Longest Increasing Subsequence (LIS) to find the maximal consistent set of unique anchors.
- * - Handles overlapping anchors gracefully by trimming.
- * - Robust index management for the gap filling.
+ * Strategy:
+ * 1. Find unique exact K-mers.
+ * 2. Use LIS to select a consistent monotonic set.
+ * 3. Merge overlapping/adjacent anchors on the same diagonal into "Super Blocks".
+ * 4. ERODE (Chew back) the ends of these blocks by K to prevent edge artifacts.
+ * 5. Run NW on the gaps.
  */
 function kmer_seeded_nwalign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -0.7, boundaryGapFactor = 10) {
-    const K = 25; // High specificity for unique matching
+    const K = 25; 
     const minLen = Math.min(s1.length, s2.length);
     
-    // Fallback if too short
-    if (minLen < K) {
+    // Fallback if sequences are too short to support seeds + erosion
+    if (minLen < 3 * K) {
         return affineNWAlign(s1, s2, gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor);
     }
 
     // 1. Identify Unique K-mers
-    // We utilize a single pass map strategy
     const getUniqueKmers = (str) => {
         const counts = new Map();
         const indices = new Map();
@@ -134,7 +135,6 @@ function kmer_seeded_nwalign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCos
     const map1 = getUniqueKmers(s1);
     const map2 = getUniqueKmers(s2);
 
-    // Collect matches that appear exactly once in both
     let matches = [];
     for (const [kmer, count] of map1.counts) {
         if (count === 1 && map2.counts.get(kmer) === 1) {
@@ -150,51 +150,49 @@ function kmer_seeded_nwalign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCos
         return affineNWAlign(s1, s2, gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor);
     }
 
-    // 2. Sort by S1 index to prepare for LIS
+    // 2. LIS for consistency
     matches.sort((a, b) => a.i - b.i);
-
-    // 3. Longest Increasing Subsequence (LIS) based on S2 index (j)
-    // Since we sorted by i, finding the LIS on j gives us the longest chain of non-crossing matches.
-    const lis = getLIS(matches);
+    const lisMatches = getLIS(matches);
     
-    // 4. Resolve Overlaps and Stitch
-    // We treat the LIS anchors as "Truth". We trim them if they overlap to maintain strict monotonicity.
-    const safeAnchors = resolveOverlaps(lis);
+    // 3. & 4. Merge and Erode
+    // We erode by K to ensure the "edges" of the match are handled by the robust NW.
+    const anchors = mergeAndErodeAnchors(lisMatches, K);
     
-    return stitchAlignments(s1, s2, safeAnchors, [gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor]);
+    return stitchAlignments(s1, s2, anchors, [gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor]);
 }
 
 /**
  * ROBUST Double DP NW Alignment (Task 2)
  * 
- * Improvements:
- * - Uses a sparse DP with a "Diagonal Penalty" to prefer matches on the same alignment trajectory.
- * - Prunes high-frequency k-mers to prevent performance degradation.
- * - Trims overlapping seeds in the final chain.
+ * Strategy:
+ * 1. Find small K-mer seeds (allowing repeats).
+ * 2. Chain them using Sparse DP with diagonal penalties.
+ * 3. Merge resultant chain into blocks.
+ * 4. ERODE blocks by K to remove noise and handle transitions.
  */
 function doubleDP_nwalign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCost = 1.0, mismatchCost = -0.7, boundaryGapFactor = 10) {
-    const K = 11; // Smaller K for sensitivity, but > 9 to reduce noise
+    const K = 11;
     const minLen = Math.min(s1.length, s2.length);
 
-    if (minLen < K) {
+    if (minLen < 3 * K) {
         return affineNWAlign(s1, s2, gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor);
     }
 
-    // 1. Index s1 with a Map
+    // 1. Index s1
     const s1Map = new Map();
-    // Optimization: Step by K/2 to reduce index density while ensuring coverage
-    const step = 1; 
-    for (let i = 0; i <= s1.length - K; i += step) {
+    // Step by 1 for maximum sensitivity, or K/2 for speed. 
+    // Using 1 here for quality, relying on erosion to clean up.
+    for (let i = 0; i <= s1.length - K; i++) {
         const sub = s1.substring(i, i + K);
         if (!s1Map.has(sub)) s1Map.set(sub, []);
         s1Map.get(sub).push(i);
     }
 
-    // 2. Find Seeds
+    // 2. Find Seeds in s2
     let matches = [];
-    const maxHits = 20; // Ignore highly repetitive kmers (e.g. polyA)
+    const maxHits = 25; // Pruning threshold
     
-    for (let j = 0; j <= s2.length - K; j += step) {
+    for (let j = 0; j <= s2.length - K; j++) {
         const sub = s2.substring(j, j + K);
         const hits = s1Map.get(sub);
         if (hits && hits.length <= maxHits) {
@@ -208,46 +206,40 @@ function doubleDP_nwalign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCost =
         return affineNWAlign(s1, s2, gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor);
     }
 
-    // Sort by i (primary) then j (secondary)
     matches.sort((a, b) => (a.i - b.i) || (a.j - b.j));
 
-    // 3. Sparse Chain DP
-    // We want to find a path matches[p1] -> matches[p2] ...
-    // Penalty is based heavily on *diagonal deviation*.
+    // 3. Sparse DP Chain
     const scores = new Float64Array(matches.length);
     const parents = new Int32Array(matches.length).fill(-1);
-    const lookback = 100; // How many previous seeds to check
+    const lookback = 80;
 
     for (let cur = 0; cur < matches.length; cur++) {
         const mCurr = matches[cur];
-        let maxScore = mCurr.len; // Base score
+        let maxScore = mCurr.len; 
         
-        // Search backwards
         const startSearch = Math.max(0, cur - lookback);
-        
         for (let prev = cur - 1; prev >= startSearch; prev--) {
             const mPrev = matches[prev];
 
-            // Strict ordering required for time flow
-            // Allow slight overlap in indices (will fix later), but start points must differ
+            // Must strictly increase to be a valid time-forward chain
             if (mPrev.i < mCurr.i && mPrev.j < mCurr.j) {
                 
-                // Diagonal Difference:
-                // If we stay on the same diagonal, (j - i) is constant.
-                // Deviation = |(j2 - i2) - (j1 - i1)|
                 const diagDiff = Math.abs((mCurr.j - mCurr.i) - (mPrev.j - mPrev.i));
                 
-                // Gap distance (Chebyshev distance approximation for gap length)
-                const dist = Math.max(mCurr.i - (mPrev.i + mPrev.len), mCurr.j - (mPrev.j + mPrev.len));
-                const gapPenalty = (dist > 0) ? (dist * 0.05) : 0; // Small penalty for distance
+                // Gap penalty: distance between end of prev and start of cur
+                const gapI = mCurr.i - (mPrev.i + mPrev.len);
+                const gapJ = mCurr.j - (mPrev.j + mPrev.len);
+                // Note: overlap is possible in raw matches, so gap can be negative. 
+                // But we handle overlaps in the merge phase.
+                // For scoring, we penalize distance.
+                const dist = Math.max(0, gapI) + Math.max(0, gapJ);
                 
-                // Heavy penalty for changing diagonals (indel approximation)
-                const diagPenalty = diagDiff * 2.0; 
-
-                const chainScore = scores[prev] + mCurr.len - diagPenalty - gapPenalty;
-
-                if (chainScore > maxScore) {
-                    maxScore = chainScore;
+                // Heuristic: Heavy penalty for diagonal shift, light for distance
+                const penalty = (diagDiff * 3.0) + (dist * 0.1); 
+                
+                const newScore = scores[prev] + mCurr.len - penalty;
+                if (newScore > maxScore) {
+                    maxScore = newScore;
                     parents[cur] = prev;
                 }
             }
@@ -255,12 +247,11 @@ function doubleDP_nwalign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCost =
         scores[cur] = maxScore;
     }
 
-    // 4. Backtrack
     let bestIdx = 0;
-    let maxVal = -Infinity;
-    for(let i=0; i<matches.length; i++){
-        if(scores[i] > maxVal){
-            maxVal = scores[i];
+    let maxS = scores[0];
+    for(let i=1; i<matches.length; i++){
+        if(scores[i] > maxS){
+            maxS = scores[i];
             bestIdx = i;
         }
     }
@@ -273,40 +264,27 @@ function doubleDP_nwalign(s1, s2, gapOpen = -10.0, gapExtend = -0.2, matchCost =
     }
     chain.reverse();
 
-    // 5. Clean and Stitch
-    const safeAnchors = resolveOverlaps(chain);
-    return stitchAlignments(s1, s2, safeAnchors, [gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor]);
+    // 4. Merge and Erode
+    const anchors = mergeAndErodeAnchors(chain, K);
+
+    return stitchAlignments(s1, s2, anchors, [gapOpen, gapExtend, matchCost, mismatchCost, boundaryGapFactor]);
 }
+
 
 // --- Helpers ---
 
-/**
- * Standard O(N log N) Longest Increasing Subsequence algorithm
- * Adapted to work on the 'j' property of match objects (since 'i' is already sorted).
- */
 function getLIS(matches) {
     if (matches.length === 0) return [];
-    
-    // tails[k] stores the index in 'matches' of the smallest tail of all increasing subsequences of length k+1.
     const tails = []; 
-    // parent[x] stores the index of the predecessor of matches[x] in the LIS
     const parent = new Int32Array(matches.length).fill(-1);
-
     for (let i = 0; i < matches.length; i++) {
         const val = matches[i].j;
-        
-        // Binary search for val in tails
         let left = 0, right = tails.length;
         while (left < right) {
             const mid = (left + right) >>> 1;
-            if (matches[tails[mid]].j < val) {
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
+            if (matches[tails[mid]].j < val) left = mid + 1;
+            else right = mid;
         }
-        
-        // If we found a valid extension
         if (left < tails.length) {
             tails[left] = i;
             parent[i] = (left > 0) ? tails[left - 1] : -1;
@@ -315,8 +293,6 @@ function getLIS(matches) {
             parent[i] = (tails.length > 1) ? tails[tails.length - 2] : -1;
         }
     }
-
-    // Reconstruct
     const result = [];
     let curr = tails[tails.length - 1];
     while (curr !== -1) {
@@ -327,47 +303,57 @@ function getLIS(matches) {
 }
 
 /**
- * Ensures anchors do not physically overlap in a way that reverses time.
- * If Anchor B starts before Anchor A ends, we trim Anchor B's start.
- * If B is completely swallowed, it is removed.
+ * 1. Merges overlapping/adjacent anchors that are on the same diagonal.
+ * 2. Erodes the start and end of the merged block by 'margin' (K).
+ * 3. Discards blocks that disappear (i.e. length <= 2*margin).
  */
-function resolveOverlaps(anchors) {
-    if (anchors.length === 0) return [];
+function mergeAndErodeAnchors(matches, margin) {
+    if (matches.length === 0) return [];
     
-    const valid = [];
-    let prev = anchors[0];
-    valid.push({ ...prev }); // Copy to avoid mutation issues
+    // Phase 1: Merge
+    const merged = [];
+    let curr = { ...matches[0] };
 
-    for (let k = 1; k < anchors.length; k++) {
-        let curr = { ...anchors[k] };
-        const last = valid[valid.length - 1];
-
-        // Check s1 overlap
-        let overlapI = (last.i + last.len) - curr.i;
-        // Check s2 overlap
-        let overlapJ = (last.j + last.len) - curr.j;
+    for (let k = 1; k < matches.length; k++) {
+        const next = matches[k];
         
-        let overlap = Math.max(overlapI, overlapJ);
+        // Same Diagonal check
+        const diagCurr = curr.j - curr.i;
+        const diagNext = next.j - next.i;
+        
+        // Overlap/Touch check (Assuming sorted by i)
+        // next starts before or exactly when curr ends
+        const isConnected = next.i <= (curr.i + curr.len);
 
-        if (overlap > 0) {
-            // Trim start of current
-            curr.i += overlap;
-            curr.j += overlap;
-            curr.len -= overlap;
-        }
-
-        // Only add if valid length remains
-        if (curr.len > 0) {
-            valid.push(curr);
+        if (diagCurr === diagNext && isConnected) {
+            // Extend
+            const newEnd = Math.max(curr.i + curr.len, next.i + next.len);
+            curr.len = newEnd - curr.i;
+        } else {
+            merged.push(curr);
+            curr = { ...next };
         }
     }
-    return valid;
+    merged.push(curr);
+
+    // Phase 2: Erode
+    const eroded = [];
+    for (const m of merged) {
+        // "Chew back" margin from both sides
+        const newLen = m.len - (2 * margin);
+        
+        if (newLen > 0) {
+            eroded.push({
+                i: m.i + margin,
+                j: m.j + margin,
+                len: newLen
+            });
+        }
+    }
+    
+    return eroded;
 }
 
-/**
- * Runs the expensive affineNWAlign only on the gaps between anchors.
- * Concatenates the results.
- */
 function stitchAlignments(s1, s2, anchors, nwParams) {
     let finalS1 = "";
     let finalS2 = "";
@@ -375,20 +361,19 @@ function stitchAlignments(s1, s2, anchors, nwParams) {
     let idx2 = 0;
 
     for (const anchor of anchors) {
-        // Gap Region
-        // Ensure we don't pass negative length strings (should be handled by resolveOverlaps, but safety first)
-        const gapLen1 = anchor.i - idx1;
-        const gapLen2 = anchor.j - idx2;
-
-        if (gapLen1 > 0 || gapLen2 > 0) {
-            const sub1 = (gapLen1 > 0) ? s1.substring(idx1, anchor.i) : "";
-            const sub2 = (gapLen2 > 0) ? s2.substring(idx2, anchor.j) : "";
+        // Gap
+        const sub1 = s1.substring(idx1, anchor.i);
+        const sub2 = s2.substring(idx2, anchor.j);
+        
+        // Safety check to avoid running NW on empty strings if logic was perfect,
+        // but affineNWAlign handles empty inputs gracefully usually.
+        if (sub1.length > 0 || sub2.length > 0) {
             const [aln1, aln2] = affineNWAlign(sub1, sub2, ...nwParams);
             finalS1 += aln1;
             finalS2 += aln2;
         }
 
-        // Anchor Region (Perfect Match)
+        // Anchor (Perfect Match)
         const anchorSeq = s1.substring(anchor.i, anchor.i + anchor.len);
         finalS1 += anchorSeq;
         finalS2 += anchorSeq;
@@ -397,7 +382,7 @@ function stitchAlignments(s1, s2, anchors, nwParams) {
         idx2 = anchor.j + anchor.len;
     }
 
-    // Tail Region
+    // Tail
     if (idx1 < s1.length || idx2 < s2.length) {
         const sub1 = s1.substring(idx1);
         const sub2 = s2.substring(idx2);
