@@ -211,6 +211,7 @@
             <div style="display:flex; gap:5px;">
                 <button id="btn-align">Align</button>
                 <select id="sel-align-mode">
+                    <option value="msa">POA</option>
                     <option value="polish">Polish</option>
                     <option value="left">Left Pile</option>
                     <option value="discard">Discard Ins</option>
@@ -491,7 +492,93 @@ function runAlignmentTask() {
     showOverlay(true);
     dom.overlayMsg.textContent = "Initializing...";
     dom.overlaySub.textContent = "";
-    setTimeout(startAsyncAlignment, 50);
+    
+    const alignMode = dom.selAlignMode.value;
+    if (alignMode === 'msa') {
+        setTimeout(runMSAAlignment, 50);
+    } else {
+        setTimeout(startAsyncAlignment, 50);
+    }
+}
+
+// --- MSA Alignment using multiSequenceAlign ---
+function runMSAAlignment() {
+    const isAA = (state.mode === 'AA');
+    
+    dom.overlayMsg.textContent = "Running multiple sequence alignment...";
+    dom.overlaySub.textContent = "";
+    
+    // Strip gaps from all sequences
+    const cleanSeqs = state.rawSequences.map(s => s.seq.join('').replace(/-/g, ''));
+    
+    let seqsToAlign;
+    if (isAA) {
+        // Translate to AA for alignment
+        const offset = state.frame - 1;
+        seqsToAlign = cleanSeqs.map(seq => {
+            const aa = [];
+            for (let i = offset; i < seq.length; i += 3) {
+                if (i + 2 >= seq.length) break;
+                const codon = seq.substring(i, i + 3);
+                if (/[^ACGT]/i.test(codon)) aa.push('X');
+                else aa.push(CODON_TABLE[codon] || 'X');
+            }
+            return aa.join('');
+        });
+    } else {
+        seqsToAlign = cleanSeqs;
+    }
+    
+    try {
+        // Call the MSA function
+        const alignedSeqs = multiSequenceAlign(seqsToAlign);
+        
+        // Apply the aligned sequences back
+        if (isAA) {
+            // Map AA alignment back to DNA
+            for (let i = 0; i < state.rawSequences.length; i++) {
+                const alignedAA = alignedSeqs[i];
+                const cleanDNA = cleanSeqs[i];
+                const offset = state.frame - 1;
+                
+                const finalSeq = [];
+                
+                // 5' Padding
+                for (let p = 0; p < offset; p++) finalSeq.push(cleanDNA[p] || '-');
+                
+                let dnaIdx = offset;
+                for (const char of alignedAA) {
+                    if (char === '-') {
+                        finalSeq.push('-', '-', '-');
+                    } else {
+                        if (dnaIdx + 3 <= cleanDNA.length) {
+                            finalSeq.push(cleanDNA[dnaIdx], cleanDNA[dnaIdx + 1], cleanDNA[dnaIdx + 2]);
+                            dnaIdx += 3;
+                        } else {
+                            finalSeq.push('-', '-', '-');
+                        }
+                    }
+                }
+                
+                // Trailing DNA
+                while (dnaIdx < cleanDNA.length) finalSeq.push(cleanDNA[dnaIdx++]);
+                
+                state.rawSequences[i].seq = finalSeq;
+            }
+        } else {
+            // NT mode - directly use aligned sequences
+            for (let i = 0; i < state.rawSequences.length; i++) {
+                state.rawSequences[i].seq = alignedSeqs[i].split('');
+            }
+        }
+        
+        recalc();
+        showOverlay(false);
+    } catch (err) {
+        console.error("POA error:", err);
+        alert("POA alignment failed: " + err.message);
+        showOverlay(false);
+    }
 }
 
 function startAsyncAlignment() {
