@@ -205,6 +205,11 @@
                 <button id="btn-aa" style="border-top-left-radius:0; border-bottom-left-radius:0; border-left:none;">AA</button>
             </div>
         </div>
+
+        <div class="control-group">
+            <label>Highlighter</label>
+            <button id="btn-highlight">Highlighter</button>
+        </div>
         
         <div class="control-group">
             <label>Alignment</label>
@@ -285,6 +290,8 @@ const CONFIG = {
     labelFont: "12px system-ui, sans-serif",
     charWidth: 12,
     rowHeight: 24,
+    highlightMatchColor: '#ffffff',
+    highlightGapColor: '#d1d5db',
     rulerTickStep: 10,
     maxHistory: 30,
     colors: {
@@ -318,6 +325,7 @@ const state = {
     history: [],
     dragSaved: false,
     mode: 'NT',
+    highlightMatches: false,
     frame: 1,
     maxLength: 0,
     selection: null,
@@ -339,6 +347,7 @@ const dom = {
     btnUndo: document.getElementById('btn-undo'),
     btnNt: document.getElementById('btn-nt'),
     btnAa: document.getElementById('btn-aa'),
+    btnHighlight: document.getElementById('btn-highlight'),
     btnAlign: document.getElementById('btn-align'),
     btnRealignSel: document.getElementById('btn-realign-sel'),
     btnStrip: document.getElementById('btn-strip'),
@@ -382,6 +391,11 @@ function init() {
     dom.btnUndo.addEventListener('click', undo);
     dom.btnNt.addEventListener('click', () => setMode('NT'));
     dom.btnAa.addEventListener('click', () => setMode('AA'));
+    dom.btnHighlight.addEventListener('click', () => {
+        state.highlightMatches = !state.highlightMatches;
+        dom.btnHighlight.classList.toggle('active', state.highlightMatches);
+        render();
+    });
     dom.selFrame.addEventListener('change', () => { state.frame = +dom.selFrame.value; recalc(); });
     
     dom.btnAlign.addEventListener('click', runAlignmentTask);
@@ -1659,6 +1673,7 @@ function render() {
     ctxSeq.fillStyle = '#ffffff'; ctxSeq.fillRect(0,0,vW,vH);
     ctxSeq.font = CONFIG.font; ctxSeq.textBaseline = 'middle'; ctxSeq.textAlign = 'center';
     const colors = state.mode === 'NT' ? CONFIG.colors.NT : CONFIG.colors.AA;
+    const refSeq = state.viewSequences[state.refIndex] ? state.viewSequences[state.refIndex].seq : null;
 
     for(let r=startRow; r<endRow; r++) {
         const seq = state.viewSequences[r].seq;
@@ -1667,7 +1682,20 @@ function render() {
             if(c >= seq.length) break;
             const char = seq[c];
             const x = (c * CONFIG.charWidth) - scrollLeft;
-            ctxSeq.fillStyle = colors[char] || colors['default'];
+            let fillColor = colors[char] || colors['default'];
+
+            if(state.highlightMatches && refSeq) {
+                const refChar = (c < refSeq.length) ? refSeq[c] : '-';
+                if(refChar !== '-') {
+                    if(char === refChar) {
+                        fillColor = CONFIG.highlightMatchColor;
+                    } else if (char === '-') {
+                        fillColor = CONFIG.highlightGapColor;
+                    }
+                }
+            }
+
+            ctxSeq.fillStyle = fillColor;
             ctxSeq.fillRect(x, y, CONFIG.charWidth, CONFIG.rowHeight);
             if(char !== '-') {
                 ctxSeq.fillStyle = '#000';
