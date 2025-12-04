@@ -1377,3 +1377,276 @@ function multiSequenceAlign(sequences) {
     // Generate MSA
     return generateMSAFromGraph(graph);
 }
+
+
+/**
+ * Refined MSA Wrapper
+ * Wraps multiSequenceAlign with an iterative refinement process.
+ * 
+ * 1. Generates initial MSA.
+ * 2. Iteratively identifies "gappy" blocks with stable flanks.
+ * 3. Re-aligns sequences within those blocks to a local reference using Double DP.
+ * 4. Stitches blocks back and cleans up.
+ */
+function refinedMSA(sequences, iterations = 3) {
+    // 1. Initial Alignment
+    let currentMSA = multiSequenceAlign(sequences);
+
+    if (!currentMSA || currentMSA.length === 0) return [];
+    if (currentMSA.length === 1) return currentMSA;
+
+    for (let iter = 0; iter < iterations; iter++) {
+        // 2. Remove gap-only columns first to sanitize input for this iteration
+        currentMSA = removeGapOnlyColumns(currentMSA);
+
+        // 3. Identify Blocks (Gappy regions + Flanks)
+        // Returns list of ranges: [{start, end, type: 'refine'|'stable'}]
+        const blocks = identifyRefinementBlocks(currentMSA, 20); // 20bp flank
+
+        const nextMSA = currentMSA.map(() => "");
+
+        for (const block of blocks) {
+            // Extract the slice for this block
+            const blockSlice = currentMSA.map(seq => seq.substring(block.start, block.end));
+
+            if (block.type === 'stable') {
+                // Just copy stable blocks as-is
+                for (let i = 0; i < nextMSA.length; i++) {
+                    nextMSA[i] += blockSlice[i];
+                }
+            } else {
+                // 4. Refine the Block
+                const refinedSlice = refineBlockSlice(blockSlice);
+                for (let i = 0; i < nextMSA.length; i++) {
+                    nextMSA[i] += refinedSlice[i];
+                }
+            }
+        }
+
+        currentMSA = nextMSA;
+    }
+
+    // Final Cleanup
+    return removeGapOnlyColumns(currentMSA);
+}
+
+/**
+ * Identifies regions needing refinement.
+ * A column is "unstable" if it contains gaps.
+ * Contiguous unstable columns are grouped and padded by `flankSize`.
+ * Overlapping regions are merged.
+ */
+function identifyRefinementBlocks(msa, flankSize) {
+    const len = msa[0].length;
+    const isUnstable = new Uint8Array(len).fill(0);
+
+    // 1. Mark unstable columns (contain any gap)
+    for (let j = 0; j < len; j++) {
+        for (let i = 0; i < msa.length; i++) {
+            if (msa[i][j] === '-') {
+                isUnstable[j] = 1;
+                break;
+            }
+        }
+    }
+
+    // 2. Dilation (Add flanks)
+    // We want to group gaps that are close, and ensure we grab stable context.
+    // Simple approach: Create a mask dilated by flankSize.
+    const mask = new Uint8Array(len).fill(0);
+    for (let j = 0; j < len; j++) {
+        if (isUnstable[j]) {
+            const start = Math.max(0, j - flankSize);
+            const end = Math.min(len, j + flankSize + 1);
+            for (let k = start; k < end; k++) {
+                mask[k] = 1;
+            }
+        }
+    }
+
+    // 3. Convert mask to block ranges
+    const blocks = [];
+    let currentStart = 0;
+    let inRefineBlock = (mask[0] === 1);
+
+    for (let j = 1; j < len; j++) {
+        const isRefine = (mask[j] === 1);
+        if (isRefine !== inRefineBlock) {
+            blocks.push({
+                start: currentStart,
+                end: j,
+                type: inRefineBlock ? 'refine' : 'stable'
+            });
+            currentStart = j;
+            inRefineBlock = isRefine;
+        }
+    }
+    // Final block
+    blocks.push({
+        start: currentStart,
+        end: len,
+        type: inRefineBlock ? 'refine' : 'stable'
+    });
+
+    return blocks;
+}
+
+/**
+ * Refines a specific vertical slice of the MSA.
+ * 1. Ungaps sequences to get raw content.
+ * 2. Picks longest sequence as reference.
+ * 3. Aligns others to reference using Pairwise DoubleDP.
+ * 4. Merges results (Left-piling insertions).
+ */
+function refineBlockSlice(msaSlice) {
+    const numSeqs = msaSlice.length;
+    
+    // 1. Ungap strings
+    const rawSeqs = msaSlice.map(s => s.split('-').join(''));
+    
+    // Optimization: If block was purely gaps or empty for some reason, return original
+    if (rawSeqs.every(s => s.length === 0)) return msaSlice;
+
+    // 2. Find Reference (Sequence with max non-gap characters)
+    let bestIdx = 0;
+    let maxLen = -1;
+    for (let i = 0; i < numSeqs; i++) {
+        if (rawSeqs[i].length > maxLen) {
+            maxLen = rawSeqs[i].length;
+            bestIdx = i;
+        }
+    }
+    const refSeq = rawSeqs[bestIdx];
+
+    // Data structures for Star Alignment
+    // Normalized to Ref Coordinates: 0 to refSeq.length
+    // refMatches[pos][seqIdx] = char (or '-' if deleted)
+    // insertions[pos][seqIdx] = string (inserted BEFORE pos)
+    
+    const refLen = refSeq.length;
+    const refMatches = Array(refLen).fill().map(() => Array(numSeqs).fill('-'));
+    const insertions = Array(refLen + 1).fill().map(() => Array(numSeqs).fill(''));
+
+    // 3. Pairwise Align everyone to Reference
+    // NW Params reused from library defaults
+    const nwParams = [-10.0, -0.2, 1.0, -0.7, 10]; 
+
+    for (let i = 0; i < numSeqs; i++) {
+        if (i === bestIdx) {
+            // Align Ref to Ref (Trivial)
+            for (let k = 0; k < refLen; k++) refMatches[k][i] = refSeq[k];
+            continue;
+        }
+
+        const query = rawSeqs[i];
+        if (query.length === 0) continue; // Leaves row as all gaps
+
+        // Align (Ref, Query)
+        // doubleDP_nwalign returns [alignedRef, alignedQuery]
+        const [alnRef, alnQuery] = doubleDP_nwalign(refSeq, query, ...nwParams);
+
+        // 4. Map Alignment to Star Structure
+        let refPos = 0;
+        let activeIns = ""; // Buffer for insertion string being built
+
+        for (let k = 0; k < alnRef.length; k++) {
+            const rChar = alnRef[k];
+            const qChar = alnQuery[k];
+
+            if (rChar !== '-') {
+                // Flush any active insertion to the bucket BEFORE this ref char
+                if (activeIns.length > 0) {
+                    insertions[refPos][i] = activeIns;
+                    activeIns = "";
+                }
+                
+                // Record Match/Mismatch/Delete state
+                // If qChar is '-', it's a deletion relative to ref
+                refMatches[refPos][i] = qChar;
+                refPos++;
+            } else {
+                // Gap in Ref -> Insertion in Query
+                // Accumulate insertion string
+                if (qChar !== '-') {
+                    activeIns += qChar;
+                }
+            }
+        }
+        // Flush trailing insertion (after last ref char)
+        if (activeIns.length > 0) {
+            insertions[refPos][i] = activeIns;
+        }
+    }
+
+    // 5. Reconstruct Matrix
+    const finalCols = []; // array of strings (columns)
+
+    for (let k = 0; k <= refLen; k++) {
+        // A. Handle Insertions at this boundary
+        // Find max insertion length at this position
+        let maxInsLen = 0;
+        for (let i = 0; i < numSeqs; i++) {
+            if (insertions[k][i].length > maxInsLen) maxInsLen = insertions[k][i].length;
+        }
+
+        if (maxInsLen > 0) {
+            for (let pos = 0; pos < maxInsLen; pos++) {
+                let colStr = "";
+                for (let i = 0; i < numSeqs; i++) {
+                    const insStr = insertions[k][i];
+                    // Left pile: char at pos, or gap
+                    const char = (pos < insStr.length) ? insStr[pos] : '-';
+                    colStr += char;
+                }
+                finalCols.push(colStr);
+            }
+        }
+
+        // B. Handle Reference Position Match (if not at end)
+        if (k < refLen) {
+            let colStr = "";
+            for (let i = 0; i < numSeqs; i++) {
+                colStr += refMatches[k][i];
+            }
+            finalCols.push(colStr);
+        }
+    }
+
+    // Transpose back to row-strings
+    const newSlice = Array(numSeqs).fill("");
+    for (const col of finalCols) {
+        for (let i = 0; i < numSeqs; i++) {
+            newSlice[i] += col[i];
+        }
+    }
+
+    return newSlice;
+}
+
+/**
+ * Removes columns that contain only gaps.
+ */
+function removeGapOnlyColumns(msa) {
+    if (msa.length === 0) return [];
+    const len = msa[0].length;
+    const keepCol = new Uint8Array(len).fill(0);
+
+    for (let j = 0; j < len; j++) {
+        for (let i = 0; i < msa.length; i++) {
+            if (msa[i][j] !== '-') {
+                keepCol[j] = 1;
+                break;
+            }
+        }
+    }
+
+    const newMSA = msa.map(() => "");
+    for (let j = 0; j < len; j++) {
+        if (keepCol[j]) {
+            for (let i = 0; i < msa.length; i++) {
+                newMSA[i] += msa[i][j];
+            }
+        }
+    }
+    return newMSA;
+}
