@@ -211,7 +211,7 @@
             <div style="display:flex; gap:5px;">
                 <button id="btn-align">Align</button>
                 <select id="sel-align-mode">
-                    <option value="msa">POA</option>
+                    <option value="msa">MSA</option>
                     <option value="polish">Polish</option>
                     <option value="left">Left Pile</option>
                     <option value="discard">Discard Ins</option>
@@ -531,7 +531,7 @@ function runMSAAlignment() {
     
     try {
         // Call the MSA function
-        const alignedSeqs = multiSequenceAlign(seqsToAlign);
+        const alignedSeqs = refinedMSA(seqsToAlign);
         
         // Apply the aligned sequences back
         if (isAA) {
@@ -575,8 +575,8 @@ function runMSAAlignment() {
         recalc();
         showOverlay(false);
     } catch (err) {
-        console.error("POA error:", err);
-        alert("POA alignment failed: " + err.message);
+        console.error("MSA error:", err);
+        alert("MSA alignment failed: " + err.message);
         showOverlay(false);
     }
 }
