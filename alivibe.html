@@ -181,6 +181,13 @@
                 <button id="btn-export-tree" title="Export current tree as Newick">Export</button>
             </div>
         </div>
+        <div class="control-group">
+            <label>Reset</label>
+            <div style="display:flex; gap:5px;">
+                <button id="btn-clear-aln" title="Remove all sequences">Clear Alignment</button>
+                <button id="btn-clear-tree" title="Remove current tree">Clear Tree</button>
+            </div>
+        </div>
         <div style="width:1px; height:30px; background:#e5e7eb; margin:0 10px;"></div>
         <div class="control-group">
             <label>History</label>
@@ -335,7 +342,8 @@ const state = {
     refIndex: 0, 
     refMap: [], 
     mouse: { isDown: false, target: null, startR: 0, startC: 0, lastHoverC: 0 },
-    ctxTargetRow: null
+    ctxTargetRow: null,
+    pastedNameCounter: 1
 };
 
 // --- DOM ---
@@ -344,6 +352,8 @@ const dom = {
     fileTree: document.getElementById('inp-tree'),
     btnInferTree: document.getElementById('btn-infer-tree'),
     btnExportTree: document.getElementById('btn-export-tree'),
+    btnClearAlignment: document.getElementById('btn-clear-aln'),
+    btnClearTree: document.getElementById('btn-clear-tree'),
     btnUndo: document.getElementById('btn-undo'),
     btnNt: document.getElementById('btn-nt'),
     btnAa: document.getElementById('btn-aa'),
@@ -388,6 +398,8 @@ function init() {
     dom.fileTree.addEventListener('change', e => loadTreeFile(e.target.files[0]));
     dom.btnInferTree.addEventListener('click', inferTree);
     dom.btnExportTree.addEventListener('click', exportTree);
+    dom.btnClearAlignment.addEventListener('click', clearAlignment);
+    dom.btnClearTree.addEventListener('click', clearTreeOnly);
     dom.btnUndo.addEventListener('click', undo);
     dom.btnNt.addEventListener('click', () => setMode('NT'));
     dom.btnAa.addEventListener('click', () => setMode('AA'));
@@ -402,7 +414,7 @@ function init() {
     dom.btnRealignSel.addEventListener('click', realignSelection);
     dom.btnStrip.addEventListener('click', stripGapsGlobal);
     dom.btnDownload.addEventListener('click', () => exportAlignment('download'));
-    dom.btnCopy.addEventListener('click', () => exportAlignment('clipboard'));
+    dom.btnCopy.addEventListener('click', handleCopyButton);
     dom.btnHelp.addEventListener('click', () => dom.helpOverlay.classList.add('active'));
 
     dom.areaSeq.addEventListener('scroll', () => requestAnimationFrame(render));
@@ -454,6 +466,8 @@ function init() {
             undo();
         }
     });
+    window.addEventListener('copy', onCopyEvent);
+    window.addEventListener('paste', onPasteEvent);
 
     onResize();
     
@@ -465,17 +479,19 @@ function init() {
 function exportAlignment(target) {
     if (!state.viewSequences.length) return;
     
-    let content = "";
-    state.viewSequences.forEach(s => {
-        content += `>${s.name}\n${s.seq.join('')}\n`;
-    });
+    const rows = state.viewSequences.map((_, idx) => idx);
+    const content = buildFastaContent(rows, 0, null);
+    if(!content) return;
 
     if (target === 'clipboard') {
-        navigator.clipboard.writeText(content).then(() => {
-            const originalText = dom.btnCopy.textContent;
-            dom.btnCopy.textContent = "Copied!";
-            setTimeout(() => dom.btnCopy.textContent = originalText, 1500);
-        });
+        if(navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(content).catch(err => {
+                console.error("Copy failed:", err);
+                alert("Copy failed: " + err.message);
+            });
+        } else {
+            alert("Clipboard API not available.");
+        }
     } else {
         const blob = new Blob([content], {type: "text/plain"});
         const url = URL.createObjectURL(blob);
@@ -489,6 +505,166 @@ function exportAlignment(target) {
     }
 }
 
+function getSelectionBounds() {
+    if(!state.selection || !state.viewSequences.length) return null;
+    const totalRows = state.viewSequences.length;
+    const rowStart = Math.max(0, Math.min(state.selection.r1, totalRows - 1));
+    const rowEnd = Math.max(0, Math.min(state.selection.r2, totalRows - 1));
+    if(rowEnd < rowStart) return null;
+    const rows = [];
+    for(let r=rowStart; r<=rowEnd; r++) rows.push(r);
+    if(!rows.length) return null;
+    const isFullRow = state.selection.c2 >= 99999999;
+    const colStart = isFullRow ? 0 : Math.max(0, state.selection.c1);
+    const colEnd = isFullRow ? null : Math.max(colStart, state.selection.c2);
+    return { rows, colStart, colEnd };
+}
+
+function buildFastaContent(rows, colStart = 0, colEnd = null) {
+    if(!rows || !rows.length) return "";
+    const lines = [];
+    rows.forEach(r => {
+        const entry = state.viewSequences[r];
+        if(!entry) return;
+        const seq = entry.seq;
+        const start = Math.min(colStart, seq.length);
+        const end = (colEnd === null || colEnd === undefined) ? seq.length : Math.min(seq.length, colEnd + 1);
+        const fragment = seq.slice(start, end).join('');
+        lines.push(`>${entry.name}`);
+        lines.push(fragment);
+    });
+    return lines.join('\n') + (lines.length ? '\n' : '');
+}
+
+function getClipboardContent(preferSelection = true) {
+    if(!state.viewSequences.length) return "";
+    let bounds = preferSelection ? getSelectionBounds() : null;
+    if(!bounds) {
+        const rows = state.viewSequences.map((_, idx) => idx);
+        bounds = { rows, colStart: 0, colEnd: null };
+    }
+    return buildFastaContent(bounds.rows, bounds.colStart, bounds.colEnd);
+}
+
+function shouldHandleClipboardEvent() {
+    return document.activeElement === dom.areaSeq;
+}
+
+function handleCopyButton() {
+    const content = getClipboardContent(true);
+    if(!content) return;
+    if(!navigator.clipboard || !navigator.clipboard.writeText) {
+        alert("Clipboard API not available.");
+        return;
+    }
+    const originalText = dom.btnCopy.textContent;
+    navigator.clipboard.writeText(content).then(() => {
+        dom.btnCopy.textContent = "Copied!";
+        setTimeout(() => dom.btnCopy.textContent = originalText, 1500);
+    }).catch(err => {
+        console.error("Copy failed:", err);
+        dom.btnCopy.textContent = originalText;
+        alert("Copy failed: " + err.message);
+    });
+}
+
+function onCopyEvent(e) {
+    if(!shouldHandleClipboardEvent()) return;
+    const content = getClipboardContent(true);
+    if(!content) return;
+    if(e.clipboardData) {
+        e.clipboardData.setData('text/plain', content);
+        e.preventDefault();
+    }
+}
+
+function onPasteEvent(e) {
+    if(!shouldHandleClipboardEvent()) return;
+    const data = e.clipboardData || window.clipboardData;
+    if(!data) return;
+    const text = data.getData('text/plain');
+    if(!text) return;
+    e.preventDefault();
+    handleClipboardPaste(text);
+}
+
+function handleClipboardPaste(text) {
+    if(!text) return;
+    const trimmed = text.trim();
+    if(!trimmed) return;
+
+    const fastaEntries = parseClipboardFasta(trimmed);
+    if(fastaEntries.length) {
+        appendSequencesFromClipboard(fastaEntries);
+        return;
+    }
+
+    const lines = trimmed.split(/\r?\n/).filter(line => line.trim().length > 0);
+    if(lines.length === 1) {
+        const seqStr = lines[0].replace(/\s+/g, '').toUpperCase().replace(/[^A-Z-]/g, '');
+        if(seqStr.length) {
+            appendSequencesFromClipboard([{ name: null, seq: seqStr.split('') }]);
+            return;
+        }
+    }
+
+    alert("Could not parse pasted content. Provide FASTA or a single sequence line.");
+}
+
+function parseClipboardFasta(text) {
+    const lines = text.split(/\r?\n/);
+    const seqs = [];
+    let currentName = null;
+    let buffer = [];
+    let sawHeader = false;
+
+    for(let rawLine of lines) {
+        const line = rawLine.trim();
+        if(!line) continue;
+        if(line.startsWith('>')) {
+            sawHeader = true;
+            if(currentName !== null) {
+                const seqStr = buffer.join('');
+                if(seqStr.length) seqs.push({ name: currentName, seq: seqStr.split('') });
+            }
+            currentName = line.substring(1).trim() || null;
+            buffer = [];
+        } else if(currentName !== null) {
+            buffer.push(line.toUpperCase().replace(/[^A-Z-]/g, ''));
+        }
+    }
+
+    if(currentName !== null) {
+        const seqStr = buffer.join('');
+        if(seqStr.length) seqs.push({ name: currentName, seq: seqStr.split('') });
+    }
+
+    if(!sawHeader) return [];
+    return seqs;
+}
+
+function appendSequencesFromClipboard(entries) {
+    const payload = entries.filter(e => e.seq && e.seq.length);
+    if(!payload.length) return;
+    saveState();
+    const existingNames = new Set(state.rawSequences.map(s => s.name));
+    payload.forEach(entry => {
+        let name = entry.name && entry.name.trim().length ? entry.name.trim() : '';
+        if(!name) name = generatePastedName();
+        while(existingNames.has(name)) {
+            name = generatePastedName();
+        }
+        existingNames.add(name);
+        state.rawSequences.push({ name, seq: entry.seq.slice() });
+    });
+    state.selection = null;
+    recalc();
+}
+
+function generatePastedName() {
+    return `Pasted_${state.pastedNameCounter++}`;
+}
+
 // --- Strip Gaps ---
 function stripGapsGlobal() {
     saveState();
@@ -497,6 +673,31 @@ function stripGapsGlobal() {
     });
     state.selection = null;
     recalc();
+}
+
+function clearAlignment() {
+    if(!state.rawSequences.length) return;
+    if(!confirm("Clear all sequences and the current tree?")) return;
+    saveState();
+    state.rawSequences = [];
+    state.viewSequences = [];
+    state.selection = null;
+    state.tree = null;
+    state.refIndex = 0;
+    state.maxLength = 0;
+    state.refMap = [];
+    state.pastedNameCounter = 1;
+    dom.sizer.style.width = '1px';
+    dom.sizer.style.height = '1px';
+    setTreeWidth(0);
+    recalc();
+    render();
+}
+
+function clearTreeOnly() {
+    state.tree = null;
+    setTreeWidth(0);
+    render();
 }
 
 // --- Async Alignment Logic (Global) ---
@@ -1193,6 +1394,7 @@ function finalizeLoad(seqs) {
     state.history = [];
     state.tree = null;
     state.refIndex = 0; 
+    state.pastedNameCounter = state.rawSequences.length + 1;
     setTreeWidth(0);
     recalc();
     showOverlay(false);
