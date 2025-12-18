@@ -181,11 +181,11 @@
                 <label>2. Group ID Method</label>
                 <select id="groupMethod">
                     <option value="separator">Separator Character</option>
-                    <option value="fixed">Fixed Length</option>
+                    <option value="fixed" selected>Fixed Length</option>
                 </select>
             </div>
 
-            <div class="control-group" id="setting-separator">
+            <div class="control-group hidden" id="setting-separator">
                 <label>Separator Settings</label>
                 <div style="display:flex; gap:5px;">
                     <input type="text" id="sepChar" placeholder="e.g. | or _" value="_" style="width: 50px;">
@@ -196,7 +196,7 @@
                 </div>
             </div>
 
-            <div class="control-group hidden" id="setting-fixed">
+            <div class="control-group" id="setting-fixed">
                 <label>Fixed Length Settings</label>
                 <div style="display:flex; gap:5px;">
                     <input type="number" id="fixedLen" value="4" min="1" style="width: 60px;">
@@ -234,6 +234,28 @@
             </div>
 
             <div class="control-group">
+                <label>5. Color Scheme</label>
+                <select id="colorScheme">
+                    <option value="nuc_classic">Nuc: Classic</option>
+                    <option value="nuc_shapely">Nuc: Shapely</option>
+                    <option value="aa_zappo">AA: Zappo</option>
+                    <option value="aa_taylor">AA: Taylor</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>6. Visualizations</label>
+                <div style="display:flex; flex-direction: column; gap: 2px;">
+                    <label style="font-weight: normal; font-size: 0.8em; display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="showLogoViz" checked> Group Logos
+                    </label>
+                    <label style="font-weight: normal; font-size: 0.8em; display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="showHighlighterViz" checked> Highlighter
+                    </label>
+                </div>
+            </div>
+
+            <div class="control-group">
                 <label>&nbsp;</label>
                 <button id="runBtn">Analyze & Visualize</button>
             </div>
@@ -247,33 +269,82 @@
             </div>
             <div id="metrics-table-container"></div>
 
-            <hr style="margin: 30px 0; border: 0; border-top: 1px solid #ddd;">
+            <div id="logo-viz-section">
+                <hr style="margin: 30px 0; border: 0; border-top: 1px solid #ddd;">
 
-            <!-- Visualization -->
-            <div id="viz-header">
-                <h3>Alignment Visualization (Diff to Consensus)</h3>
-                <div style="display:flex; gap: 10px; align-items: center;">
-                    <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
-                        <label>Horz:</label>
-                        <input type="number" id="horzScale" value="100" step="10" style="width: 50px;">%
+                <!-- Logo Visualization -->
+                <div id="logo-viz-header">
+                    <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom: 10px;">
+                        <h3>Group Logo Visualization (WebLogo-style)</h3>
+                        <div style="display:flex; gap: 10px; align-items: center;">
+                            <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                                <label>Match:</label>
+                                <select id="logoMatchHandling" style="width: auto;">
+                                    <option value="all">Display All</option>
+                                    <option value="grey">Matches Grey</option>
+                                    <option value="hidden">Matches Hidden</option>
+                                </select>
+                            </div>
+                            <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                                <label>Scaling:</label>
+                                <select id="logoScaleMethod" style="width: auto;">
+                                    <option value="frequency">Frequency (Fixed Height)</option>
+                                    <option value="entropy">Entropy (Conserved Taller)</option>
+                                    <option value="inv_entropy">Inv. Entropy (Diverse Taller)</option>
+                                </select>
+                                <label style="font-weight: normal; font-size: 0.8em; display: flex; align-items: center; gap: 3px; margin-left: 5px;">
+                                    <input type="checkbox" id="logoNormalize" checked> Normalize
+                                </label>
+                            </div>
+                            <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                                <label>Horz:</label>
+                                <input type="number" id="logoHorzScale" value="100" step="10" style="width: 50px;">%
+                            </div>
+                            <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                                <label>Vert:</label>
+                                <input type="number" id="logoVertScale" value="100" step="10" style="width: 50px;">%
+                            </div>
+                            <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                                <label>Label:</label>
+                                <input type="number" id="logoLabelScale" value="100" step="10" style="width: 50px;">%
+                            </div>
+                            <button class="secondary" id="updateLogoScaleBtn">Update</button>
+                            <button class="secondary" id="downloadLogoSvgBtn">Download SVG</button>
+                        </div>
                     </div>
-                    <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
-                        <label>Vert:</label>
-                        <input type="number" id="vertScale" value="100" step="10" style="width: 50px;">%
-                    </div>
-                    <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
-                        <label>Label:</label>
-                        <input type="number" id="labelScale" value="100" step="10" style="width: 50px;">%
-                    </div>
-                    <button class="secondary" id="updateScaleBtn">Update</button>
-                    <button class="secondary" id="downloadSvgBtn">Download SVG</button>
                 </div>
+                <div id="logo-viz-container" style="width: 100%; border: 1px solid #ccc; background: white; overflow: auto; margin-bottom: 20px;"></div>
             </div>
-            <p style="font-size: 0.9em; color: #666; margin-top:0;">
-                Alternating grey bands indicate groups. <span style="color:red">■</span> Colored blocks are mismatches from group consensus. 
-                Vertical labels (left) show Group IDs.
-            </p>
-            <div id="viz-container"></div>
+
+            <div id="highlighter-viz-section">
+                <hr style="margin: 30px 0; border: 0; border-top: 1px solid #ddd;">
+
+                <!-- Visualization -->
+                <div id="viz-header">
+                    <h3>Alignment Visualization (Diff to Consensus)</h3>
+                    <div style="display:flex; gap: 10px; align-items: center;">
+                        <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                            <label>Horz:</label>
+                            <input type="number" id="horzScale" value="100" step="10" style="width: 50px;">%
+                        </div>
+                        <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                            <label>Vert:</label>
+                            <input type="number" id="vertScale" value="100" step="10" style="width: 50px;">%
+                        </div>
+                        <div class="control-group" style="flex-direction: row; align-items: center; gap: 5px;">
+                            <label>Label:</label>
+                            <input type="number" id="labelScale" value="100" step="10" style="width: 50px;">%
+                        </div>
+                        <button class="secondary" id="updateScaleBtn">Update</button>
+                        <button class="secondary" id="downloadSvgBtn">Download SVG</button>
+                    </div>
+                </div>
+                <p style="font-size: 0.9em; color: #666; margin-top:0;">
+                    Alternating grey bands indicate groups. <span style="color:red">■</span> Colored blocks are mismatches from group consensus. 
+                    Vertical labels (left) show Group IDs.
+                </p>
+                <div id="viz-container"></div>
+            </div>
         </div>
 
     </div>
@@ -350,8 +421,39 @@
     let vizCache = {
         flatData: [],
         boundaries: [],
-        seqLength: 0
+        seqLength: 0,
+        groupLogos: {} // Store per-group frequencies/entropy
     };
+
+    const schemes = {
+        nuc_classic: {
+            "A": "#4daf4a", "T": "#e41a1c", "G": "#ff7f00", "C": "#377eb8", "-": "#999999", "N": "#999999", "other": "#999999"
+        },
+        nuc_shapely: {
+            "A": "#1f77b4", "T": "#d62728", "G": "#2ca02c", "C": "#ff7f0e", "-": "#999999", "N": "#999999", "other": "#999999"
+        },
+        aa_zappo: {
+            "I": "#ffafaf", "L": "#ffafaf", "V": "#ffafaf", "A": "#ffafaf", "M": "#ffafaf", "C": "#ffff00", 
+            "F": "#ffc800", "Y": "#ffc800", "W": "#ffc800", 
+            "K": "#6464ff", "R": "#6464ff", "H": "#6464ff", 
+            "D": "#ff0000", "E": "#ff0000", 
+            "S": "#00ff00", "T": "#00ff00", "N": "#00ff00", "Q": "#00ff00", 
+            "G": "#eb32e1", "P": "#ffee00", 
+            "-": "#999999", "X": "#999999", "other": "#999999"
+        },
+        aa_taylor: {
+            "D": "#ff0000", "S": "#ff3300", "T": "#ff6600", "G": "#ff9900", "P": "#ffcc00", "C": "#ffff00", 
+            "A": "#ccff00", "V": "#99ff00", "I": "#66ff00", "L": "#33ff00", "M": "#00ff00", "F": "#00ff33", 
+            "Y": "#00ff66", "W": "#00ff99", "H": "#00ffcc", "R": "#00ffff", "K": "#00ccff", "N": "#0099ff", 
+            "Q": "#0066ff", "E": "#0033ff", "-": "#999999", "X": "#999999", "other": "#999999"
+        }
+    };
+
+    function getColorScale() {
+        const schemeKey = document.getElementById('colorScheme').value;
+        const scheme = schemes[schemeKey] || schemes.nuc_classic;
+        return (base) => scheme[base] || scheme["other"];
+    }
 
     // --- DOM ELEMENTS ---
     const methodSelect = document.getElementById('groupMethod');
@@ -468,7 +570,19 @@
                 await prepareVizData();
                 
                 // 6. Initial Render (Using scaling fields)
-                renderVizWithScales();
+                if (document.getElementById('showHighlighterViz').checked) {
+                    document.getElementById('highlighter-viz-section').classList.remove('hidden');
+                    renderVizWithScales();
+                } else {
+                    document.getElementById('highlighter-viz-section').classList.add('hidden');
+                }
+
+                if (document.getElementById('showLogoViz').checked) {
+                    document.getElementById('logo-viz-section').classList.remove('hidden');
+                    renderLogoVizWithScales();
+                } else {
+                    document.getElementById('logo-viz-section').classList.add('hidden');
+                }
 
                 // Show sections
                 document.getElementById('results-area').classList.remove('hidden');
@@ -709,12 +823,50 @@
 
         let flatData = [];
         let groupBoundaries = [];
+        let groupLogos = {};
         let currentRow = 0;
         let lastYield = Date.now();
 
         for (const gid of sortedGroups) {
             const seqs = groupedData[gid];
             
+            // Calculate Logo Data for this group
+            const logoData = [];
+            const gapMode = document.getElementById('gapHandling').value;
+
+            for (let k = 0; k < seqLength; k++) {
+                const counts = {};
+                let colTotal = 0;
+                let maxChar = '-';
+                let maxCount = -1;
+
+                for (let i = 0; i < seqs.length; i++) {
+                    const char = seqs[i].seq[k];
+                    const isGap = char === '-' || char === '.';
+                    if (gapMode === 'pairwise_del' && isGap) continue;
+                    counts[char] = (counts[char] || 0) + 1;
+                    if (counts[char] > maxCount) {
+                        maxCount = counts[char];
+                        maxChar = char;
+                    }
+                    colTotal++;
+                }
+
+                let entropy = 0;
+                const freqs = [];
+                if (colTotal > 0) {
+                    for (const char in counts) {
+                        const p = counts[char] / colTotal;
+                        entropy -= p * Math.log2(p);
+                        freqs.push({ base: char, freq: p });
+                    }
+                }
+                // Sort frequencies for stacking (descending)
+                freqs.sort((a, b) => b.freq - a.freq);
+                logoData.push({ freqs, entropy, totalCount: colTotal, consensus: maxChar });
+            }
+            groupLogos[gid] = logoData;
+
             let groupRef = null;
             if (refMethod === 'group_consensus') {
                 groupRef = await getConsensus(seqs);
@@ -759,16 +911,12 @@
             flatData: flatData,
             boundaries: groupBoundaries,
             seqLength: seqLength,
-            totalRows: currentRow
+            totalRows: currentRow,
+            groupLogos: groupLogos
         };
     }
 
     // --- D3 RENDERING ---
-
-    const colorScale = d3.scaleOrdinal()
-            .domain(["A", "T", "G", "C", "-", "N"])
-            .range(["#4daf4a", "#e41a1c", "#ff7f00", "#377eb8", "#999999", "#999999"])
-            .unknown("#999999");
 
     function renderVizWithScales() {
         const hScale = (parseFloat(document.getElementById('horzScale').value) || 100) / 100;
@@ -781,7 +929,139 @@
         drawViz(baseCharW * hScale, baseRowH * vScale, lScale);
     }
 
+    function renderLogoVizWithScales() {
+        const hScale = (parseFloat(document.getElementById('logoHorzScale').value) || 100) / 100;
+        const vScale = (parseFloat(document.getElementById('logoVertScale').value) || 100) / 100;
+        const lScale = (parseFloat(document.getElementById('logoLabelScale').value) || 100) / 100;
+        const scaleMethod = document.getElementById('logoScaleMethod').value;
+        const matchHandling = document.getElementById('logoMatchHandling').value;
+        const normalize = document.getElementById('logoNormalize').checked;
+        
+        const baseCharW = 12;
+        const baseRowH = 50; // Taller for logos
+        
+        drawLogoViz(baseCharW * hScale, baseRowH * vScale, lScale, scaleMethod, matchHandling, normalize);
+    }
+
     document.getElementById('updateScaleBtn').addEventListener('click', renderVizWithScales);
+    document.getElementById('updateLogoScaleBtn').addEventListener('click', renderLogoVizWithScales);
+
+    function drawLogoViz(charWidth, rowHeight, labelScale, scaleMethod, matchHandling, normalize) {
+        const container = document.getElementById('logo-viz-container');
+        container.innerHTML = "";
+
+        const margin = { top: 30, right: 10, bottom: 10, left: 40 }; 
+        const sortedGroups = Object.keys(vizCache.groupLogos).sort();
+        
+        const groupGap = rowHeight * 0.1;
+        const totalW = (vizCache.seqLength * charWidth) + margin.left + margin.right;
+        const totalH = (sortedGroups.length * (rowHeight + groupGap)) + margin.top + margin.bottom;
+        
+        const svg = d3.select("#logo-viz-container")
+            .append("svg")
+            .attr("width", totalW)
+            .attr("height", totalH)
+            .style("display", "block")
+            .style("font-family", "sans-serif");
+
+        const g = svg.append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const colorScale = getColorScale();
+        const matchGrey = "#e0e0e0";
+
+        // Detect if sequence is likely AA or Nuc for Max Entropy
+        const schemeKey = document.getElementById('colorScheme').value;
+        const isAA = schemeKey.startsWith('aa');
+        const theoreticalMaxH = isAA ? Math.log2(20) : Math.log2(4);
+
+        // Calculate global max for normalization if needed
+        let globalMaxScore = theoreticalMaxH;
+        if (normalize && scaleMethod !== 'frequency') {
+            let currentMax = 0;
+            sortedGroups.forEach(gid => {
+                vizCache.groupLogos[gid].forEach(posData => {
+                    const score = (scaleMethod === 'entropy') ? (theoreticalMaxH - posData.entropy) : posData.entropy;
+                    if (score > currentMax) currentMax = score;
+                });
+            });
+            if (currentMax > 0) globalMaxScore = currentMax;
+        }
+
+        sortedGroups.forEach((gid, i) => {
+            const grpY = i * (rowHeight + groupGap);
+            const logoData = vizCache.groupLogos[gid];
+
+            // Vertical Label
+            g.append("text")
+                .attr("transform", `translate(-15, ${grpY + rowHeight/2}) rotate(-90)`)
+                .attr("text-anchor", "middle")
+                .attr("dy", "0.35em")
+                .style("font-weight", "bold")
+                .style("font-size", (12 * labelScale) + "px") 
+                .text(gid);
+
+            // Draw Letters
+            logoData.forEach((posData, posIdx) => {
+                let currentBottomY = grpY + rowHeight;
+                let totalScale = 1.0;
+                
+                if (scaleMethod === 'entropy') {
+                    totalScale = Math.max(0, (theoreticalMaxH - posData.entropy) / globalMaxScore);
+                } else if (scaleMethod === 'inv_entropy') {
+                    totalScale = Math.min(1.0, posData.entropy / globalMaxScore);
+                }
+
+                const availableH = rowHeight * totalScale;
+                const x = posIdx * charWidth;
+
+                posData.freqs.forEach(f => {
+                    const letterH = f.freq * availableH;
+                    
+                    const isMatch = (f.base === posData.consensus);
+                    const skipRendering = (letterH < 0.5) || (isMatch && matchHandling === 'hidden');
+                    
+                    if (!skipRendering) {
+                        const color = (isMatch && matchHandling === 'grey') ? matchGrey : colorScale(f.base);
+
+                        const letterGroup = g.append("g")
+                            .attr("transform", `translate(${x + charWidth / 2}, ${currentBottomY})`);
+
+                        letterGroup.append("text")
+                            .attr("text-anchor", "middle")
+                            .attr("dominant-baseline", "alphabetic") 
+                            .attr("font-family", "monospace")
+                            .attr("font-weight", "bold")
+                            .attr("fill", color)
+                            .text(f.base)
+                            .attr("font-size", "100px")
+                            .attr("transform", `scale(${(charWidth * 0.95) / 60}, ${letterH / 72})`);
+                    }
+
+                    currentBottomY -= letterH;
+                });
+            });
+
+            // Separator line
+            if (i < sortedGroups.length - 1) {
+                g.append("line")
+                    .attr("x1", 0)
+                    .attr("y1", grpY + rowHeight + groupGap/2)
+                    .attr("x2", vizCache.seqLength * charWidth)
+                    .attr("y2", grpY + rowHeight + groupGap/2)
+                    .attr("stroke", "#eee")
+                    .attr("stroke-width", 1);
+            }
+        });
+
+        // Axis
+        const xScale = d3.scaleLinear()
+            .domain([1, vizCache.seqLength])
+            .range([0, (vizCache.seqLength - 1) * charWidth]);
+        const axis = d3.axisTop(xScale);
+        if(charWidth < 2) axis.ticks(10);
+        g.append("g").call(axis).style("font-size", "10px");
+    }
 
     function drawViz(charWidth, rowHeight, labelScale = 1.0) {
         const container = document.getElementById('viz-container');
@@ -801,6 +1081,8 @@
 
         const g = svg.append("g")
             .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const colorScale = getColorScale();
 
         // 1. Group Backgrounds & Vertical Labels
         vizCache.boundaries.forEach((grp, i) => {
@@ -847,7 +1129,7 @@
         // 3. Axis
         const xScale = d3.scaleLinear()
             .domain([1, vizCache.seqLength])
-            .range([0, vizCache.seqLength * charWidth]);
+            .range([0, (vizCache.seqLength - 1) * charWidth]);
 
         const axis = d3.axisTop(xScale);
         
@@ -877,9 +1159,19 @@
         a.click();
     });
 
+    document.getElementById('downloadLogoSvgBtn').addEventListener('click', () => {
+        const svgElement = document.querySelector('#logo-viz-container svg');
+        if(!svgElement) return;
+        downloadSvg(svgElement, 'group_logos.svg');
+    });
+
     document.getElementById('downloadSvgBtn').addEventListener('click', () => {
         const svgElement = document.querySelector('#viz-container svg');
         if(!svgElement) return;
+        downloadSvg(svgElement, 'alignment_viz.svg');
+    });
+
+    function downloadSvg(svgElement, filename) {
         const serializer = new XMLSerializer();
         let source = serializer.serializeToString(svgElement);
         if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
@@ -890,9 +1182,9 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'alignment_viz.svg';
+        a.download = filename;
         a.click();
-    });
+    }
 
 </script>
 
