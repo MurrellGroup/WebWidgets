@@ -920,7 +920,7 @@ async function runKalignAlignment() {
         const command = `kalign input.fa -f fasta -o result.fasta`;
         await state.aioliCLI.exec(command);
         
-        const resultFasta = await state.aioliCLI.exec("cat result.fasta");
+        const resultFasta = await state.aioliCLI.read("result.fasta");
         
         // Parse result fasta
         const lines = resultFasta.split(/\r?\n/);
