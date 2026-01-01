@@ -184,6 +184,7 @@
                 <button id="btn-infer-tree" title="Infer NJ tree from sequences">Infer</button>
                 <input type="file" id="inp-tree">
                 <button id="btn-export-tree" title="Export current tree as Newick">Export</button>
+                <button id="btn-ladderize-tree" title="Ladderize tree and reorder sequences">Ladderize</button>
             </div>
         </div>
         <div class="control-group">
@@ -448,6 +449,7 @@ const dom = {
     fileTree: document.getElementById('inp-tree'),
     btnInferTree: document.getElementById('btn-infer-tree'),
     btnExportTree: document.getElementById('btn-export-tree'),
+    btnLadderizeTree: document.getElementById('btn-ladderize-tree'),
     btnClearAlignment: document.getElementById('btn-clear-aln'),
     btnClearTree: document.getElementById('btn-clear-tree'),
     btnUndo: document.getElementById('btn-undo'),
@@ -502,6 +504,7 @@ async function init() {
     dom.fileTree.addEventListener('change', e => loadTreeFile(e.target.files[0]));
     dom.btnInferTree.addEventListener('click', showInferModal);
     dom.btnExportTree.addEventListener('click', exportTree);
+    dom.btnLadderizeTree.addEventListener('click', ladderizeTree);
     dom.btnClearAlignment.addEventListener('click', clearAlignment);
     dom.btnClearTree.addEventListener('click', clearTreeOnly);
     dom.btnUndo.addEventListener('click', undo);
@@ -1815,31 +1818,8 @@ function parseTree(newick, isIndexed = false) {
         delete root.parent;
     }
 
-    const leafOrder = [];
-    function traverse(node) {
-        if(!node.children || node.children.length === 0) {
-            if(node.name) leafOrder.push(node.name);
-        } else {
-            node.children.forEach(traverse);
-        }
-    }
-    traverse(root);
-
-    const seqMap = new Map();
-    state.rawSequences.forEach(s => seqMap.set(s.name, s));
+    applyTreeOrder(root);
     
-    const newSeqList = [];
-    leafOrder.forEach(name => {
-        if(seqMap.has(name)) {
-            newSeqList.push(seqMap.get(name));
-            seqMap.delete(name);
-        }
-    });
-    for(let s of seqMap.values()) newSeqList.push(s);
-    state.rawSequences = newSeqList;
-    
-    state.refIndex = 0;
-
     let totalLen = 0;
     function checkLen(n) { totalLen += (n.len || 0); n.children.forEach(checkLen); }
     checkLen(root);
@@ -1861,6 +1841,75 @@ function parseTree(newick, isIndexed = false) {
     setTreeWidth(200);
     recalc();
     showOverlay(false);
+}
+
+function applyTreeOrder(root) {
+    const leafOrder = [];
+    function traverse(node) {
+        if(!node.children || node.children.length === 0) {
+            if(node.name) leafOrder.push(node.name);
+        } else {
+            node.children.forEach(traverse);
+        }
+    }
+    traverse(root);
+
+    const seqMap = new Map();
+    state.rawSequences.forEach(s => seqMap.set(s.name, s));
+    
+    const oldRefName = state.rawSequences[state.refIndex]?.name;
+    const newSeqList = [];
+    leafOrder.forEach(name => {
+        if(seqMap.has(name)) {
+            newSeqList.push(seqMap.get(name));
+            seqMap.delete(name);
+        }
+    });
+    for(let s of seqMap.values()) newSeqList.push(s);
+    state.rawSequences = newSeqList;
+    
+    if (oldRefName) {
+        const newIdx = state.rawSequences.findIndex(s => s.name === oldRefName);
+        state.refIndex = (newIdx !== -1) ? newIdx : 0;
+    } else {
+        state.refIndex = 0;
+    }
+}
+
+function ladderizeTree() {
+    if (!state.tree || !state.tree.root) {
+        alert("Please load or infer a tree first.");
+        return;
+    }
+    
+    saveState();
+    
+    function countLeaves(node) {
+        if (!node.children || node.children.length === 0) {
+            node.leafCount = 1;
+            return 1;
+        }
+        let count = 0;
+        for (const child of node.children) {
+            count += countLeaves(child);
+        }
+        node.leafCount = count;
+        return count;
+    }
+    
+    function sortChildren(node) {
+        if (!node.children || node.children.length <= 1) return;
+        node.children.sort((a, b) => a.leafCount - b.leafCount);
+        for (const child of node.children) {
+            sortChildren(child);
+        }
+    }
+    
+    countLeaves(state.tree.root);
+    sortChildren(state.tree.root);
+    
+    applyTreeOrder(state.tree.root);
+    recalc();
 }
 
 function setTreeWidth(w) {
