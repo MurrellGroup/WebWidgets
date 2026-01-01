@@ -10,6 +10,8 @@
     <script src="https://murrellgroup.github.io/WebWidgets/phylotools.js"></script>
     <!-- Included the Frame Cleaning Library -->
     <script src="https://murrellgroup.github.io/WebWidgets/frameclean.js"></script>
+    <!-- Included Aioli for bioWASM -->
+    <script src="https://biowasm.com/cdn/v3/aioli.js"></script>
     <style>
         :root {
             --bg-color: #f8f9fa;
@@ -31,6 +33,7 @@
             background-color: var(--bg-color);
             overflow: hidden;
             user-select: none;
+            overscroll-behavior-x: none;
         }
 
         #app {
@@ -226,6 +229,7 @@
                 <button id="btn-align">Align</button>
                 <select id="sel-align-mode">
                     <option value="msa">MSA</option>
+                    <option value="kalign">Kalign</option>
                     <option value="polish">Polish</option>
                     <option value="left">Left Pile</option>
                     <option value="discard">Discard Ins</option>
@@ -316,6 +320,49 @@
     </div>
 </div>
 
+<div id="infer-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 10000;">
+    <div class="help-box" style="width: 450px;">
+        <h2>Infer Phylogeny</h2>
+        <div class="help-row" style="flex-direction: column; align-items: flex-start; gap: 5px;">
+            <label style="text-transform: none; font-size: 13px; color: #374151;">Method</label>
+            <select id="sel-infer-method" style="width: 100%;">
+                <option value="nj">Neighbor-Joining (Internal)</option>
+                <option value="fasttree">FastTree (bioWASM)</option>
+            </select>
+        </div>
+        
+        <div id="fasttree-options" style="display: none; flex-direction: column; gap: 10px; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px;">
+            <div class="help-row">
+                <span style="font-size: 13px; color: #374151;">Model (NT):</span>
+                <select id="sel-ft-nt-model">
+                    <option value="-gtr">-gtr (GTR+CAT)</option>
+                    <option value="">Default (Jukes-Cantor)</option>
+                </select>
+            </div>
+            <div class="help-row">
+                <span style="font-size: 13px; color: #374151;">Model (AA):</span>
+                <select id="sel-ft-aa-model">
+                    <option value="-lg">-lg (Le-Gascuel)</option>
+                    <option value="-wag">-wag (Whelan-And-Goldman)</option>
+                    <option value="">Default (JTT)</option>
+                </select>
+            </div>
+            <div class="help-row">
+                <span style="font-size: 13px; color: #374151;">Speed:</span>
+                <select id="sel-ft-speed">
+                    <option value="">Default</option>
+                    <option value="-fastest">-fastest</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+            <button onclick="document.getElementById('infer-overlay').style.display='none'">Cancel</button>
+            <button id="btn-run-infer" class="active">Run Inference</button>
+        </div>
+    </div>
+</div>
+
 <div id="help-overlay">
     <div class="help-box">
         <h2>FastAlign Help</h2>
@@ -391,7 +438,8 @@ const state = {
     refMap: [], 
     mouse: { isDown: false, target: null, startR: 0, startC: 0, lastHoverC: 0 },
     ctxTargetRow: null,
-    pastedNameCounter: 1
+    pastedNameCounter: 1,
+    aioliCLI: null
 };
 
 // --- DOM ---
@@ -442,10 +490,17 @@ const ctxRuler = dom.cvsRuler.getContext('2d');
 const ctxTree = dom.cvsTree.getContext('2d');
 
 // --- Init ---
-function init() {
+async function init() {
+    // Initialize Aioli
+    try {
+        state.aioliCLI = await new Aioli(["kalign/3.3.1", "fasttree/2.1.11"]);
+    } catch (err) {
+        console.error("Failed to initialize Aioli:", err);
+    }
+
     dom.file.addEventListener('change', e => loadFile(e.target.files[0]));
     dom.fileTree.addEventListener('change', e => loadTreeFile(e.target.files[0]));
-    dom.btnInferTree.addEventListener('click', inferTree);
+    dom.btnInferTree.addEventListener('click', showInferModal);
     dom.btnExportTree.addEventListener('click', exportTree);
     dom.btnClearAlignment.addEventListener('click', clearAlignment);
     dom.btnClearTree.addEventListener('click', clearTreeOnly);
@@ -464,6 +519,12 @@ function init() {
     dom.btnStrip.addEventListener('click', stripGapsGlobal);
     dom.btnCleanFrame.addEventListener('click', showCleanModal);
     document.getElementById('btn-run-clean').addEventListener('click', runFrameCleanTask);
+    
+    document.getElementById('sel-infer-method').addEventListener('change', (e) => {
+        document.getElementById('fasttree-options').style.display = (e.target.value === 'fasttree') ? 'flex' : 'none';
+    });
+    document.getElementById('btn-run-infer').addEventListener('click', runInferTask);
+
     dom.btnDownload.addEventListener('click', () => exportAlignment('download'));
     dom.btnCopy.addEventListener('click', handleCopyButton);
     dom.btnHelp.addEventListener('click', () => dom.helpOverlay.classList.add('active'));
@@ -826,8 +887,105 @@ function runAlignmentTask() {
     const alignMode = dom.selAlignMode.value;
     if (alignMode === 'msa') {
         setTimeout(runMSAAlignment, 50);
+    } else if (alignMode === 'kalign') {
+        setTimeout(runKalignAlignment, 50);
     } else {
         setTimeout(startAsyncAlignment, 50);
+    }
+}
+
+// --- Kalign Alignment using bioWASM ---
+async function runKalignAlignment() {
+    if (!state.aioliCLI) {
+        alert("Kalign (bioWASM) is not yet initialized. Please wait or refresh.");
+        showOverlay(false);
+        return;
+    }
+
+    const isAA = (state.mode === 'AA');
+    dom.overlayMsg.textContent = "Running Kalign alignment...";
+    dom.overlaySub.textContent = "via bioWASM";
+
+    try {
+        const rows = state.rawSequences.map((_, idx) => idx);
+        // Build FASTA content from view sequences (which are AA if isAA is true)
+        // and strip gaps for the aligner
+        const fastaInput = buildFastaContent(rows, 0, null).replace(/-/g, '');
+        
+        await state.aioliCLI.mount({
+            name: "input.fa",
+            data: fastaInput
+        });
+
+        const command = `kalign input.fa -f fasta -o result.fasta`;
+        await state.aioliCLI.exec(command);
+        
+        const resultFasta = await state.aioliCLI.exec("cat result.fasta");
+        
+        // Parse result fasta
+        const lines = resultFasta.split(/\r?\n/);
+        const nameToSeq = new Map();
+        let currentName = null;
+        let buf = [];
+        for (let line of lines) {
+            line = line.trim();
+            if (!line) continue;
+            if (line.startsWith('>')) {
+                if (currentName) nameToSeq.set(currentName, buf.join(''));
+                currentName = line.substring(1).trim();
+                buf = [];
+            } else {
+                buf.push(line.toUpperCase().replace(/[^A-Z-]/g, ''));
+            }
+        }
+        if (currentName) nameToSeq.set(currentName, buf.join(''));
+
+        if (isAA) {
+            // Map AA alignment back to DNA
+            for (let i = 0; i < state.rawSequences.length; i++) {
+                const s = state.rawSequences[i];
+                const alignedAA = nameToSeq.get(s.name);
+                if (!alignedAA) continue;
+                
+                const cleanDNA = s.seq.join('').replace(/-/g, '');
+                const offset = state.frame - 1;
+                const finalSeq = [];
+                
+                // 5' Padding
+                for (let p = 0; p < offset; p++) finalSeq.push(cleanDNA[p] || '-');
+                
+                let dnaIdx = offset;
+                for (const char of alignedAA) {
+                    if (char === '-') {
+                        finalSeq.push('-', '-', '-');
+                    } else {
+                        if (dnaIdx + 3 <= cleanDNA.length) {
+                            finalSeq.push(cleanDNA[dnaIdx], cleanDNA[dnaIdx + 1], cleanDNA[dnaIdx + 2]);
+                            dnaIdx += 3;
+                        } else {
+                            finalSeq.push('-', '-', '-');
+                        }
+                    }
+                }
+                // Trailing DNA
+                while (dnaIdx < cleanDNA.length) finalSeq.push(cleanDNA[dnaIdx++]);
+                s.seq = finalSeq;
+            }
+        } else {
+            // NT mode - directly use aligned sequences
+            state.rawSequences.forEach(s => {
+                if (nameToSeq.has(s.name)) {
+                    s.seq = nameToSeq.get(s.name).split('');
+                }
+            });
+        }
+
+        recalc();
+        showOverlay(false);
+    } catch (err) {
+        console.error("Kalign error:", err);
+        alert("Kalign alignment failed: " + err.message);
+        showOverlay(false);
     }
 }
 
@@ -1399,13 +1557,27 @@ function loadTreeFromURL(url) {
         });
 }
 
-// --- Infer Tree using PhyloTools ---
-function inferTree() {
+// --- Infer Tree Logic ---
+function showInferModal() {
     if (!state.rawSequences || state.rawSequences.length < 2) {
         alert("Need at least 2 sequences to infer a tree.");
         return;
     }
-    
+    document.getElementById('infer-overlay').style.display = 'flex';
+}
+
+function runInferTask() {
+    const method = document.getElementById('sel-infer-method').value;
+    document.getElementById('infer-overlay').style.display = 'none';
+
+    if (method === 'nj') {
+        inferTreeNJ();
+    } else {
+        runFastTreeTask();
+    }
+}
+
+function inferTreeNJ() {
     showOverlay(true);
     dom.overlayMsg.textContent = "Inferring phylogeny...";
     dom.overlaySub.textContent = "Calculating distances and building NJ tree";
@@ -1427,6 +1599,51 @@ function inferTree() {
             showOverlay(false);
         }
     }, 50);
+}
+
+async function runFastTreeTask() {
+    if (!state.aioliCLI) {
+        alert("FastTree (bioWASM) is not yet initialized. Please wait or refresh.");
+        return;
+    }
+
+    showOverlay(true);
+    dom.overlayMsg.textContent = "Inferring phylogeny with FastTree...";
+    dom.overlaySub.textContent = "via bioWASM";
+
+    try {
+        const rows = state.rawSequences.map((_, idx) => idx);
+        const fastaInput = buildFastaContent(rows, 0, null);
+        
+        await state.aioliCLI.mount({
+            name: "input_tree.fa",
+            data: fastaInput
+        });
+
+        const isAA = (state.mode === 'AA');
+        let flags = isAA ? "" : "-nt";
+        
+        if (isAA) {
+            flags += " " + document.getElementById('sel-ft-aa-model').value;
+        } else {
+            flags += " " + document.getElementById('sel-ft-nt-model').value;
+        }
+        
+        flags += " " + document.getElementById('sel-ft-speed').value;
+
+        const command = `fasttree ${flags.trim()} input_tree.fa`;
+        const newick = await state.aioliCLI.exec(command);
+        
+        if (newick && newick.includes('(')) {
+            parseTree(newick);
+        } else {
+            throw new Error("Invalid Newick output from FastTree.");
+        }
+    } catch (err) {
+        console.error("FastTree error:", err);
+        alert("FastTree failed: " + err.message);
+        showOverlay(false);
+    }
 }
 
 // --- Export Tree as Newick ---
