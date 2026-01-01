@@ -686,6 +686,69 @@
       };
     }
   
+    /**
+     * toFasta(alignment, wrap) -> string
+     */
+    function toFasta(aln, wrap = 80) {
+      const lines = [];
+      for (const s of aln) {
+        lines.push(">" + s.id);
+        const seq = s.seq;
+        if (!wrap || wrap <= 0) lines.push(seq);
+        else for (let i = 0; i < seq.length; i += wrap) lines.push(seq.slice(i, i + wrap));
+      }
+      return lines.join("\n") + "\n";
+    }
+
+    /**
+     * cleanInFrame(alignment, inferred) -> { alignment, removedCols }
+     *
+     * Drops the minimum number of columns from each consecutive run of inferred insertion columns
+     * so that the run length becomes a multiple of 3. Columns with lowest non-gap support are
+     * preferred for removal.
+     */
+    function cleanInFrame(alignment, inferred) {
+      const aln = normalizeAlignment(alignment);
+      const L = aln[0].seq.length;
+      assert(inferred && Array.isArray(inferred.backboneMask), "inferred.backboneMask is required");
+
+      const isIns = inferred.backboneMask.map(b => !b);
+      const toDrop = new Array(L).fill(false);
+
+      let j = 0;
+      while (j < L) {
+        if (!isIns[j]) { j++; continue; }
+        const start = j;
+        while (j < L && isIns[j]) j++;
+        const end = j;
+        const runLen = end - start;
+        const r = runLen % 3;
+        if (r === 0) continue;
+
+        const cols = [];
+        for (let c = start; c < end; c++) {
+          const sup = columnNonGapCount(aln, c);
+          const edge = Math.min(c - start, (end - 1) - c);
+          cols.push({ c, sup, edge });
+        }
+        cols.sort((a, b) => (a.sup !== b.sup) ? (a.sup - b.sup) : (a.edge - b.edge));
+
+        for (let t = 0; t < r; t++) toDrop[cols[t].c] = true;
+      }
+
+      const cleaned = aln.map(s => ({ id: s.id, seq: "" }));
+      for (let i = 0; i < aln.length; i++) {
+        let out = "";
+        for (let k = 0; k < L; k++) if (!toDrop[k]) out += aln[i].seq[k];
+        cleaned[i].seq = out;
+      }
+
+      const removed = [];
+      for (let k = 0; k < L; k++) if (toDrop[k]) removed.push(k);
+
+      return { alignment: cleaned, removedCols: removed };
+    }
+
     /* ---------------------------
      * Exports
      * ------------------------- */
@@ -693,6 +756,8 @@
     const FrameClean = {
       inferFrame,
       buildCorrectedAlignment,
+      cleanInFrame,
+      toFasta,
       models: {
         STANDARD_CODE,
         translateCodon,
@@ -702,6 +767,7 @@
         inferFrameWithReference,
         inferFrameNoReference,
         computeReferencePhases,
+        columnNonGapCount,
       },
     };
   

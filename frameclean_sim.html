@@ -25,7 +25,7 @@
   </style>
 </head>
 <body>
-  <h1>FrameClean Simulator: forward-time evolution with inheritance, ORF-preserving true evolution, leaf-only noise indels</h1>
+  <h1>FrameClean Simulator: inheritance-aware evolution, ORF-preserving true evolution, leaf-only noise indels</h1>
 
   <div class="grid">
     <div class="card">
@@ -48,7 +48,7 @@
           <input id="nSeq" type="number" min="2" step="1" value="10" />
         </div>
         <div>
-          <label>ORF length (codons, including start+stop)</label>
+          <label>ORF length (codons, incl. start+stop)</label>
           <input id="nCodons" type="number" min="20" step="1" value="150" />
         </div>
       </div>
@@ -63,25 +63,20 @@
           <input id="dupProb" type="number" min="0" max="1" step="0.01" value="0.06" />
         </div>
       </div>
-      <div class="small">
-        Maintain a pool of current lineages; each step evolves every lineage, then duplicates one lineage with probability <span class="mono">dupProb</span>
-        (and forced duplications near the end so you finish with N lineages).
-      </div>
 
       <label>Extra terminal steps after reaching N</label>
       <input id="terminalSteps" type="number" min="0" step="1" value="80" />
 
-      <label>Total substitution probability per nucleotide over the whole simulation (ORF-preserving; rejects nonsense)</label>
+      <label>Total substitution probability per nucleotide over whole sim (ORF-preserving; rejects nonsense)</label>
       <input id="subRateTotal" type="number" min="0" step="0.0001" value="0.02" />
-      <div class="small">Implemented by per-step proposals; mutations that create internal stops or modify start/stop are rejected.</div>
 
       <div class="row">
         <div>
-          <label>True insertion events per lineage (mean over whole sim)</label>
+          <label>True insertion events per lineage (mean)</label>
           <input id="trueInsMean" type="number" min="0" step="0.1" value="3" />
         </div>
         <div>
-          <label>True deletion events per lineage (mean over whole sim)</label>
+          <label>True deletion events per lineage (mean)</label>
           <input id="trueDelMean" type="number" min="0" step="0.1" value="3" />
         </div>
       </div>
@@ -98,11 +93,6 @@
             <option value="geom">Geometric (mean ≈ max/2, capped)</option>
           </select>
         </div>
-      </div>
-
-      <div class="small">
-        True indels are always length 3k and can start at any nucleotide boundary (including within codons),
-        but are rejected if they introduce internal stop codons or disrupt the start/stop codons.
       </div>
 
       <h2 style="margin-top:14px;">Noise indels (leaf-only, NOT inherited)</h2>
@@ -131,8 +121,8 @@
         <div>
           <select id="useRef">
             <option value="no" selected>No reference</option>
-            <option value="hard">Yes (hard constraints)</option>
-            <option value="soft">Yes (soft constraints)</option>
+            <option value="hard">Yes (hard)</option>
+            <option value="soft">Yes (soft)</option>
           </select>
         </div>
         <div>
@@ -159,28 +149,28 @@
 
       <div class="row">
         <div>
-          <label>Insertion-start penalty (B→I)</label>
+          <label>Start penalty</label>
           <input id="insStartPenalty" type="number" step="0.1" value="-2.0" />
         </div>
         <div>
-          <label>Insertion-extend penalty (I→I per col)</label>
+          <label>Extend penalty</label>
           <input id="insExtendPenalty" type="number" step="0.1" value="-0.2" />
         </div>
       </div>
 
       <div class="row">
         <div>
-          <label>Exit-penalty residue r=0</label>
+          <label>Residue penalty r=0</label>
           <input id="endResid0" type="number" step="0.1" value="0.0" />
         </div>
         <div>
-          <label>Exit-penalty residue r=1</label>
+          <label>Residue penalty r=1</label>
           <input id="endResid1" type="number" step="0.1" value="-6.0" />
         </div>
       </div>
       <div class="row">
         <div>
-          <label>Exit-penalty residue r=2</label>
+          <label>Residue penalty r=2</label>
           <input id="endResid2" type="number" step="0.1" value="-6.0" />
         </div>
         <div>
@@ -194,7 +184,7 @@
 
       <div class="btnrow">
         <button id="runBtn">Run simulation</button>
-        <button id="showOneBtn" disabled>Show one replicate + FASTA</button>
+        <button id="showOneBtn" disabled>Show one replicate + FASTA exports</button>
       </div>
 
       <div class="footer">
@@ -209,23 +199,30 @@
       <h2 style="margin-top:12px;">One replicate (preview + truth vs inferred + FASTA export)</h2>
       <textarea id="oneRep" readonly spellcheck="false"></textarea>
 
+      <h2 style="margin-top:12px;">Downloads for one replicate</h2>
       <div class="btnrow">
-        <button id="copyFastaBtn" disabled>Copy FASTA</button>
-        <button id="downloadFastaBtn" disabled>Download FASTA</button>
+        <button id="downloadRawBtn" disabled>Download RAW alignment FASTA</button>
+        <button id="downloadCleanBtn" disabled>Download CLEANED alignment FASTA</button>
+      </div>
+      <div class="btnrow">
+        <button id="copyRawBtn" disabled>Copy RAW FASTA</button>
+        <button id="copyCleanBtn" disabled>Copy CLEANED FASTA</button>
       </div>
 
       <div class="small">
-        FASTA is the simulated nucleotide alignment (gaps included). Degap individual sequences to inspect ORFs.
+        CLEANED FASTA removes only *out-of-frame* insertion columns (typically noise 1–2bp) while keeping in-frame (3k) insertion blocks.
+        Mechanism: for each consecutive run of inferred insertion columns, drop the minimum number of columns (preferring lowest support)
+        so the run length becomes a multiple of 3.
       </div>
     </div>
   </div>
 
-  <!-- Load FrameClean library (UMD; provides window.FrameClean) -->
+  <!-- Load FrameClean library -->
   <script src="./frameclean.js"></script>
 
   <script>
 /* ---------------------------
-   Sanity check: FrameClean loaded
+   Sanity check
 --------------------------- */
 if (!window.FrameClean || typeof window.FrameClean.inferFrame !== "function") {
   alert("FrameClean failed to load. Check that frameclean.js is in the same directory as this HTML.");
@@ -245,7 +242,6 @@ function mulberry32(seed) {
 }
 function randInt(rng, n) { return Math.floor(rng() * n); }
 function randChoice(rng, arr) { return arr[randInt(rng, arr.length)]; }
-
 function poisson(rng, lambda) {
   if (lambda <= 0) return 0;
   const L = Math.exp(-lambda);
@@ -253,7 +249,6 @@ function poisson(rng, lambda) {
   do { k++; p *= rng(); } while (p > L);
   return k - 1;
 }
-
 const BASES = ["A","C","G","T"];
 function mutateBase(rng, b) {
   let x;
@@ -263,17 +258,8 @@ function mutateBase(rng, b) {
 
 const STOP_CODONS = new Set(["TAA","TAG","TGA"]);
 const START_CODON = "ATG";
-
-// Use FrameClean's code map so stop definition is consistent
 const CODE = FrameClean.models.STANDARD_CODE;
 
-function translateCodon(c) {
-  return FrameClean.models.translateCodon(c, CODE);
-}
-
-/* ---------------------------
-   Codon pool for ORF interior: non-stop codons
---------------------------- */
 const SENSE_CODONS = (() => {
   const all = [];
   const bases = ["T","C","A","G"];
@@ -285,16 +271,11 @@ const SENSE_CODONS = (() => {
   return all;
 })();
 
-/* ---------------------------
-   ORF generator + validators
---------------------------- */
 function makeORF(rng, nCodons) {
-  // nCodons includes start+stop; require >=2
   if (nCodons < 2) throw new Error("nCodons must be >= 2");
   const internal = nCodons - 2;
   let s = START_CODON;
   for (let i = 0; i < internal; i++) s += randChoice(rng, SENSE_CODONS);
-  // choose a stop codon; keep fixed for simplicity (TAA)
   s += "TAA";
   return s;
 }
@@ -303,14 +284,9 @@ function isOrfIntact(basesArr) {
   const L = basesArr.length;
   if (L < 6) return false;
   if (L % 3 !== 0) return false;
-
-  const start = basesArr.slice(0,3).join("");
-  if (start !== START_CODON) return false;
-
+  if (basesArr.slice(0,3).join("") !== START_CODON) return false;
   const last = basesArr.slice(L-3, L).join("");
   if (!STOP_CODONS.has(last)) return false;
-
-  // internal codons must not be stop
   for (let i = 3; i <= L - 6; i += 3) {
     const cod = basesArr[i] + basesArr[i+1] + basesArr[i+2];
     if (STOP_CODONS.has(cod)) return false;
@@ -318,26 +294,14 @@ function isOrfIntact(basesArr) {
   return true;
 }
 
-function codonStartIndex(pos) {
-  return pos - (pos % 3);
-}
-
-function codonAt(basesArr, codStart) {
-  return basesArr[codStart] + basesArr[codStart+1] + basesArr[codStart+2];
-}
+function codonStartIndex(pos) { return pos - (pos % 3); }
+function codonAt(basesArr, codStart) { return basesArr[codStart] + basesArr[codStart+1] + basesArr[codStart+2]; }
 
 /* ---------------------------
    Lineage representation
-   - sites: array of siteIDs (ints), in sequence order
-   - bases: array of bases (A/C/G/T), same length as sites
 --------------------------- */
-function cloneLineage(lin) {
-  return { sites: lin.sites.slice(), bases: lin.bases.slice() };
-}
+function cloneLineage(lin) { return { sites: lin.sites.slice(), bases: lin.bases.slice() }; }
 
-/* ---------------------------
-   Proposal-based evolution that preserves ORF unless noise
---------------------------- */
 function indelLenCodons(rng, maxCodons, dist) {
   maxCodons = Math.max(1, maxCodons|0);
   if (dist === "uniform") return 1 + randInt(rng, maxCodons);
@@ -349,56 +313,41 @@ function indelLenCodons(rng, maxCodons, dist) {
 }
 
 function evolveStepOrfPreserving(rng, lin, cfg, state) {
-  // substitutions: propose per-site with prob muStep; reject if it creates internal stop or modifies start/stop codons
+  // substitutions
   const mu = cfg.muStep;
   if (mu > 0) {
     const L = lin.bases.length;
     const lastCodStart = L - 3;
     for (let pos = 0; pos < L; pos++) {
       if (rng() >= mu) continue;
-
       const cStart = codonStartIndex(pos);
-      // forbid edits to start codon or terminal stop codon
       if (cStart === 0 || cStart === lastCodStart) continue;
-
       const old = lin.bases[pos];
       const neu = mutateBase(rng, old);
-
-      // apply and check only affected codon for stop
       lin.bases[pos] = neu;
-      const cod = codonAt(lin.bases, cStart);
-      if (STOP_CODONS.has(cod)) {
-        lin.bases[pos] = old; // reject
-      }
+      if (STOP_CODONS.has(codonAt(lin.bases, cStart))) lin.bases[pos] = old; // reject
     }
   }
 
-  // true indels: sample event counts per step; each event is rejection-sampled
+  // true indels
   const nIns = poisson(rng, cfg.trueInsPerStep);
   const nDel = poisson(rng, cfg.trueDelPerStep);
 
-  // Insertions (length 3k) at any boundary, but not before start codon and not within/after terminal stop codon.
   for (let e = 0; e < nIns; e++) {
     const k = indelLenCodons(rng, cfg.trueIndelMaxCodons, cfg.trueIndelLenDist);
     const len = 3 * k;
-
-    const maxAttempts = cfg.maxAttemptsPerEvent;
     let ok = false;
 
-    for (let att = 0; att < maxAttempts; att++) {
+    for (let att = 0; att < cfg.maxAttemptsPerEvent; att++) {
       const L = lin.bases.length;
-      // allowed boundaries are [3 .. L-3] inclusive (between bases)
       if (L < 6) break;
-      const lo = 3;
-      const hi = L - 3;
+      const lo = 3, hi = L - 3;
       if (hi < lo) break;
       const at = lo + randInt(rng, (hi - lo + 1));
 
-      // inserted segment: concatenated sense codons (no internal stops within its own codons)
       let seg = "";
       for (let c = 0; c < k; c++) seg += randChoice(rng, SENSE_CODONS);
 
-      // build new bases/sites
       const newSites = new Array(len);
       const newBases = new Array(len);
       for (let t = 0; t < len; t++) {
@@ -406,66 +355,48 @@ function evolveStepOrfPreserving(rng, lin, cfg, state) {
         newBases[t] = seg[t];
       }
 
-      // apply
       lin.sites.splice(at, 0, ...newSites);
       lin.bases.splice(at, 0, ...newBases);
 
-      // validate ORF intact
       if (isOrfIntact(lin.bases)) { ok = true; break; }
 
-      // reject: rollback
       lin.sites.splice(at, len);
       lin.bases.splice(at, len);
     }
 
-    if (!ok) {
-      // skip this event (no acceptable proposal found)
-    }
+    if (!ok) { /* skip */ }
   }
 
-  // Deletions (length 3k) from any start, but must not touch start codon or terminal stop codon.
   for (let e = 0; e < nDel; e++) {
     const k = indelLenCodons(rng, cfg.trueIndelMaxCodons, cfg.trueIndelLenDist);
     const len = 3 * k;
-
-    const maxAttempts = cfg.maxAttemptsPerEvent;
     let ok = false;
 
-    for (let att = 0; att < maxAttempts; att++) {
+    for (let att = 0; att < cfg.maxAttemptsPerEvent; att++) {
       const L = lin.bases.length;
-      if (L - len < 6) continue; // must still have start+stop
-
-      // forbid deleting any of first 3 bases or last 3 bases
+      if (L - len < 6) continue;
       const minStart = 3;
-      const maxStart = (L - 3) - len; // ensure deletion ends before last codon
+      const maxStart = (L - 3) - len;
       if (maxStart < minStart) break;
-
       const start = minStart + randInt(rng, (maxStart - minStart + 1));
 
-      // apply deletion
       const delSites = lin.sites.splice(start, len);
       const delBases = lin.bases.splice(start, len);
 
       if (isOrfIntact(lin.bases)) { ok = true; break; }
 
-      // reject: rollback
       lin.sites.splice(start, 0, ...delSites);
       lin.bases.splice(start, 0, ...delBases);
     }
 
-    if (!ok) {
-      // skip
-    }
+    if (!ok) { /* skip */ }
   }
 
-  // final sanity: should remain intact (true evolution must preserve ORF)
-  if (!isOrfIntact(lin.bases)) {
-    throw new Error("Internal error: ORF broken by true evolution (should not happen).");
-  }
+  if (!isOrfIntact(lin.bases)) throw new Error("Internal error: ORF broken by true evolution.");
 }
 
 /* ---------------------------
-   Leaf-only noise indels: 1-2 bp insertions/deletions, NOT inherited
+   Leaf-only noise indels (NOT inherited)
 --------------------------- */
 function noiseLen(rng, p1, p2) {
   const u = rng();
@@ -508,8 +439,7 @@ function applyNoiseToLeaves(rng, lineages, cfg, state, refIndex, excludeRefNoise
 }
 
 /* ---------------------------
-   Build a true MSA from extant lineages via partial-order constraints.
-   Add edge u->v for every adjacent pair in every extant sequence, then topo-sort.
+   Build MSA via topo sort of adjacency constraints
 --------------------------- */
 function topoOrderSiteIDs(lineages) {
   const present = new Set();
@@ -576,7 +506,6 @@ function buildAlignmentFromLineages(lineages, L0) {
     return { id: `s${i}`, seq: s };
   });
 
-  // Ground truth for ancestral backbone sites only
   const backboneMaskTrue = new Array(L);
   const frameVecTrue = new Array(L);
   for (let j = 0; j < L; j++) {
@@ -585,11 +514,11 @@ function buildAlignmentFromLineages(lineages, L0) {
     else { backboneMaskTrue[j] = false; frameVecTrue[j] = null; }
   }
 
-  return { alignment, truth: { backboneMaskTrue, frameVecTrue }, orderSiteIDs: order };
+  return { alignment, truth: { backboneMaskTrue, frameVecTrue } };
 }
 
 /* ---------------------------
-   Simulator: forward time + duplication, ORF preserved for true evolution
+   Simulator
 --------------------------- */
 function simulate(params) {
   const rng = mulberry32(params.seed);
@@ -598,12 +527,8 @@ function simulate(params) {
   const nCodons = params.nCodons|0;
   const L0 = 3 * nCodons;
 
-  // ancestor ORF
   const anc = makeORF(rng, nCodons);
-  const init = {
-    sites: Array.from({ length: L0 }, (_, i) => i),
-    bases: anc.split("")
-  };
+  const init = { sites: Array.from({ length: L0 }, (_, i) => i), bases: anc.split("") };
   if (!isOrfIntact(init.bases)) throw new Error("Internal error: ancestor ORF not intact.");
 
   const state = { nextSiteId: L0 };
@@ -624,18 +549,15 @@ function simulate(params) {
 
   const lineages = [cloneLineage(init)];
 
-  // duplication phase
   for (let step = 0; step < (params.steps|0); step++) {
     for (const lin of lineages) evolveStepOrfPreserving(rng, lin, cfg, state);
 
     if (lineages.length < Ntarget) {
       const remaining = (params.steps|0) - step;
       const needed = Ntarget - lineages.length;
-
       let doDup = false;
       if (remaining <= needed) doDup = true;
       else if (rng() < params.dupProb) doDup = true;
-
       if (doDup) {
         const idx = randInt(rng, lineages.length);
         lineages.push(cloneLineage(lineages[idx]));
@@ -648,12 +570,10 @@ function simulate(params) {
     lineages.push(cloneLineage(lineages[idx]));
   }
 
-  // terminal evolution
   for (let t = 0; t < (params.terminalSteps|0); t++) {
     for (const lin of lineages) evolveStepOrfPreserving(rng, lin, cfg, state);
   }
 
-  // leaf-only noise indels
   const refIndex = params.refIndex|0;
   applyNoiseToLeaves(rng, lineages, {
     noiseInsMean: params.noiseInsMean,
@@ -662,14 +582,8 @@ function simulate(params) {
     noiseLenP2: params.noiseLenP2
   }, state, refIndex, params.excludeRefNoise);
 
-  // build alignment + truth
   const { alignment, truth } = buildAlignmentFromLineages(lineages, L0);
-
-  return {
-    alignment,
-    truth,
-    meta: { ancestor: anc, L0, nextSiteId: state.nextSiteId }
-  };
+  return { alignment, truth, meta: { ancestor: anc } };
 }
 
 /* ---------------------------
@@ -685,13 +599,11 @@ function evaluate(inferred, truth) {
   let maskCorrect = 0;
   let phaseCorrectTrueBB = 0, phaseTotalTrueBB = 0;
   let naiveCorrectTrueBB = 0;
-
-  let tp = 0, fp = 0, fn = 0; // insertion as positive class (I = !BB)
+  let tp = 0, fp = 0, fn = 0;
 
   for (let j = 0; j < L; j++) {
     const tBB = !!tMask[j];
     const iBB = !!iMask[j];
-
     if (tBB === iBB) maskCorrect++;
 
     const tIns = !tBB;
@@ -729,52 +641,14 @@ function meanSd(xs) {
   v /= Math.max(1, n - 1);
   return { mean: m, sd: Math.sqrt(v) };
 }
-
 function fmt(ms) {
   if (!isFinite(ms.mean)) return "NA";
   return `${ms.mean.toFixed(3)} ± ${ms.sd.toFixed(3)}`;
 }
 
 /* ---------------------------
-   Printing + FASTA
---------------------------- */
-function stringifyAlignment(aln, maxCols = 240) {
-  const L = aln[0].seq.length;
-  const showL = Math.min(L, maxCols);
-  const lines = [];
-  lines.push(`Alignment: N=${aln.length}, L=${L} (showing first ${showL})`);
-  for (const s of aln) lines.push(`${s.id.padEnd(4)}  ${s.seq.slice(0, showL)}`);
-  if (showL < L) lines.push(`... (${L - showL} more columns not shown)`);
-  return lines.join("\n");
-}
-
-function maskToString(mask, maxCols = 240) {
-  const showL = Math.min(mask.length, maxCols);
-  let s = "";
-  for (let j = 0; j < showL; j++) s += mask[j] ? "B" : "I";
-  if (showL < mask.length) s += "...";
-  return s;
-}
-
-function frameToString(frameVec, maxCols = 240) {
-  const showL = Math.min(frameVec.length, maxCols);
-  let s = "";
-  for (let j = 0; j < showL; j++) s += (frameVec[j] == null) ? "." : String(frameVec[j]);
-  if (showL < frameVec.length) s += "...";
-  return s;
-}
-
-function toFasta(aln, wrap = 80) {
-  const lines = [];
-  for (const s of aln) {
-    lines.push(">" + s.id);
-    const seq = s.seq;
-    if (!wrap || wrap <= 0) lines.push(seq);
-    else for (let i = 0; i < seq.length; i += wrap) lines.push(seq.slice(i, i + wrap));
-  }
-  return lines.join("\n") + "\n";
-}
-
+   FASTA + IO
+   --------------------------- */
 function downloadText(filename, text) {
   const blob = new Blob([text], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
@@ -785,6 +659,32 @@ function downloadText(filename, text) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+async function copyToClipboard(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+function stringifyAlignment(aln, maxCols = 240) {
+  const L = aln[0].seq.length;
+  const showL = Math.min(L, maxCols);
+  const lines = [];
+  lines.push(`Alignment: N=${aln.length}, L=${L} (showing first ${showL})`);
+  for (const s of aln) lines.push(`${s.id.padEnd(4)}  ${s.seq.slice(0, showL)}`);
+  if (showL < L) lines.push(`... (${L - showL} more columns not shown)`);
+  return lines.join("\n");
+}
+function maskToString(mask, maxCols = 240) {
+  const showL = Math.min(mask.length, maxCols);
+  let s = "";
+  for (let j = 0; j < showL; j++) s += mask[j] ? "B" : "I";
+  if (showL < mask.length) s += "...";
+  return s;
+}
+function frameToString(frameVec, maxCols = 240) {
+  const showL = Math.min(frameVec.length, maxCols);
+  let s = "";
+  for (let j = 0; j < showL; j++) s += (frameVec[j] == null) ? "." : String(frameVec[j]);
+  if (showL < frameVec.length) s += "...";
+  return s;
 }
 
 /* ---------------------------
@@ -834,10 +734,14 @@ function readParams() {
 }
 
 let lastOne = null;
-let lastFasta = "";
+let lastRawFasta = "";
+let lastCleanFasta = "";
 
-async function copyToClipboard(text) {
-  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+function disableOneRepButtons(disabled) {
+  document.getElementById("downloadRawBtn").disabled = disabled;
+  document.getElementById("downloadCleanBtn").disabled = disabled;
+  document.getElementById("copyRawBtn").disabled = disabled;
+  document.getElementById("copyCleanBtn").disabled = disabled;
 }
 
 function run() {
@@ -845,21 +749,18 @@ function run() {
   const showBtn = document.getElementById("showOneBtn");
   const out = document.getElementById("out");
   const oneRep = document.getElementById("oneRep");
-  const copyBtn = document.getElementById("copyFastaBtn");
-  const dlBtn = document.getElementById("downloadFastaBtn");
 
   btn.disabled = true;
   showBtn.disabled = true;
-  copyBtn.disabled = true;
-  dlBtn.disabled = true;
+  disableOneRepButtons(true);
   out.value = "Running...\n";
   oneRep.value = "";
   lastOne = null;
-  lastFasta = "";
+  lastRawFasta = "";
+  lastCleanFasta = "";
 
   try {
     const p = readParams();
-
     const stats = {
       L: [],
       maskAcc: [],
@@ -904,7 +805,6 @@ function run() {
         },
         codonModelOptions: { stopCodonPenalty: p.stopPenalty, aaConsensusWeight: p.aaConsensus }
       };
-
       if (p.useRef !== "no") {
         options.reference = { index: Math.min(refIndex, sim.alignment.length - 1), mode: p.useRef, frameOffset: 0 };
       }
@@ -922,11 +822,11 @@ function run() {
     const lines = [];
     lines.push(`Replicates: ${p.replicates}`);
     lines.push(`Forward-time, inheritance-aware evolution; duplication steps=${p.steps}, dupProb=${p.dupProb}, terminalSteps=${p.terminalSteps}`);
-    lines.push(`N=${p.nSeq}, ORF codons=${p.nCodons} (start ATG, terminal stop; NO internal stops for true evolution)`);
+    lines.push(`N=${p.nSeq}, ORF codons=${p.nCodons} (start ATG, terminal stop; no internal stops for true evolution)`);
     lines.push(`Total subs prob per nt ≈ ${p.subRateTotal} (nonsense rejected; start/stop conserved)`);
     lines.push(`True indels per lineage means: ins=${p.trueInsMean}, del=${p.trueDelMean}, len=3*k, k∈[1..${p.trueIndelMaxCodons}] (${p.trueIndelLenDist}), boundaries anywhere; rejected if ORF violated`);
-    lines.push(`Noise indels (leaf-only, not inherited): ins=${p.noiseInsMean}, del=${p.noiseDelMean}, len∈{1,2} (p1=${p.noiseLenP1.toFixed(2)}, p2=${p.noiseLenP2.toFixed(2)})`);
-    lines.push(`Reference: ${p.useRef === "no" ? "none" : (p.useRef + ` (index ${p.refIndex}), noise-on-ref=${p.excludeRefNoise ? "OFF" : "ON"}`)}`);
+    lines.push(`Noise indels (leaf-only): ins=${p.noiseInsMean}, del=${p.noiseDelMean}, len∈{1,2} (p1=${p.noiseLenP1.toFixed(2)}, p2=${p.noiseLenP2.toFixed(2)})`);
+    lines.push(`Reference: ${p.useRef === "no" ? "none" : (p.useRef + ` (index ${p.refIndex}), noise-on-ref=${(p.excludeRefNoise ? "OFF" : "ON")}`)}`);
     lines.push("");
     lines.push(`Alignment length L:                  ${fmt(meanSd(stats.L))}`);
     lines.push(`True backbone fraction:              ${fmt(meanSd(stats.trueBackboneFrac))}`);
@@ -953,27 +853,29 @@ function run() {
 
 function showOne() {
   const oneRep = document.getElementById("oneRep");
-  const copyBtn = document.getElementById("copyFastaBtn");
-  const dlBtn = document.getElementById("downloadFastaBtn");
-
   if (!lastOne) {
     oneRep.value = "No replicate stored.";
-    copyBtn.disabled = true;
-    dlBtn.disabled = true;
+    disableOneRepButtons(true);
     return;
   }
 
-  const { sim, inferred, ev, params } = lastOne;
+  const { sim, inferred, ev } = lastOne;
   const aln = sim.alignment;
 
-  const maxCols = 240;
+  // RAW
+  lastRawFasta = FrameClean.toFasta(aln, 80);
 
+  // CLEANED: keep in-frame insertion blocks, drop minimal columns per insertion-run to make lengths multiple of 3
+  const cleanedObj = FrameClean.cleanInFrame(aln, inferred);
+  lastCleanFasta = FrameClean.toFasta(cleanedObj.alignment, 80);
+
+  const maxCols = 240;
   const lines = [];
   lines.push(stringifyAlignment(aln, maxCols));
   lines.push("");
   lines.push("Truth mask (B=ancestral backbone site, I=inserted site):");
   lines.push(maskToString(sim.truth.backboneMaskTrue, maxCols));
-  lines.push("Inferred mask:");
+  lines.push("Inferred mask (B=backbone/COUNTED, I=insertion/UNCOUNTED):");
   lines.push(maskToString(inferred.backboneMask, maxCols));
   lines.push("");
   lines.push("Truth frame (0/1/2 on ancestral backbone, '.' on inserted):");
@@ -984,32 +886,43 @@ function showOne() {
   lines.push("Metrics for this replicate:");
   lines.push(JSON.stringify(ev, null, 2));
   lines.push("");
-  lines.push("FASTA (full alignment) below:");
+  lines.push(`CLEANING: removed ${cleanedObj.removedCols.length} columns (out-of-frame insertions).`);
   lines.push("");
+  lines.push("RAW FASTA below:");
+  lines.push("");
+  lines.push(lastRawFasta);
+  lines.push("");
+  lines.push("CLEANED FASTA below:");
+  lines.push("");
+  lines.push(lastCleanFasta);
 
-  const fasta = toFasta(aln, 80);
-  lastFasta = fasta;
-
-  oneRep.value = lines.join("\n") + fasta;
-
-  copyBtn.disabled = false;
-  dlBtn.disabled = false;
+  oneRep.value = lines.join("\n");
+  disableOneRepButtons(false);
 }
 
 document.getElementById("runBtn").addEventListener("click", run);
 document.getElementById("showOneBtn").addEventListener("click", showOne);
 
-document.getElementById("copyFastaBtn").addEventListener("click", async () => {
-  if (!lastFasta) return;
-  const ok = await copyToClipboard(lastFasta);
-  if (!ok) alert("Clipboard copy failed (browser permissions). You can still select/copy from the text box.");
+document.getElementById("downloadRawBtn").addEventListener("click", () => {
+  if (!lastRawFasta || !lastOne) return;
+  const p = lastOne.params;
+  downloadText(`frameclean_oneRep_RAW_N${p.nSeq}_codons${p.nCodons}_seed${p.seed}.fasta`, lastRawFasta);
+});
+document.getElementById("downloadCleanBtn").addEventListener("click", () => {
+  if (!lastCleanFasta || !lastOne) return;
+  const p = lastOne.params;
+  downloadText(`frameclean_oneRep_CLEANED_N${p.nSeq}_codons${p.nCodons}_seed${p.seed}.fasta`, lastCleanFasta);
 });
 
-document.getElementById("downloadFastaBtn").addEventListener("click", () => {
-  if (!lastFasta || !lastOne) return;
-  const p = lastOne.params;
-  const fname = `frameclean_orf_sim_N${p.nSeq}_codons${p.nCodons}_seed${p.seed}.fasta`;
-  downloadText(fname, lastFasta);
+document.getElementById("copyRawBtn").addEventListener("click", async () => {
+  if (!lastRawFasta) return;
+  const ok = await copyToClipboard(lastRawFasta);
+  if (!ok) alert("Clipboard copy failed (browser permissions).");
+});
+document.getElementById("copyCleanBtn").addEventListener("click", async () => {
+  if (!lastCleanFasta) return;
+  const ok = await copyToClipboard(lastCleanFasta);
+  if (!ok) alert("Clipboard copy failed (browser permissions).");
 });
   </script>
 </body>
