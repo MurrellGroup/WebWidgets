@@ -907,44 +907,52 @@ async function runKalignAlignment() {
     dom.overlaySub.textContent = "via bioWASM";
 
     try {
-        const rows = state.rawSequences.map((_, idx) => idx);
-        // Build FASTA content from view sequences (which are AA if isAA is true)
-        // and strip gaps for the aligner
-        const fastaInput = buildFastaContent(rows, 0, null).replace(/-/g, '');
+        // Use indices as temporary names to avoid truncation/special character issues in Kalign
+        const fastaInput = state.rawSequences.map((s, idx) => {
+            const seqArr = isAA ? state.viewSequences[idx].seq : s.seq;
+            const seqStr = seqArr.join('').replace(/-/g, '');
+            return `>${idx}\n${seqStr}`;
+        }).join('\n');
         
+        if (!fastaInput.trim()) {
+            throw new Error("No sequences to align.");
+        }
+
         await state.aioliCLI.mount({
             name: "input.fa",
             data: fastaInput
         });
 
-        const command = `kalign input.fa -f fasta -o result.fasta`;
-        await state.aioliCLI.exec(command);
+        const command = `kalign input.fa -f fasta`;
+        const resultFasta = await state.aioliCLI.exec(command);
         
-        const resultFasta = await state.aioliCLI.read("result.fasta");
+        if (!resultFasta || !resultFasta.includes('>')) {
+            throw new Error("Kalign failed to return a valid FASTA alignment.");
+        }
         
         // Parse result fasta
         const lines = resultFasta.split(/\r?\n/);
-        const nameToSeq = new Map();
-        let currentName = null;
+        const indexToSeq = new Map();
+        let currentIndex = null;
         let buf = [];
         for (let line of lines) {
             line = line.trim();
             if (!line) continue;
             if (line.startsWith('>')) {
-                if (currentName) nameToSeq.set(currentName, buf.join(''));
-                currentName = line.substring(1).trim();
+                if (currentIndex !== null) indexToSeq.set(currentIndex, buf.join(''));
+                currentIndex = line.substring(1).trim();
                 buf = [];
-            } else {
+            } else if (currentIndex !== null) {
                 buf.push(line.toUpperCase().replace(/[^A-Z-]/g, ''));
             }
         }
-        if (currentName) nameToSeq.set(currentName, buf.join(''));
+        if (currentIndex !== null) indexToSeq.set(currentIndex, buf.join(''));
 
         if (isAA) {
             // Map AA alignment back to DNA
             for (let i = 0; i < state.rawSequences.length; i++) {
                 const s = state.rawSequences[i];
-                const alignedAA = nameToSeq.get(s.name);
+                const alignedAA = indexToSeq.get(i.toString());
                 if (!alignedAA) continue;
                 
                 const cleanDNA = s.seq.join('').replace(/-/g, '');
@@ -973,9 +981,10 @@ async function runKalignAlignment() {
             }
         } else {
             // NT mode - directly use aligned sequences
-            state.rawSequences.forEach(s => {
-                if (nameToSeq.has(s.name)) {
-                    s.seq = nameToSeq.get(s.name).split('');
+            state.rawSequences.forEach((s, idx) => {
+                const alignedNT = indexToSeq.get(idx.toString());
+                if (alignedNT) {
+                    s.seq = alignedNT.split('');
                 }
             });
         }
@@ -1612,8 +1621,10 @@ async function runFastTreeTask() {
     dom.overlaySub.textContent = "via bioWASM";
 
     try {
-        const rows = state.rawSequences.map((_, idx) => idx);
-        const fastaInput = buildFastaContent(rows, 0, null);
+        // Use indices as temporary names to avoid truncation/special character issues
+        const fastaInput = state.rawSequences.map((s, idx) => {
+            return `>${idx}\n${s.seq.join('')}`;
+        }).join('\n');
         
         await state.aioliCLI.mount({
             name: "input_tree.fa",
@@ -1635,7 +1646,8 @@ async function runFastTreeTask() {
         const newick = await state.aioliCLI.exec(command);
         
         if (newick && newick.includes('(')) {
-            parseTree(newick);
+            state.tempNameMap = state.rawSequences.map(s => s.name);
+            parseTree(newick, true);
         } else {
             throw new Error("Invalid Newick output from FastTree.");
         }
@@ -1733,7 +1745,7 @@ function finalizeLoad(seqs) {
 }
 
 // --- Newick Parser ---
-function parseTree(newick) {
+function parseTree(newick, isIndexed = false) {
     if(!state.rawSequences.length) {
         alert("Please load sequences first.");
         showOverlay(false);
@@ -1742,14 +1754,19 @@ function parseTree(newick) {
     
     saveState();
 
-    let s = newick.replace(/[\r\n]/g, '').trim();
+    // FastTree output might contain multiple lines; the tree is usually the last line
+    let lines = newick.trim().split(/\r?\n/);
+    let s = lines[lines.length - 1].trim();
     if(s.endsWith(';')) s = s.slice(0, -1);
+
+    // Remove Newick comments like [ ... ]
+    s = s.replace(/\[[^\]]*\]/g, '');
 
     const tokens = s.split(/([(),:;])/).map(t => t.trim()).filter(t => t !== '');
     
     let stack = [];
-    let current = { children: [], name: null, len: 0 };
-    let root = current;
+    let root = { children: [], name: null, len: 0 };
+    let current = root;
 
     for(let i=0; i<tokens.length; i++) {
         let t = tokens[i];
@@ -1759,20 +1776,43 @@ function parseTree(newick) {
             stack.push(current);
             current = node;
         } else if (t === ',') {
-            current = stack[stack.length-1]; 
+            if (stack.length > 0) {
+                current = stack[stack.length - 1];
+            } else {
+                current = root;
+            }
             let node = { children: [], name: null, len: 0, parent: current };
             current.children.push(node);
             current = node;
         } else if (t === ')') {
-            current = stack.pop();
+            if (stack.length > 0) {
+                current = stack.pop();
+            } else {
+                current = root;
+            }
         } else if (t === ':') {
             i++;
             let lenStr = tokens[i];
             let val = parseFloat(lenStr);
-            if(!isNaN(val)) current.len = val;
+            if(current && !isNaN(val)) current.len = val;
         } else {
-            current.name = t.replace(/^['"]|['"]$/g, '');
+            if (!current) continue;
+            let name = t.replace(/^['"]|['"]$/g, '');
+            if (isIndexed && state.tempNameMap) {
+                const idx = parseInt(name);
+                if (!isNaN(idx) && idx >= 0 && idx < state.tempNameMap.length) {
+                    name = state.tempNameMap[idx];
+                }
+            }
+            current.name = name;
         }
+    }
+    delete state.tempNameMap;
+
+    // If root has only one child and no name/length, that child is likely the real root
+    if (root.children.length === 1 && !root.name) {
+        root = root.children[0];
+        delete root.parent;
     }
 
     const leafOrder = [];
