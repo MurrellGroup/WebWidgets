@@ -1,848 +1,710 @@
 /*!
-FrameClean — assign a robust coding frame to an existing nucleotide alignment, despite within-codon indels and rare 1–2 bp “noise insertions”.
-
-Core idea
-- Treat alignment columns as either:
-  (B) backbone columns that advance a shared coding coordinate, or
-  (I) insertion-only columns relative to that shared coordinate (they do not advance the global frame).
-- Infer a B/I mask with a small Viterbi DP driven by:
-  - a column model (defaults to occupancy-based backbone-vs-insertion likelihood),
-  - an indel prior that strongly prefers insertion runs whose lengths are multiples of 3,
-  - optional hard/soft constraints from a reference sequence with trusted frame.
-- Then assign a phase (0/1/2) to each backbone column; insertion columns get null (⊥).
-  - If reference provided: choose the offset that best matches the reference’s phase.
-  - Else: choose the offset that maximizes a codon-coherence score (defaults: stop-codon penalty + amino-acid consensus reward).
-
-Outputs
-- frameVec: length L array with entries {0,1,2} for backbone columns, null for insertion columns.
-- backboneMask: length L boolean array, true for backbone columns.
-- Convenience: buildCorrectedAlignment() to produce a new alignment where “noise insertions” do not break the frame:
-  - mode="pad" (default): keep insertion columns and optionally add all-gap padding columns so every insertion-run length is a multiple of 3.
-  - mode="remove-insertions": drop columns classified as insertions (output sequences will differ from input).
-
-API (high level)
-- inferFrame(alignment, options) -> FrameResult
-- buildCorrectedAlignment(alignment, frameResult, options) -> { alignment, frameVec, columnMap }
-
-Alignment format
-- alignment: array of strings OR array of { id, seq } objects.
-  All seq strings must be same length and contain A/C/G/T/- (case-insensitive).
-
-No external deps. ES module + CommonJS compatible.
-*/
+ * frameclean.js — Reference-anchored frame assignment + frame-correction post-processor for nucleotide MSAs
+ *
+ * This library assigns a reading frame to alignment coordinates and (optionally) produces a “frame-corrected”
+ * alignment where backbone columns land on consistent codon phases.
+ *
+ * Key design (new implementation):
+ *   - If a trusted reference is provided, then:
+ *       * Columns where the reference has a base are ANCHORS: their phase is fixed by the reference ORF.
+ *       * Columns where the reference has a gap are “unanchored”: the model decides whether each column
+ *         should be counted as backbone (advances the frame coordinate; typically reference deletions),
+ *         or treated as insertion/noise (does not advance the coordinate).
+ *       * Between consecutive anchor columns, the number of “counted backbone” columns must be ≡ 0 (mod 3)
+ *         in hard mode, or may be ≡ 1/2 with a penalty in soft mode.
+ *
+ * API compatibility:
+ *   - FrameClean.inferFrame(alignment, options) -> { frameVec, backboneMask, meta }
+ *   - FrameClean.buildCorrectedAlignment(alignment, inferred, options) -> { alignment, frameVec, meta }
+ *   - FrameClean.models.STANDARD_CODE, FrameClean.models.translateCodon(codon, code)
+ *
+ * Alignment format:
+ *   alignment = [{ id: "s0", seq: "ACG--T..." }, ...] (all seqs same length).
+ *
+ * Returned vectors:
+ *   - backboneMask[j] = true if column j is backbone (advances coordinate), else false (insertion/noise).
+ *   - frameVec[j] = 0/1/2 for backbone columns; null for insertion/noise columns.
+ *
+ * Notes:
+ *   - With a reference, this returns a REFERENCE-ANCHORED frame coordinate system.
+ *   - Without a reference, it falls back to an occupancy-only HMM that does not know “true ancestry”.
+ *
+ * License: MIT (you can treat this as MIT for practical purposes)
+ */
 
 (function (root, factory) {
-  if (typeof module === "object" && typeof module.exports === "object") {
-    module.exports = factory();
-  } else {
-    root.FrameClean = factory();
-  }
-})(typeof self !== "undefined" ? self : this, function () {
-  "use strict";
-
-  // ---------------------------
-  // Utilities
-  // ---------------------------
-
-  function assert(cond, msg) {
-    if (!cond) throw new Error(msg);
-  }
-
-  function normalizeAlignment(alignment) {
-    assert(Array.isArray(alignment) && alignment.length > 0, "alignment must be a non-empty array");
-    let seqs = alignment.map((x, idx) => {
-      if (typeof x === "string") return { id: `seq${idx + 1}`, seq: x };
-      assert(x && typeof x.seq === "string", "alignment entries must be strings or {id, seq} objects");
-      return { id: x.id ?? `seq${idx + 1}`, seq: x.seq };
-    });
-
-    const L = seqs[0].seq.length;
-    assert(L > 0, "alignment sequences must be non-empty");
-    for (const s of seqs) {
-      assert(s.seq.length === L, "all alignment sequences must have the same length");
-      s.seq = s.seq.toUpperCase();
-      assert(/^[ACGTN\-]+$/.test(s.seq), "sequences may only contain A,C,G,T,N,-");
+    if (typeof module === "object" && typeof module.exports === "object") {
+      module.exports = factory();
+    } else {
+      root.FrameClean = factory();
     }
-    return { seqs, L, N: seqs.length };
-  }
-
-  function getColumnChars(aln, j) {
-    const col = new Array(aln.N);
-    for (let i = 0; i < aln.N; i++) col[i] = aln.seqs[i].seq[j];
-    return col;
-  }
-
-  function columnOccupancy(col) {
-    let m = 0;
-    for (const c of col) if (c !== "-") m++;
-    return m;
-  }
-
-  function argMax3(a0, a1, a2) {
-    if (a0 >= a1 && a0 >= a2) return 0;
-    if (a1 >= a0 && a1 >= a2) return 1;
-    return 2;
-  }
-
-  // ---------------------------
-  // Genetic code (standard)
-  // ---------------------------
-
-  const STANDARD_CODE = (() => {
-    const m = Object.create(null);
-    // U -> T. Only canonical codons. N handling occurs elsewhere.
-    const pairs = [
-      ["TTT","F"],["TTC","F"],["TTA","L"],["TTG","L"],
-      ["TCT","S"],["TCC","S"],["TCA","S"],["TCG","S"],
-      ["TAT","Y"],["TAC","Y"],["TAA","*"],["TAG","*"],
-      ["TGT","C"],["TGC","C"],["TGA","*"],["TGG","W"],
-
-      ["CTT","L"],["CTC","L"],["CTA","L"],["CTG","L"],
-      ["CCT","P"],["CCC","P"],["CCA","P"],["CCG","P"],
-      ["CAT","H"],["CAC","H"],["CAA","Q"],["CAG","Q"],
-      ["CGT","R"],["CGC","R"],["CGA","R"],["CGG","R"],
-
-      ["ATT","I"],["ATC","I"],["ATA","I"],["ATG","M"],
-      ["ACT","T"],["ACC","T"],["ACA","T"],["ACG","T"],
-      ["AAT","N"],["AAC","N"],["AAA","K"],["AAG","K"],
-      ["AGT","S"],["AGC","S"],["AGA","R"],["AGG","R"],
-
-      ["GTT","V"],["GTC","V"],["GTA","V"],["GTG","V"],
-      ["GCT","A"],["GCC","A"],["GCA","A"],["GCG","A"],
-      ["GAT","D"],["GAC","D"],["GAA","E"],["GAG","E"],
-      ["GGT","G"],["GGC","G"],["GGA","G"],["GGG","G"],
-    ];
-    for (const [c, aa] of pairs) m[c] = aa;
-    return m;
-  })();
-
-  function translateCodon(codon, codeMap = STANDARD_CODE) {
-    // codon: string length 3, containing A/C/G/T. If any N or -, treat as unknown.
-    if (codon.length !== 3) return "X";
-    if (codon.indexOf("-") !== -1) return "X";
-    if (codon.indexOf("N") !== -1) return "X";
-    return codeMap[codon] ?? "X";
-  }
-
-  // ---------------------------
-  // Models (modular components)
-  // ---------------------------
-
-  /**
-   * Default occupancy-based column model.
-   * Assumes:
-   *  - Backbone columns have higher non-gap occupancy (pBackbone),
-   *  - Insertion columns have lower non-gap occupancy (pInsertion).
-   * Uses binomial log-likelihood of occupancy; binomial coefficient cancels in comparisons.
-   */
-  class OccupancyColumnModel {
-    constructor(opts = {}) {
-      this.pBackbone = clamp01(opts.pBackbone ?? 0.90);
-      this.pInsertion = clamp01(opts.pInsertion ?? 0.05);
-      this.extraBackboneBonus = opts.extraBackboneBonus ?? 0.0; // e.g. encourage backbone slightly
-      this.extraInsertionBonus = opts.extraInsertionBonus ?? 0.0;
+  })(typeof self !== "undefined" ? self : this, function () {
+    "use strict";
+  
+    /* ---------------------------
+     * Utilities
+     * ------------------------- */
+  
+    function assert(cond, msg) {
+      if (!cond) throw new Error(msg || "Assertion failed");
     }
-
-    logLikeBackbone(col) {
-      const N = col.length;
-      const m = columnOccupancy(col);
-      return (
-        m * Math.log(this.pBackbone) +
-        (N - m) * Math.log(1 - this.pBackbone) +
-        this.extraBackboneBonus
-      );
+  
+    function log(x) {
+      return Math.log(x);
     }
-
-    logLikeInsertion(col) {
-      const N = col.length;
-      const m = columnOccupancy(col);
-      return (
-        m * Math.log(this.pInsertion) +
-        (N - m) * Math.log(1 - this.pInsertion) +
-        this.extraInsertionBonus
-      );
+  
+    function clamp(x, lo, hi) {
+      return Math.max(lo, Math.min(hi, x));
     }
-  }
-
-  function clamp01(x) {
-    if (x <= 0) return 1e-12;
-    if (x >= 1) return 1 - 1e-12;
-    return x;
-  }
-
-  /**
-   * Default indel prior for backbone/insertion segmentation.
-   *
-   * - insertionStartPenalty: penalty for entering insertion run (B->I)
-   * - insertionExtendPenalty: penalty per insertion column while staying in insertion (I->I)
-   * - insertionEndResidPenalty[r]: penalty paid when exiting insertion run (I->B) with residue r = runLength mod 3
-   *     r=0 => length multiple of 3 (preferred)
-   *     r=1 or 2 => strongly penalized (noise/seq error)
-   */
-  class Mod3InsertionPrior {
-    constructor(opts = {}) {
-      this.insertionStartPenalty = opts.insertionStartPenalty ?? -2.0;
-      this.insertionExtendPenalty = opts.insertionExtendPenalty ?? -0.2;
-      // Defaults: strongly disfavor residue != 0 at exit.
-      this.insertionEndResidPenalty = opts.insertionEndResidPenalty ?? [0.0, -6.0, -6.0];
-      this.backboneStayBonus = opts.backboneStayBonus ?? 0.0;
-      this.backboneAfterInsertionBonus = opts.backboneAfterInsertionBonus ?? 0.0;
-      this.endOfAlignmentResidPenalty = opts.endOfAlignmentResidPenalty ?? [0.0, -6.0, -6.0];
+  
+    function safeProb(p) {
+      // Avoid 0/1 exactly for logs.
+      return clamp(p, 1e-9, 1 - 1e-9);
     }
-  }
-
-  /**
-   * Default codon coherence model.
-   * - stopCodonPenalty: penalty per stop codon in fully observed codons (per-sequence, per-codon)
-   * - aaConsensusWeight: reward proportional to most common amino acid count among sequences (excluding stop and X)
-   * - ignoreTerminalCodonStops: if true, do not penalize stop codons in the final codon (useful for genuine terminal stop)
-   */
-  class SimpleCodonCoherenceModel {
-    constructor(opts = {}) {
-      this.stopCodonPenalty = opts.stopCodonPenalty ?? 8.0;
-      this.aaConsensusWeight = opts.aaConsensusWeight ?? 0.2;
-      this.ignoreTerminalCodonStops = opts.ignoreTerminalCodonStops ?? true;
-      this.codeMap = opts.codeMap ?? STANDARD_CODE;
+  
+    function isGap(c) {
+      return c === "-";
     }
-
-    codonScore(codonsPerSeq, codonIndex, codonCount) {
-      // codonsPerSeq: array length N containing codon strings (len 3) or null (missing / gapped)
-      const aas = [];
-      let stops = 0;
-      for (const c of codonsPerSeq) {
-        if (!c) continue;
-        const aa = translateCodon(c, this.codeMap);
-        if (aa === "*") stops++;
-        aas.push(aa);
+  
+    function normalizeAlignment(alignment) {
+      assert(Array.isArray(alignment) && alignment.length > 0, "alignment must be a non-empty array");
+      const L = alignment[0].seq.length;
+      for (const s of alignment) {
+        assert(typeof s.id === "string", "each sequence needs an id");
+        assert(typeof s.seq === "string", "each sequence needs a seq string");
+        assert(s.seq.length === L, "all sequences must have the same aligned length");
       }
-      let score = 0.0;
-      const isTerminal = codonIndex === codonCount - 1;
-      if (!(this.ignoreTerminalCodonStops && isTerminal)) {
-        score -= this.stopCodonPenalty * stops;
-      }
-
-      // Consensus reward (exclude stop, X)
-      const counts = Object.create(null);
-      for (const aa of aas) {
-        if (aa === "*" || aa === "X") continue;
-        counts[aa] = (counts[aa] ?? 0) + 1;
-      }
-      let best = 0;
-      for (const k in counts) if (counts[k] > best) best = counts[k];
-      score += this.aaConsensusWeight * best;
-      return score;
+      // Uppercase; keep '-' as gaps.
+      return alignment.map((s) => ({
+        id: s.id,
+        seq: s.seq.toUpperCase(),
+      }));
     }
-  }
-
-  // ---------------------------
-  // Reference handling
-  // ---------------------------
-
-  function resolveReference(aln, refOpt) {
-    // refOpt: { id, index, mode, frameOffset }
-    if (!refOpt) return null;
-
-    let idx = null;
-    if (typeof refOpt.index === "number") idx = refOpt.index;
-    if (idx == null && typeof refOpt.id === "string") {
-      idx = aln.seqs.findIndex(s => s.id === refOpt.id);
-      assert(idx >= 0, `reference id not found: ${refOpt.id}`);
+  
+    function getColumnChars(aln, j) {
+      const col = new Array(aln.length);
+      for (let i = 0; i < aln.length; i++) col[i] = aln[i].seq[j];
+      return col;
     }
-    assert(idx != null && idx >= 0 && idx < aln.N, "invalid reference specification");
-
-    const mode = refOpt.mode ?? "hard"; // "hard" or "soft"
-    assert(mode === "hard" || mode === "soft", "reference.mode must be 'hard' or 'soft'");
-
-    // frameOffset: phase at reference ungapped position 1 (0/1/2).
-    const frameOffset = refOpt.frameOffset ?? 0;
-    assert(frameOffset === 0 || frameOffset === 1 || frameOffset === 2, "reference.frameOffset must be 0,1,2");
-
-    // soft penalties (applied if a column violates the ref-based forced type)
-    const softPenalty = refOpt.softPenalty ?? -20.0;
-
-    return { index: idx, mode, frameOffset, softPenalty };
-  }
-
-  function forcedColumnTypeFromReference(ref, colChar) {
-    // If reference base present => backbone, if gap => insertion.
-    // This is a strong heuristic that matches typical “reference defines coordinate” behavior.
-    return colChar === "-" ? "I" : "B";
-  }
-
-  // ---------------------------
-  // Viterbi for backboneMask (B vs I)
-  // ---------------------------
-
-  /**
-   * Infer backboneMask via Viterbi DP with small state:
-   *  - B state: not in insertion run
-   *  - I[r] states: in insertion run with residue r = runLength mod 3 (r in {0,1,2})
-   *
-   * Emissions: columnModel log-likelihoods for B vs I
-   * Transitions: prior penalties and mod-3 exit penalties
-   * Reference: optional hard/soft constraints per column
-   */
-  function inferBackboneMask(aln, options) {
-    const columnModel = options.columnModel ?? new OccupancyColumnModel(options.columnModelOptions ?? {});
-    const prior = options.priorModel ?? new Mod3InsertionPrior(options.priorModelOptions ?? {});
-    const ref = resolveReference(aln, options.reference);
-
-    const L = aln.L;
-
-    // State indices:
-    // 0: B
-    // 1: I0 (insertion, residue 0)
-    // 2: I1 (residue 1)
-    // 3: I2 (residue 2)
-    const S = 4;
-
-    const NEG_INF = -1e300;
-    let dpPrev = new Float64Array(S);
-    let dpCur = new Float64Array(S);
-    for (let s = 0; s < S; s++) dpPrev[s] = NEG_INF;
-    dpPrev[0] = 0.0; // start in backbone
-
-    // Backpointers
-    // prevState[j][s] and action[j][s] (action: 1 backbone, 0 insertion)
-    const prevState = Array.from({ length: L }, () => new Int16Array(S));
-    const action = Array.from({ length: L }, () => new Uint8Array(S));
-
-    // Helper: update dpCur for a candidate transition
-    function relax(j, sFrom, sTo, act, score) {
-      if (score > dpCur[sTo]) {
-        dpCur[sTo] = score;
-        prevState[j][sTo] = sFrom;
-        action[j][sTo] = act;
-      }
+  
+    function columnNonGapCount(aln, j) {
+      let k = 0;
+      for (let i = 0; i < aln.length; i++) if (!isGap(aln[i].seq[j])) k++;
+      return k;
     }
-
-    for (let j = 0; j < L; j++) {
-      for (let s = 0; s < S; s++) dpCur[s] = NEG_INF;
-
-      const col = getColumnChars(aln, j);
-      const eB = columnModel.logLikeBackbone(col);
-      const eI = columnModel.logLikeInsertion(col);
-
-      // Reference constraint for this column, if any.
-      let forced = null; // "B" or "I" or null
-      if (ref) forced = forcedColumnTypeFromReference(ref, col[ref.index]);
-
-      for (let sFrom = 0; sFrom < S; sFrom++) {
-        const baseScore = dpPrev[sFrom];
-        if (baseScore <= NEG_INF / 10) continue;
-
-        const fromIsB = (sFrom === 0);
-        const fromIsI = !fromIsB;
-        const fromResid = fromIsI ? (sFrom === 1 ? 0 : (sFrom === 2 ? 1 : 2)) : 0;
-
-        // Option 1: choose backbone for this column
-        if (!forced || forced === "B") {
-          let trans = 0.0;
-          let refAdj = 0.0;
-          if (ref && forced === "B" && ref.mode === "soft" && col[ref.index] === "-") {
-            // contradicts expected I, but forced would be I in that case; this block won't run
-            // kept for completeness
-            refAdj += ref.softPenalty;
-          }
-
-          if (fromIsB) {
-            trans += prior.backboneStayBonus;
-          } else {
-            // exiting insertion run, pay residue penalty
-            trans += prior.insertionEndResidPenalty[fromResid] + prior.backboneAfterInsertionBonus;
-          }
-          relax(j, sFrom, 0, 1, baseScore + trans + eB + refAdj);
-        } else if (ref && forced === "B" && ref.mode === "soft") {
-          // allow violating forced backbone via insertion, penalize below (handled in insertion option)
-        }
-
-        // Option 2: choose insertion for this column
-        if (!forced || forced === "I") {
-          let trans = 0.0;
-          let sTo = 0;
-
-          if (fromIsB) {
-            trans += prior.insertionStartPenalty;
-            // entering insertion with length 1 => residue 1
-            sTo = 2; // I1
-          } else {
-            trans += prior.insertionExtendPenalty;
-            // advance residue
-            const nextResid = (fromResid + 1) % 3;
-            sTo = (nextResid === 0 ? 1 : (nextResid === 1 ? 2 : 3));
-          }
-
-          relax(j, sFrom, sTo, 0, baseScore + trans + eI);
-        } else if (ref && forced === "I" && ref.mode === "soft") {
-          // allow violating forced insertion via backbone, penalize in backbone option instead
-        }
-
-        // Soft reference penalties: if mode=soft, we allow both actions but penalize violations
-        // The above "forced" logic blocks the other action when forced != null.
-        // For "soft" we want to allow both. Implement by re-running both with penalties.
-      }
-
-      // If soft reference, redo transitions allowing both actions with soft penalties.
-      if (ref && ref.mode === "soft" && forced) {
-        // Recompute dpCur from dpPrev but without forcing, and add penalty if action mismatches forced.
-        // Take max between existing forced version and this soft version.
-        const dpSoft = new Float64Array(S);
-        for (let s = 0; s < S; s++) dpSoft[s] = NEG_INF;
-        const prevSoft = new Int16Array(S);
-        const actSoft = new Uint8Array(S);
-
-        function relaxSoft(sFrom, sTo, act, score) {
-          if (score > dpSoft[sTo]) {
-            dpSoft[sTo] = score;
-            prevSoft[sTo] = sFrom;
-            actSoft[sTo] = act;
-          }
-        }
-
-        for (let sFrom = 0; sFrom < S; sFrom++) {
-          const baseScore = dpPrev[sFrom];
-          if (baseScore <= NEG_INF / 10) continue;
-
-          const fromIsB = (sFrom === 0);
-          const fromIsI = !fromIsB;
-          const fromResid = fromIsI ? (sFrom === 1 ? 0 : (sFrom === 2 ? 1 : 2)) : 0;
-
-          // backbone action, with penalty if forced === "I"
-          {
-            let trans = 0.0;
-            if (fromIsB) trans += prior.backboneStayBonus;
-            else trans += prior.insertionEndResidPenalty[fromResid] + prior.backboneAfterInsertionBonus;
-            const viol = (forced === "I") ? ref.softPenalty : 0.0;
-            relaxSoft(sFrom, 0, 1, baseScore + trans + eB + viol);
-          }
-
-          // insertion action, with penalty if forced === "B"
-          {
-            let trans = 0.0;
-            let sTo = 0;
-            if (fromIsB) { trans += prior.insertionStartPenalty; sTo = 2; }
-            else { trans += prior.insertionExtendPenalty; const nextResid = (fromResid + 1) % 3; sTo = (nextResid === 0 ? 1 : (nextResid === 1 ? 2 : 3)); }
-            const viol = (forced === "B") ? ref.softPenalty : 0.0;
-            relaxSoft(sFrom, sTo, 0, baseScore + trans + eI + viol);
-          }
-        }
-
-        // Merge: for each state, if soft version better, overwrite dpCur + backpointers.
-        for (let sTo = 0; sTo < S; sTo++) {
-          if (dpSoft[sTo] > dpCur[sTo]) {
-            dpCur[sTo] = dpSoft[sTo];
-            prevState[j][sTo] = prevSoft[sTo];
-            action[j][sTo] = actSoft[sTo];
-          }
-        }
-      }
-
-      // Swap
-      const tmp = dpPrev; dpPrev = dpCur; dpCur = tmp;
+  
+    function argmax3(a0, a1, a2) {
+      if (a0 >= a1 && a0 >= a2) return 0;
+      if (a1 >= a0 && a1 >= a2) return 1;
+      return 2;
     }
-
-    // Apply end-of-alignment residue penalty if we end in insertion.
-    let bestFinal = -1e300;
-    let bestState = 0;
-    for (let s = 0; s < S; s++) {
-      let sc = dpPrev[s];
-      if (s !== 0) {
-        const resid = (s === 1 ? 0 : (s === 2 ? 1 : 2));
-        sc += prior.endOfAlignmentResidPenalty[resid];
-      }
-      if (sc > bestFinal) { bestFinal = sc; bestState = s; }
-    }
-
-    // Backtrack to recover action path (s_j)
-    const backboneMask = new Array(L);
-    let s = bestState;
-    for (let j = L - 1; j >= 0; j--) {
-      const act = action[j][s]; // 1 backbone, 0 insertion
-      backboneMask[j] = (act === 1);
-      s = prevState[j][s];
-    }
-
-    return { backboneMask, viterbiScore: bestFinal };
-  }
-
-  // ---------------------------
-  // Assign phase vector (0/1/2 or null) given backboneMask
-  // ---------------------------
-
-  function assignFrames(aln, backboneMask, options) {
-    const ref = resolveReference(aln, options.reference);
-    const codonModel = options.codonModel ?? new SimpleCodonCoherenceModel(options.codonModelOptions ?? {});
-    const L = aln.L;
-
-    // backboneIndex[j] = index among backbone columns (0-based), or -1 if insertion
-    const backboneIndex = new Int32Array(L);
-    let k = 0;
-    for (let j = 0; j < L; j++) {
-      if (backboneMask[j]) {
-        backboneIndex[j] = k;
-        k++;
-      } else {
-        backboneIndex[j] = -1;
-      }
-    }
-    const backboneCount = k;
-    const codonCount = Math.floor(backboneCount / 3);
-
-    // If no codons, trivial
-    if (backboneCount === 0) {
-      const frameVec = new Array(L).fill(null);
-      return { frameVec, offset: 0, backboneIndex, backboneCount, scoresByOffset: [0,0,0] };
-    }
-
-    // Score each offset delta in {0,1,2}.
-    function scoreOffset(delta) {
-      let score = 0.0;
-
-      // Reference agreement (if present)
-      if (ref) {
-        // Compute reference ungapped position for each column where backboneMask && ref has base.
-        let refPos = 0; // 1-based coordinate in effect; we'll increment then compute phase
-        // First pass: precompute refPosAtCol[j] for speed if desired; keep simple.
-        for (let j = 0; j < L; j++) {
-          if (aln.seqs[ref.index].seq[j] !== "-") refPos++;
-          if (!backboneMask[j]) continue;
-          if (aln.seqs[ref.index].seq[j] === "-") continue;
-          const refPhase = ((refPos - 1 + ref.frameOffset) % 3);
-          const inferred = ((backboneIndex[j] + delta) % 3);
-          score += (refPhase === inferred) ? 1.0 : -1.0; // simple agreement score
-        }
-      }
-
-      // Codon coherence score (backbone columns grouped by 3)
-      for (let t = 0; t < codonCount; t++) {
-        const b0 = 3 * t + 0;
-        const b1 = 3 * t + 1;
-        const b2 = 3 * t + 2;
-        // We only score if these are actual backbone positions (they are by construction)
-        const cols = backboneColsForBackboneIndices(aln, backboneIndex, b0, b1, b2);
-        // Phase offset delta defines where backboneIndex 0 lands, but codon grouping by 3 is independent of delta.
-        // delta instead tells you the phase label, not the codon partition, in this design.
-        // If you want codon partition to shift with delta, you can shift b0/b1/b2 by delta.
-        // Here we *do* shift codon partition with delta: codon boundaries are defined by (backboneIndex + delta) mod 3.
-        // That means codon t contains the three backbone indices whose phase labels are 0,1,2.
-      }
-
-      // Recompute codon partition that depends on delta:
-      // Build list of backbone column indices in alignment order:
-      const backboneCols = [];
-      backboneCols.length = backboneCount;
-      for (let j = 0; j < L; j++) {
-        const bi = backboneIndex[j];
-        if (bi >= 0) backboneCols[bi] = j;
-      }
-
-      // Find codon starts: backboneIndex bi where (bi + delta) mod 3 === 0
-      // Then codon bases are bi, bi+1, bi+2.
-      const codonStarts = [];
-      for (let bi = 0; bi + 2 < backboneCount; bi++) {
-        if (((bi + delta) % 3) === 0) codonStarts.push(bi);
-      }
-      const codonTotal = codonStarts.length;
-
-      for (let ci = 0; ci < codonTotal; ci++) {
-        const bi0 = codonStarts[ci];
-        const bi1 = bi0 + 1;
-        const bi2 = bi0 + 2;
-        const j0 = backboneCols[bi0], j1 = backboneCols[bi1], j2 = backboneCols[bi2];
-
-        const codonsPerSeq = new Array(aln.N);
-        for (let i = 0; i < aln.N; i++) {
-          const c0 = aln.seqs[i].seq[j0];
-          const c1 = aln.seqs[i].seq[j1];
-          const c2 = aln.seqs[i].seq[j2];
-          if (c0 === "-" || c1 === "-" || c2 === "-") { codonsPerSeq[i] = null; continue; }
-          if (c0 === "N" || c1 === "N" || c2 === "N") { codonsPerSeq[i] = null; continue; }
-          codonsPerSeq[i] = c0 + c1 + c2;
-        }
-        score += codonModel.codonScore(codonsPerSeq, ci, codonTotal);
-      }
-
-      return score;
-    }
-
-    const s0 = scoreOffset(0);
-    const s1 = scoreOffset(1);
-    const s2 = scoreOffset(2);
-    const best = argMax3(s0, s1, s2);
-
-    // If reference is provided, allow forcing offset from reference if requested.
-    let offset = best;
-    if (options.reference && options.reference.forceOffset === true) {
-      // Choose offset that maximizes only reference agreement.
-      // This is implicit in scoreOffset(); but if codonModel dominates, user may want strict reference.
-      // Implement by temporarily zeroing codon component: easiest is a separate function.
-      offset = bestReferenceOffset(aln, backboneMask, backboneIndex, resolveReference(aln, options.reference));
-    }
-
-    // Build frameVec
-    const frameVec = new Array(L);
-    for (let j = 0; j < L; j++) {
-      const bi = backboneIndex[j];
-      frameVec[j] = (bi >= 0) ? ((bi + offset) % 3) : null;
-    }
-
-    return {
-      frameVec,
-      offset,
-      backboneIndex,
-      backboneCount,
-      scoresByOffset: [s0, s1, s2],
+  
+    /* ---------------------------
+     * Genetic code helpers
+     * ------------------------- */
+  
+    // Standard genetic code (DNA codons -> AA one-letter; '*' stop)
+    const STANDARD_CODE = {
+      TTT: "F", TTC: "F", TTA: "L", TTG: "L",
+      TCT: "S", TCC: "S", TCA: "S", TCG: "S",
+      TAT: "Y", TAC: "Y", TAA: "*", TAG: "*",
+      TGT: "C", TGC: "C", TGA: "*", TGG: "W",
+  
+      CTT: "L", CTC: "L", CTA: "L", CTG: "L",
+      CCT: "P", CCC: "P", CCA: "P", CCG: "P",
+      CAT: "H", CAC: "H", CAA: "Q", CAG: "Q",
+      CGT: "R", CGC: "R", CGA: "R", CGG: "R",
+  
+      ATT: "I", ATC: "I", ATA: "I", ATG: "M",
+      ACT: "T", ACC: "T", ACA: "T", ACG: "T",
+      AAT: "N", AAC: "N", AAA: "K", AAG: "K",
+      AGT: "S", AGC: "S", AGA: "R", AGG: "R",
+  
+      GTT: "V", GTC: "V", GTA: "V", GTG: "V",
+      GCT: "A", GCC: "A", GCA: "A", GCG: "A",
+      GAT: "D", GAC: "D", GAA: "E", GAG: "E",
+      GGT: "G", GGC: "G", GGA: "G", GGG: "G",
     };
-  }
-
-  function bestReferenceOffset(aln, backboneMask, backboneIndex, ref) {
-    if (!ref) return 0;
-    const L = aln.L;
-    const scores = [0, 0, 0];
-    for (let delta = 0; delta < 3; delta++) {
-      let score = 0;
-      let refPos = 0;
+  
+    function translateCodon(codon, code) {
+      const c = (codon || "").toUpperCase();
+      if (c.length !== 3) return "X";
+      if (c.indexOf("-") !== -1) return "X";
+      if (c.indexOf("N") !== -1) return "X";
+      const aa = (code || STANDARD_CODE)[c];
+      return aa ? aa : "X";
+    }
+  
+    /* ---------------------------
+     * Scoring model (occupancy emissions + simple priors)
+     * ------------------------- */
+  
+    function makeColumnEmissionFn(aln, opts) {
+      const N = aln.length;
+      const pB = safeProb((opts.columnModelOptions && opts.columnModelOptions.pBackbone) != null ? opts.columnModelOptions.pBackbone : 0.9);
+      const pI = safeProb((opts.columnModelOptions && opts.columnModelOptions.pInsertion) != null ? opts.columnModelOptions.pInsertion : 0.05);
+  
+      const logpB = log(pB), logqB = log(1 - pB);
+      const logpI = log(pI), logqI = log(1 - pI);
+  
+      // Optional user hook: add additional per-column score
+      const extra = (opts && typeof opts.columnScoreFn === "function") ? opts.columnScoreFn : null;
+  
+      // Return emission(j, state) where state: 0 insertion, 1 backbone
+      return function emission(j, state) {
+        const k = columnNonGapCount(aln, j);
+        const base = (state === 1)
+          ? (k * logpB + (N - k) * logqB)
+          : (k * logpI + (N - k) * logqI);
+        if (!extra) return base;
+        return base + (extra({ colIndex: j, state, nonGapCount: k, N }) || 0);
+      };
+    }
+  
+    function getPriorParams(opts) {
+      const prior = (opts && opts.priorModelOptions) ? opts.priorModelOptions : {};
+      return {
+        // In this implementation (with reference):
+        //   These penalize selecting BACKBONE columns inside reference-gap segments (i.e. explaining ref gaps as ref deletions).
+        //   This is a *policy choice* for API compatibility; emissions still dominate.
+        backboneStartPenalty: (prior.insertionStartPenalty != null) ? prior.insertionStartPenalty : -2.0,
+        backboneExtendPenalty: (prior.insertionExtendPenalty != null) ? prior.insertionExtendPenalty : -0.2,
+  
+        // Residue penalties for soft mode when #backbone_between_anchors mod3 != 0
+        // Default: strongly discourage residues 1/2.
+        residuePenalty: Array.isArray(prior.insertionEndResidPenalty) && prior.insertionEndResidPenalty.length === 3
+          ? prior.insertionEndResidPenalty.slice(0, 3)
+          : [0.0, -6.0, -6.0],
+      };
+    }
+  
+    /* ---------------------------
+     * Reference-anchored inference
+     * ------------------------- */
+  
+    function computeReferencePhases(aln, refIndex, frameOffset) {
+      const ref = aln[refIndex].seq;
+      const L = ref.length;
+  
+      const isAnchor = new Array(L);
+      const refUngappedPos = new Array(L); // -1 for gaps, else 0-based ungapped index
+      let u = -1;
       for (let j = 0; j < L; j++) {
-        if (aln.seqs[ref.index].seq[j] !== "-") refPos++;
-        if (!backboneMask[j]) continue;
-        if (aln.seqs[ref.index].seq[j] === "-") continue;
-        const refPhase = ((refPos - 1 + ref.frameOffset) % 3);
-        const inferred = ((backboneIndex[j] + delta) % 3);
-        score += (refPhase === inferred) ? 1.0 : -1.0;
-      }
-      scores[delta] = score;
-    }
-    return argMax3(scores[0], scores[1], scores[2]);
-  }
-
-  function backboneColsForBackboneIndices(aln, backboneIndex, b0, b1, b2) {
-    // Not used in final; kept for potential custom models.
-    return null;
-  }
-
-  // ---------------------------
-  // Corrected alignment builder
-  // ---------------------------
-
-  /**
-   * Build a “corrected-frame” alignment from an input alignment and a FrameResult.
-   *
-   * Options:
-   * - mode: "pad" (default) | "remove-insertions"
-   * - padToMultipleOf3: (default true) add all-gap columns at end of each insertion-run so run length % 3 == 0.
-   * - noiseMaxSupport: (default 1) insertion columns with occupancy <= noiseMaxSupport are considered "noise".
-   * - noisePolicy (pad mode only): "keep" (default) | "mask"
-   *      keep: leave inserted bases as-is
-   *      mask: replace bases in noise columns with gaps (i.e. delete the noise insertion content but keep columns/padding)
-   *
-   * Returns:
-   * - alignment: array of {id, seq} with new sequences
-   * - frameVec: phase labels (0/1/2) for every output column (no nulls). This is the “corrected frame”.
-   * - columnMap: array mapping output columns -> input column index (or -1 for padding columns)
-   */
-  function buildCorrectedAlignment(alignment, frameResult, options = {}) {
-    const aln = normalizeAlignment(alignment);
-    const { backboneMask, frameVec: inputFrameVec } = frameResult;
-    assert(backboneMask && backboneMask.length === aln.L, "frameResult.backboneMask must match alignment length");
-
-    const mode = options.mode ?? "pad";
-    assert(mode === "pad" || mode === "remove-insertions", "mode must be 'pad' or 'remove-insertions'");
-
-    const padToMultipleOf3 = options.padToMultipleOf3 ?? true;
-    const noiseMaxSupport = options.noiseMaxSupport ?? 1;
-    const noisePolicy = options.noisePolicy ?? "keep";
-    assert(noisePolicy === "keep" || noisePolicy === "mask", "noisePolicy must be 'keep' or 'mask'");
-
-    // Determine insertion runs in input alignment (contiguous columns where backboneMask[j] == false)
-    const runs = [];
-    let j = 0;
-    while (j < aln.L) {
-      const isIns = !backboneMask[j];
-      const start = j;
-      while (j < aln.L && (!backboneMask[j]) === isIns) j++;
-      const end = j; // exclusive
-      runs.push({ isIns, start, end });
-    }
-
-    // Build output columns as a list of actions:
-    // each item: { kind: "orig", j } or { kind: "pad" }
-    const outCols = [];
-    for (const r of runs) {
-      if (!r.isIns) {
-        for (let jj = r.start; jj < r.end; jj++) {
-          // backbone columns always included
-          outCols.push({ kind: "orig", j: jj });
+        const c = ref[j];
+        if (!isGap(c)) {
+          u++;
+          isAnchor[j] = true;
+          refUngappedPos[j] = u;
+        } else {
+          isAnchor[j] = false;
+          refUngappedPos[j] = -1;
         }
-      } else {
-        if (mode === "remove-insertions") {
-          // skip all insertion columns
+      }
+  
+      const anchorPhase = new Array(L).fill(null);
+      for (let j = 0; j < L; j++) {
+        if (!isAnchor[j]) continue;
+        const idx = refUngappedPos[j]; // 0-based
+        anchorPhase[j] = (idx + (frameOffset | 0)) % 3;
+        if (anchorPhase[j] < 0) anchorPhase[j] += 3;
+      }
+  
+      return { isAnchor, anchorPhase };
+    }
+  
+    /**
+     * Solve one reference-gap segment between anchors using DP.
+     *
+     * Segment columns are indices segCols[] such that reference has gaps there.
+     * We decide for each column whether it is:
+     *   - insertion/noise (state 0): does NOT advance coordinate; frameVec null
+     *   - backbone (state 1): advances coordinate; frameVec assigned; contributes to residue count
+     *
+     * Hard mode: total backbone count in segment must be ≡ 0 (mod 3).
+     * Soft mode: any residue allowed but penalized.
+     */
+    function solveGapSegmentDP(segCols, emission, prior, mode) {
+      const n = segCols.length;
+      if (n === 0) {
+        return { backbone: [], endResid: 0, score: 0.0 };
+      }
+  
+      // dp[i][res][s] for i in 0..n, res in 0..2, s in {0,1}
+      // Use flat arrays for speed.
+      const NEG = -1e300;
+  
+      const dp = new Float64Array((n + 1) * 3 * 2);
+      const bt = new Int32Array((n + 1) * 3 * 2); // backtrace packed: prevRes*2 + prevS, plus 6 for "unset"
+      for (let t = 0; t < dp.length; t++) { dp[t] = NEG; bt[t] = -1; }
+  
+      function idx(i, res, s) { return ((i * 3 + res) * 2 + s); }
+  
+      // Start: before segment, residue 0, previous state insertion (0)
+      dp[idx(0, 0, 0)] = 0.0;
+      bt[idx(0, 0, 0)] = -2;
+  
+      for (let i = 0; i < n; i++) {
+        const colJ = segCols[i];
+  
+        for (let res = 0; res < 3; res++) {
+          for (let s = 0; s < 2; s++) {
+            const cur = dp[idx(i, res, s)];
+            if (cur <= NEG / 2) continue;
+  
+            // Next state s' = 0 (insertion)
+            {
+              const res2 = res;
+              const s2 = 0;
+              const sc = cur + emission(colJ, 0);
+              const k = idx(i + 1, res2, s2);
+              if (sc > dp[k]) {
+                dp[k] = sc;
+                bt[k] = res * 2 + s;
+              }
+            }
+  
+            // Next state s' = 1 (backbone)
+            {
+              const res2 = (res + 1) % 3;
+              const s2 = 1;
+              let trans = 0.0;
+              if (s === 0) trans += prior.backboneStartPenalty;
+              else trans += prior.backboneExtendPenalty;
+  
+              const sc = cur + trans + emission(colJ, 1);
+              const k = idx(i + 1, res2, s2);
+              if (sc > dp[k]) {
+                dp[k] = sc;
+                bt[k] = res * 2 + s;
+              }
+            }
+          }
+        }
+      }
+  
+      // Choose best ending (any prev state) with residue constraint/penalty
+      const resPen = prior.residuePenalty;
+      let bestRes = 0, bestS = 0, bestScore = NEG;
+  
+      for (let res = 0; res < 3; res++) {
+        const pen = (mode === "soft") ? resPen[res] : (res === 0 ? 0.0 : NEG);
+        for (let s = 0; s < 2; s++) {
+          const sc = dp[idx(n, res, s)] + pen;
+          if (sc > bestScore) {
+            bestScore = sc;
+            bestRes = res;
+            bestS = s;
+          }
+        }
+      }
+  
+      // Backtrace decisions
+      const backbone = new Array(n).fill(false);
+      let i = n, res = bestRes, s = bestS;
+  
+      while (i > 0) {
+        const packed = bt[idx(i, res, s)];
+        if (packed < 0) break;
+        // Decision at i-1 is state s (current state at dp cell corresponds to state at column i-1)
+        backbone[i - 1] = (s === 1);
+  
+        const prevRes = Math.floor(packed / 2);
+        const prevS = packed % 2;
+  
+        // If current s is backbone, residue came from prevRes -> res = (prevRes+1)%3, so prevRes is consistent.
+        // If current s is insertion, residue unchanged.
+        res = prevRes;
+        s = prevS;
+        i--;
+      }
+  
+      return { backbone, endResid: bestRes, score: bestScore };
+    }
+  
+    function inferFrameWithReference(aln, opts) {
+      const ref = opts.reference || {};
+      const refIndex = clamp(ref.index | 0, 0, aln.length - 1);
+      const mode = (ref.mode === "soft") ? "soft" : "hard";
+      const frameOffset = ref.frameOffset | 0;
+  
+      const { isAnchor, anchorPhase } = computeReferencePhases(aln, refIndex, frameOffset);
+      const L = aln[0].seq.length;
+  
+      const emission = makeColumnEmissionFn(aln, opts);
+      const prior = getPriorParams(opts);
+  
+      const backboneMask = new Array(L).fill(false);
+      const frameVec = new Array(L).fill(null);
+  
+      // Identify anchors
+      const anchors = [];
+      for (let j = 0; j < L; j++) {
+        if (isAnchor[j]) anchors.push(j);
+      }
+  
+      // If reference has no anchors, fall back.
+      if (anchors.length === 0) {
+        return inferFrameNoReference(aln, opts);
+      }
+  
+      // Anchors: always backbone, phase fixed.
+      for (const j of anchors) {
+        backboneMask[j] = true;
+        frameVec[j] = anchorPhase[j];
+      }
+  
+      // Solve each gap segment between consecutive anchors independently
+      for (let t = 0; t + 1 < anchors.length; t++) {
+        const left = anchors[t];
+        const right = anchors[t + 1];
+  
+        // Segment columns are (left, right) exclusive where ref has gaps (should all be gaps, but guard).
+        const segCols = [];
+        for (let j = left + 1; j <= right - 1; j++) {
+          if (!isAnchor[j]) segCols.push(j);
+          else {
+            // If there is an unexpected anchor inside, we break segments at anchors anyway
+            // (but this shouldn't happen because anchors list is consecutive).
+          }
+        }
+  
+        const sol = solveGapSegmentDP(segCols, emission, prior, mode);
+        // Assign backbone vs insertion for segCols
+        for (let i = 0; i < segCols.length; i++) {
+          const j = segCols[i];
+          if (sol.backbone[i]) backboneMask[j] = true;
+        }
+  
+        // Assign phases in this region:
+        // Let runningPhase be the phase that the NEXT backbone column after 'left' should take.
+        // Since 'right' is the next reference base, its phase is fixed to (phase(left)+1) mod 3.
+        let runningPhase = (anchorPhase[left] + 1) % 3;
+  
+        for (let i = 0; i < segCols.length; i++) {
+          const j = segCols[i];
+          if (!backboneMask[j]) continue;
+          frameVec[j] = runningPhase;
+          runningPhase = (runningPhase + 1) % 3;
+        }
+  
+        // Ensure right anchor stays consistent (in hard mode it must; in soft mode, it is fixed anyway).
+        // We don't “propagate” runningPhase into anchors; anchors are fixed.
+        // But it’s useful to detect gross inconsistencies for debugging:
+        // (We do not throw; we just note it in meta.)
+      }
+  
+      // Leading/trailing reference-gap columns (before first anchor, after last): treat as insertion by default.
+      // If you want something more elaborate, use columnScoreFn + your own policy.
+      const firstA = anchors[0];
+      for (let j = 0; j < firstA; j++) {
+        if (!isAnchor[j]) { backboneMask[j] = false; frameVec[j] = null; }
+      }
+      const lastA = anchors[anchors.length - 1];
+      for (let j = lastA + 1; j < L; j++) {
+        if (!isAnchor[j]) { backboneMask[j] = false; frameVec[j] = null; }
+      }
+  
+      // Meta
+      const meta = {
+        mode: "reference",
+        reference: { index: refIndex, mode, frameOffset },
+        anchorsCount: anchors.length,
+      };
+  
+      return { frameVec, backboneMask, meta };
+    }
+  
+    /* ---------------------------
+     * No-reference inference (simple fallback)
+     *
+     * This is intentionally simple: an HMM over all columns with an occupancy emission and an insertion prior,
+     * plus a global offset chosen by codon coherence (weak).
+     * ------------------------- */
+  
+    function chooseOffsetByStopRate(aln, backboneMask, opts) {
+      // Optional codon scoring to pick a delta such that translated codons (from backbone columns) minimize stops.
+      const codOpts = opts.codonModelOptions || {};
+      const stopPenalty = (codOpts.stopCodonPenalty != null) ? codOpts.stopCodonPenalty : 8.0;
+  
+      // Build backbone column indices
+      const cols = [];
+      for (let j = 0; j < backboneMask.length; j++) if (backboneMask[j]) cols.push(j);
+      if (cols.length < 3) return 0;
+  
+      // Evaluate each delta in {0,1,2} by counting stop codons across sequences on backbone triplets.
+      // This is a crude heuristic, but stable.
+      function scoreDelta(delta) {
+        let score = 0.0;
+        // We need triplets in backbone coordinate: phase = (k + delta) % 3
+        // So codon boundaries occur where (k+delta)%3==0.
+        // We'll scan backbone index k.
+        const M = cols.length;
+        for (let i = 0; i + 2 < M; i++) {
+          const k = i; // backbone index
+          if (((k + delta) % 3) !== 0) continue;
+          const j0 = cols[i], j1 = cols[i + 1], j2 = cols[i + 2];
+          for (let s = 0; s < aln.length; s++) {
+            const c0 = aln[s].seq[j0], c1 = aln[s].seq[j1], c2 = aln[s].seq[j2];
+            if (isGap(c0) || isGap(c1) || isGap(c2)) continue;
+            const codon = c0 + c1 + c2;
+            if (translateCodon(codon, STANDARD_CODE) === "*") score -= stopPenalty;
+          }
+        }
+        return score;
+      }
+  
+      const s0 = scoreDelta(0), s1 = scoreDelta(1), s2 = scoreDelta(2);
+      return argmax3(s0, s1, s2);
+    }
+  
+    function inferBackboneMaskNoRef(aln, opts) {
+      // 2-state HMM over all columns: state 1 backbone, state 0 insertion
+      // Uses emission + insertion run priors from priorModelOptions (old naming).
+      const L = aln[0].seq.length;
+      const emission = makeColumnEmissionFn(aln, opts);
+      const prior = getPriorParams(opts);
+  
+      // Interpret the same prior as before in a no-ref setting:
+      // insertionStartPenalty / insertionExtendPenalty are penalties for being in insertion state (0).
+      // To preserve historical behavior loosely, we flip signs by using them as insertion rewards/penalties:
+      // Here, we simply penalize transitions into insertion and staying in insertion using their negatives.
+      const insStart = (opts.priorModelOptions && opts.priorModelOptions.insertionStartPenalty != null)
+        ? opts.priorModelOptions.insertionStartPenalty
+        : -2.0;
+      const insExtend = (opts.priorModelOptions && opts.priorModelOptions.insertionExtendPenalty != null)
+        ? opts.priorModelOptions.insertionExtendPenalty
+        : -0.2;
+  
+      // dp[j][s]
+      const NEG = -1e300;
+      let dp0 = 0.0, dp1 = 0.0;
+      const bt = new Int8Array(L * 2); // store prev state for each state at j
+      for (let j = 0; j < L; j++) {
+        const e0 = emission(j, 0);
+        const e1 = emission(j, 1);
+  
+        // Transition penalties:
+        // entering insertion (from backbone): insStart
+        // staying insertion: insExtend
+        // backbone has no penalty (simple)
+        const ndp0_from0 = dp0 + insExtend + e0;
+        const ndp0_from1 = dp1 + insStart + e0;
+        const ndp1_from0 = dp0 + e1;
+        const ndp1_from1 = dp1 + e1;
+  
+        let ndp0, ndp1, prev0, prev1;
+        if (ndp0_from0 >= ndp0_from1) { ndp0 = ndp0_from0; prev0 = 0; } else { ndp0 = ndp0_from1; prev0 = 1; }
+        if (ndp1_from0 >= ndp1_from1) { ndp1 = ndp1_from0; prev1 = 0; } else { ndp1 = ndp1_from1; prev1 = 1; }
+  
+        bt[j * 2 + 0] = prev0;
+        bt[j * 2 + 1] = prev1;
+  
+        dp0 = ndp0;
+        dp1 = ndp1;
+      }
+  
+      // Backtrace
+      const backboneMask = new Array(L).fill(false);
+      let s = (dp1 >= dp0) ? 1 : 0;
+      for (let j = L - 1; j >= 0; j--) {
+        backboneMask[j] = (s === 1);
+        s = bt[j * 2 + s];
+      }
+      return backboneMask;
+    }
+  
+    function inferFrameNoReference(aln, opts) {
+      const L = aln[0].seq.length;
+      const backboneMask = inferBackboneMaskNoRef(aln, opts);
+      const delta = chooseOffsetByStopRate(aln, backboneMask, opts);
+  
+      // Assign frameVec by counting backbone columns
+      const frameVec = new Array(L).fill(null);
+      let k = 0;
+      for (let j = 0; j < L; j++) {
+        if (!backboneMask[j]) continue;
+        frameVec[j] = (k + delta) % 3;
+        k++;
+      }
+  
+      return {
+        frameVec,
+        backboneMask,
+        meta: { mode: "noref", delta },
+      };
+    }
+  
+    /* ---------------------------
+     * Public API: inferFrame
+     * ------------------------- */
+  
+    /**
+     * inferFrame(alignment, options)
+     *
+     * Options (backward-compatible shape; some fields are interpreted differently when reference is used):
+     *
+     *   options.reference (optional):
+     *     { index: 0, mode: "hard"|"soft", frameOffset: 0 }
+     *
+     *     - index: which sequence in alignment is the trusted reference.
+     *     - mode:
+     *         "hard": between consecutive reference bases, the number of backbone columns in reference-gap runs
+     *                 must be a multiple of 3 (i.e. ≡ 0 mod 3).
+     *         "soft": residues 1/2 are allowed but penalized by priorModelOptions.insertionEndResidPenalty[r].
+     *     - frameOffset: phase offset applied to reference ungapped index (0 means ref[0] is phase 0).
+     *
+     *   options.columnModelOptions:
+     *     { pBackbone: 0.9, pInsertion: 0.05 }  // occupancy model
+     *
+     *   options.priorModelOptions:
+     *     {
+     *       insertionStartPenalty: -2.0,
+     *       insertionExtendPenalty: -0.2,
+     *       insertionEndResidPenalty: [0, -6, -6]
+     *     }
+     *
+     *     With reference:
+     *       - insertionStartPenalty / insertionExtendPenalty penalize selecting BACKBONE columns inside ref-gap segments
+     *         (i.e. explaining ref gaps as ref deletions).
+     *       - insertionEndResidPenalty is used only in soft mode as a penalty on (#backbone_in_gap mod 3).
+     *
+     *   options.codonModelOptions:
+     *     { stopCodonPenalty: 8, aaConsensusWeight: 0.2 }
+     *     (Used only in no-reference mode for a weak global offset heuristic.)
+     *
+     *   options.columnScoreFn (optional):
+     *     ({colIndex, state, nonGapCount, N}) => number
+     *     Add custom per-column additive score (state 0 insertion, 1 backbone).
+     */
+    function inferFrame(alignment, options) {
+      const aln = normalizeAlignment(alignment);
+      const opts = options || {};
+  
+      if (opts.reference && typeof opts.reference.index === "number") {
+        return inferFrameWithReference(aln, opts);
+      }
+      return inferFrameNoReference(aln, opts);
+    }
+  
+    /* ---------------------------
+     * Frame-corrected alignment builder
+     * ------------------------- */
+  
+    /**
+     * buildCorrectedAlignment(alignment, inferred, options)
+     *
+     * Returns a new alignment whose column indices are consistent with the assigned frame:
+     *   - Backbone columns are padded so that (outputColumnIndex % 3) == frameVec (0/1/2).
+     *
+     * Options:
+     *   - mode: "pad" (default) or "remove"
+     *       "pad": keep insertion columns, but insert padding all-gap columns when needed to keep backbone in-phase.
+     *       "remove": drop all insertion/noise columns (backboneMask=false). This will change sequences.
+     *
+     *   - padToMultipleOf3: boolean (default false)
+     *       If true, pads at the beginning so the first backbone column lands on its desired phase.
+     *
+     *   - keepInsertions: boolean (default true for "pad", ignored for "remove")
+     *       If false, behaves like remove for insertion columns, but still pads backbone phases.
+     */
+    function buildCorrectedAlignment(alignment, inferred, options) {
+      const aln = normalizeAlignment(alignment);
+      const L = aln[0].seq.length;
+  
+      assert(inferred && Array.isArray(inferred.backboneMask) && Array.isArray(inferred.frameVec), "inferred must come from inferFrame()");
+      assert(inferred.backboneMask.length === L && inferred.frameVec.length === L, "inferred vectors length mismatch");
+  
+      const opts = options || {};
+      const mode = (opts.mode === "remove") ? "remove" : "pad";
+      const padToMultipleOf3 = !!opts.padToMultipleOf3;
+      const keepInsertions = (opts.keepInsertions != null) ? !!opts.keepInsertions : (mode === "pad");
+  
+      const N = aln.length;
+  
+      // Identify first backbone column (for optional leading padding)
+      let firstBB = -1;
+      for (let j = 0; j < L; j++) {
+        if (inferred.backboneMask[j]) { firstBB = j; break; }
+      }
+  
+      // Output builders
+      const outChars = Array.from({ length: N }, () => []);
+      const outFrame = [];
+  
+      let outIndex = 0;
+  
+      function pushPadColumn() {
+        for (let i = 0; i < N; i++) outChars[i].push("-");
+        outFrame.push(null);
+        outIndex++;
+      }
+  
+      function pushRealColumn(j, isBackbone) {
+        for (let i = 0; i < N; i++) outChars[i].push(aln[i].seq[j]);
+        outFrame.push(isBackbone ? (outIndex % 3) : null);
+        outIndex++;
+      }
+  
+      // Leading pad so first backbone phase matches (if requested)
+      if (padToMultipleOf3 && firstBB >= 0) {
+        const want = inferred.frameVec[firstBB];
+        if (want != null) {
+          while ((outIndex % 3) !== want) pushPadColumn();
+        }
+      }
+  
+      for (let j = 0; j < L; j++) {
+        const isBB = !!inferred.backboneMask[j];
+  
+        if (!isBB) {
+          if (mode === "remove") continue;
+          if (!keepInsertions) continue;
+          // Keep insertion column; it may shift outIndex, so we will re-pad before next backbone.
+          pushRealColumn(j, false);
           continue;
         }
-        // pad mode: include insertion columns, optionally mask noise
-        for (let jj = r.start; jj < r.end; jj++) outCols.push({ kind: "orig", j: jj });
-
-        if (padToMultipleOf3) {
-          const len = r.end - r.start;
-          const rem = len % 3;
-          if (rem !== 0) {
-            const toAdd = 3 - rem;
-            for (let t = 0; t < toAdd; t++) outCols.push({ kind: "pad" });
-          }
-        }
+  
+        const want = inferred.frameVec[j];
+        assert(want === 0 || want === 1 || want === 2, "backbone column missing phase (frameVec)");
+  
+        while ((outIndex % 3) !== want) pushPadColumn();
+        pushRealColumn(j, true);
       }
+  
+      const outAlignment = aln.map((s, i) => ({ id: s.id, seq: outChars[i].join("") }));
+  
+      return {
+        alignment: outAlignment,
+        frameVec: outFrame,
+        meta: {
+          mode,
+          padToMultipleOf3,
+          keptInsertions: keepInsertions && mode === "pad",
+          inputLength: L,
+          outputLength: outAlignment[0].seq.length,
+        },
+      };
     }
-
-    const outL = outCols.length;
-
-    // Build output sequences
-    const outSeqs = aln.seqs.map(s => ({ id: s.id, seqArr: new Array(outL) }));
-    const columnMap = new Int32Array(outL); // -1 for pad
-    for (let outJ = 0; outJ < outL; outJ++) {
-      const item = outCols[outJ];
-      if (item.kind === "pad") {
-        columnMap[outJ] = -1;
-        for (let i = 0; i < aln.N; i++) outSeqs[i].seqArr[outJ] = "-";
-        continue;
-      }
-
-      const inJ = item.j;
-      columnMap[outJ] = inJ;
-
-      // In pad mode, optionally mask noise insertions:
-      // noise defined only for insertion columns (inputFrameVec[inJ] == null OR backboneMask false)
-      let maskThisCol = false;
-      if (mode === "pad" && !backboneMask[inJ] && noisePolicy === "mask") {
-        const col = getColumnChars(aln, inJ);
-        const m = columnOccupancy(col);
-        if (m <= noiseMaxSupport) maskThisCol = true;
-      }
-
-      for (let i = 0; i < aln.N; i++) {
-        const c = aln.seqs[i].seq[inJ];
-        outSeqs[i].seqArr[outJ] = maskThisCol ? "-" : c;
-      }
-    }
-
-    // Finalize sequences
-    const outAlignment = outSeqs.map(s => ({ id: s.id, seq: s.seqArr.join("") }));
-
-    // Build corrected frame vector for output columns (no nulls):
-    // Walk through outCols, assigning phases by:
-    // - For columns mapping to backbone input columns: use inputFrameVec (0/1/2)
-    // - For insertion/pad columns: assign phases sequentially, but ensure they don't disrupt backbone phases.
-    //
-    // Approach:
-    // - Maintain current phase "p" that always equals the last assigned output phase.
-    // - When we hit a backbone-mapped column, we set its phase to the inferred inputFrameVec.
-    //   If insertion/pad columns exist before it, and padToMultipleOf3=true, phases should align automatically.
-    // - For insertion/pad columns, increment p each column (cyclic), but if this causes mismatch at next backbone,
-    //   the mismatch reflects inconsistent inputs; we do not silently “fix” beyond padding.
-    const outFrameVec = new Int8Array(outL);
-    let lastPhase = 0;
-    let haveLast = false;
-
-    for (let outJ = 0; outJ < outL; outJ++) {
-      const inJ = columnMap[outJ];
-      if (inJ >= 0 && backboneMask[inJ]) {
-        const ph = inputFrameVec[inJ];
-        // ph should be 0/1/2
-        outFrameVec[outJ] = ph;
-        lastPhase = ph;
-        haveLast = true;
-      } else {
-        // insertion or pad
-        if (!haveLast) {
-          // If alignment begins with insertion/pad, start at phase 0 by convention.
-          outFrameVec[outJ] = lastPhase;
-          lastPhase = (lastPhase + 1) % 3;
-          haveLast = true;
-        } else {
-          lastPhase = (lastPhase + 1) % 3;
-          outFrameVec[outJ] = lastPhase;
-        }
-      }
-    }
-
-    return { alignment: outAlignment, frameVec: Array.from(outFrameVec), columnMap: Array.from(columnMap) };
-  }
-
-  // ---------------------------
-  // High-level API
-  // ---------------------------
-
-  /**
-   * Infer robust backbone mask + frame assignment for an existing nucleotide alignment.
-   *
-   * options:
-   * - reference: {
-   *     id?: string,
-   *     index?: number,
-   *     mode?: "hard"|"soft",
-   *     softPenalty?: number,
-   *     frameOffset?: 0|1|2,          // phase at ref ungapped position 1
-   *     forceOffset?: boolean         // if true, choose offset purely by reference agreement
-   *   }
-   *
-   * - columnModel: custom object with methods { logLikeBackbone(colChars), logLikeInsertion(colChars) }
-   * - columnModelOptions: opts passed to default OccupancyColumnModel if columnModel not supplied
-   *
-   * - priorModel: custom prior object, or use priorModelOptions for default Mod3InsertionPrior
-   * - priorModelOptions: { insertionStartPenalty, insertionExtendPenalty, insertionEndResidPenalty, ... }
-   *
-   * - codonModel: custom object with method { codonScore(codonsPerSeq, codonIndex, codonCount) }
-   * - codonModelOptions: opts passed to default SimpleCodonCoherenceModel if codonModel not supplied
-   *
-   * returns FrameResult:
-   * {
-   *   backboneMask: boolean[],
-   *   frameVec: (0|1|2|null)[],
-   *   offset: 0|1|2,
-   *   diagnostics: { viterbiScore, scoresByOffset, backboneCount, insertionCount }
-   * }
-   */
-  function inferFrame(alignment, options = {}) {
-    const aln = normalizeAlignment(alignment);
-
-    const { backboneMask, viterbiScore } = inferBackboneMask(aln, options);
-    const { frameVec, offset, scoresByOffset, backboneCount } = assignFrames(aln, backboneMask, options);
-
-    const insertionCount = aln.L - backboneCount;
-
-    return {
-      backboneMask,
-      frameVec,
-      offset,
-      diagnostics: {
-        viterbiScore,
-        scoresByOffset,
-        backboneCount,
-        insertionCount,
+  
+    /* ---------------------------
+     * Exports
+     * ------------------------- */
+  
+    const FrameClean = {
+      inferFrame,
+      buildCorrectedAlignment,
+      models: {
+        STANDARD_CODE,
+        translateCodon,
+      },
+      // Internal hooks are intentionally minimal in this build.
+      _internal: {
+        inferFrameWithReference,
+        inferFrameNoReference,
+        computeReferencePhases,
       },
     };
-  }
-
-  // ---------------------------
-  // Exports
-  // ---------------------------
-
-  return {
-    inferFrame,
-    buildCorrectedAlignment,
-
-    // Export default models for ablation/customization
-    models: {
-      OccupancyColumnModel,
-      Mod3InsertionPrior,
-      SimpleCodonCoherenceModel,
-      STANDARD_CODE,
-      translateCodon,
-    },
-
-    // Low-level utilities (useful for testing)
-    _internal: {
-      normalizeAlignment,
-      inferBackboneMask,
-      assignFrames,
-    },
-  };
-});
+  
+    return FrameClean;
+  });
+  
