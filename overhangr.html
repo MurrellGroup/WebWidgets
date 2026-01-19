@@ -306,6 +306,17 @@
         <details style="margin-top: 20px; border: 1px solid var(--border); border-radius: 4px; padding: 10px;">
             <summary style="cursor: pointer; font-weight: 600;">Advanced Settings & Thermodynamics</summary>
             
+            <div class="grid" style="margin-top: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                <div class="form-group">
+                    <label for="thermoPreset">Thermodynamics Preset</label>
+                    <select id="thermoPreset" style="padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
+                        <option value="gibson" selected>Gibson Assembly (Default)</option>
+                        <option value="primer">Primer Design (IDT-style)</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="grid" style="margin-top: 15px;">
                 <div class="form-group" title="Concentration of each DNA strand.">
                     <label for="dnaConc">Oligo Conc (nM)</label>
@@ -407,187 +418,14 @@
         <div class="preview-box" id="previewBox"></div>
     </div>
 
+    <script src="tm.js"></script>
     <script>
         // --- Thermodynamics ---
-        // Spec implemented per user-provided details:
-        // - NN ΔH°, ΔS° in 1 M NaCl (SantaLucia 1998 step parameters)
-        // - Initiation terms per terminal base (applied at both ends)
-        // - Optional symmetry correction for self-complementary duplexes
-        // - IDT salt corrections using natural logs (ln), incl. Mg2+ regime
-        // - Free Mg2+ from Mg–dNTP binding via association constant Ka
-        const NN_PARAMS = {
-            'AA': {dH: -7.9, dS: -22.2}, 'TT': {dH: -7.9, dS: -22.2},
-            'AT': {dH: -7.2, dS: -20.4}, 'TA': {dH: -7.2, dS: -21.3},
-            'CA': {dH: -8.5, dS: -22.7}, 'TG': {dH: -8.5, dS: -22.7},
-            'GT': {dH: -8.4, dS: -22.4}, 'AC': {dH: -8.4, dS: -22.4},
-            'CT': {dH: -7.8, dS: -21.0}, 'AG': {dH: -7.8, dS: -21.0},
-            'GA': {dH: -8.2, dS: -22.2}, 'TC': {dH: -8.2, dS: -22.2},
-            'CG': {dH: -10.6, dS: -27.2}, 'GC': {dH: -9.8, dS: -24.4},
-            'GG': {dH: -8.0, dS: -19.9}, 'CC': {dH: -8.0, dS: -19.9},
-            'sym': {dH: 0, dS: -1.4}
-        };
+        // Moved to tm.js (TMCalculator.calculateTm)
 
         function calculateTm(seq) {
-            // Returns °C. Uses Kelvin internally. All logs are natural log (ln).
-            // Concentrations:
-            // - dnaConc: treated as the *effective* [oligo] (M) for the duplexing model you intend.
-            // - naConc: total monovalent cations (M)
-            // - mgConc: total Mg2+ (M)
-            // - dntpConc: total dNTP (M)
-            seq = (seq || "").toUpperCase();
-            if (seq.length < 2) return 0;
-
-            // Enforce A/C/G/T-only for thermodynamics model; if not, return 0 rather than silently miscompute.
-            if (/[^ACGT]/.test(seq)) return 0;
-
-            const R_gas = 1.987; // cal·K^-1·mol^-1
-            const K0 = 273.15;
-            const Ka_Mg_dNTP = 3.0e4; // M^-1
-
-            // Get values from STATE.config or defaults
-            // dnaConc entered in nM; interpret as effective [oligo] in M for the intended duplexing stoichiometry.
-            // Use nullish coalescing (??) so user-entered 0 is respected (e.g., [Na+]=0 should not default).
-            const oligoEff = Math.max(1e-30, (STATE.config.dnaConc ?? 5) * 1e-9);
-            const naConc = Math.max(0, (STATE.config.naConc ?? 50) * 1e-3);
-            const tMgConc = Math.max(0, (STATE.config.mgConc ?? 10) * 1e-3);
-            const dntpConc = Math.max(0, (STATE.config.dntpConc ?? 0.8) * 1e-3);
-
-            // --- ΔH°, ΔS° in 1 M NaCl (NN model) ---
-            let H_kcal = 0.0;
-            let S_calK = 0.0;
-
-            for (let i = 0; i < seq.length - 1; i++) {
-                const dimer = seq.substring(i, i + 2);
-                const p = NN_PARAMS[dimer];
-                if (!p) return 0;
-                H_kcal += p.dH;
-                S_calK += p.dS;
-            }
-
-            // Initiation terms (apply at both ends, based on terminal base)
-            // Terminal base G/C:  ΔH += +0.1 kcal/mol, ΔS += -2.8 cal/K/mol
-            // Terminal base A/T:  ΔH += +2.3 kcal/mol, ΔS += +4.1 cal/K/mol
-            const end5 = seq[0];
-            const end3 = seq[seq.length - 1];
-            [end5, end3].forEach(end => {
-                if (end === 'G' || end === 'C') {
-                    H_kcal += 0.1;
-                    S_calK += -2.8;
-                } else if (end === 'A' || end === 'T') {
-                    H_kcal += 2.3;
-                    S_calK += 4.1;
-                }
-            });
-
-            // Symmetry correction for self-complementary duplexes
-            if (isSelfComplementary(seq)) {
-                S_calK += NN_PARAMS.sym.dS; // -1.4
-            }
-
-            const H_cal = 1000.0 * H_kcal;
-
-            // Baseline Tm in 1 M NaCl (K)
-            const Tm_1M_K = H_cal / (S_calK + R_gas * Math.log(oligoEff));
-
-            // GC fraction
-            const gcCount = (seq.match(/[GC]/g) || []).length;
-            const f_GC = gcCount / seq.length;
-
-            // --- Salt corrections (IDT-style) ---
-            // Step A: free Mg2+ from total Mg2+ and dNTP
-            const mgFree = computeFreeMg(tMgConc, dntpConc, Ka_Mg_dNTP);
-
-            // Step B: regime decision
-            // If [Na+]==0, use divalent correction branch (if Mg>0), else fall back to Tm_1M.
-            let useMonovalent = false;
-            let useDivalent = false;
-
-            if (naConc > 0) {
-                if (mgFree > 0) {
-                    const R_ratio = Math.sqrt(mgFree) / naConc;
-                    if (R_ratio < 0.22) useMonovalent = true;
-                    else useDivalent = true;
-                } else {
-                    // MgFree == 0 => monovalent
-                    useMonovalent = true;
-                }
-            } else {
-                // Na == 0 => divalent branch (if possible)
-                if (mgFree > 0) useDivalent = true;
-            }
-
-            // Step C1: monovalent correction (requires Na>0)
-            if (useMonovalent) {
-                const L = Math.log(naConc);
-                const invTm_Na = (1 / Tm_1M_K) + (((4.29 * f_GC - 3.95) * L + 0.940 * (L * L)) * 1e-5);
-                const Tm_K = 1 / invTm_Na;
-                return Tm_K - K0;
-            }
-
-            // Step C2: divalent correction (requires Mg>0)
-            if (useDivalent) {
-                const N_bp = seq.length;
-                const M = Math.log(mgFree);
-                let a, d, g;
-
-                if (naConc > 0) {
-                    const R_ratio = Math.sqrt(mgFree) / naConc;
-                    if (R_ratio >= 0.22 && R_ratio <= 6.0) {
-                        const N = Math.log(naConc);
-                        a = 3.92 * (0.843 - 0.352 * Math.sqrt(naConc) * N);
-                        d = 1.42 * (1.279 - 4.03e-3 * N - 8.03e-3 * (N * N));
-                        g = 8.31 * (0.486 - 0.258 * N + 5.25e-3 * (N * N * N));
-                    } else {
-                        a = 3.92;
-                        d = 1.42;
-                        g = 8.31;
-                    }
-                } else {
-                    a = 3.92;
-                    d = 1.42;
-                    g = 8.31;
-                }
-
-                const term =
-                    a
-                    - 0.911 * M
-                    + f_GC * (6.26 + d * M)
-                    + (1 / (2 * (N_bp - 1))) * (-48.2 + 52.5 * M + g * (M * M));
-
-                const invTm_Mg = (1 / Tm_1M_K) + term * 1e-5;
-                const Tm_K = 1 / invTm_Mg;
-                return Tm_K - K0;
-            }
-
-            // Fallback: no valid salt correction possible; return baseline 1 M NaCl Tm
-            return Tm_1M_K - K0;
-        }
-
-        function computeFreeMg(totalMg, totalDntp, Ka) {
-            // Spec:
-            // A = Ka*[dNTP] - Ka*[tMg] + 1
-            // D = A^2 + 4*Ka*[tMg]
-            // [Mg] = ( -A + sqrt(D) ) / ( 2*Ka )
-            if (totalMg <= 0 || Ka <= 0) return 0;
-            const A = Ka * totalDntp - Ka * totalMg + 1;
-            const D = A * A + 4 * Ka * totalMg;
-            const mg = (-A + Math.sqrt(Math.max(0, D))) / (2 * Ka);
-            // Clamp to physical range
-            return Math.min(totalMg, Math.max(0, mg));
-        }
-
-        function isSelfComplementary(seq) {
-            // Self-complementary if sequence equals its reverse complement.
-            // NOTE: This is the strict perfect self-complement definition used for symmetry correction.
-            const comp = { A: 'T', T: 'A', C: 'G', G: 'C' };
-            let rc = "";
-            for (let i = seq.length - 1; i >= 0; i--) {
-                const b = seq[i];
-                const c = comp[b];
-                if (!c) return false;
-                rc += c;
-            }
-            return rc === seq;
+            // Wrapper for existing code compatibility, using current STATE.config
+            return TMCalculator.calculateTm(seq, STATE.config);
         }
 
         // --- Improved Heuristics (Stricter G/C filtering) ---
@@ -1187,6 +1025,27 @@
         }
 
         document.getElementById('processBtn').addEventListener('click', processSequences);
+
+        // --- Preset Management ---
+        document.getElementById('thermoPreset').addEventListener('change', function(e) {
+            const preset = e.target.value;
+            if (preset === 'custom') return;
+            
+            const config = TMCalculator.PRESETS[preset];
+            if (config) {
+                document.getElementById('dnaConc').value = config.dnaConc;
+                document.getElementById('naConc').value = config.naConc;
+                document.getElementById('mgConc').value = config.mgConc;
+                document.getElementById('dntpConc').value = config.dntpConc;
+            }
+        });
+
+        // If user manually edits a salt value, switch preset to 'custom'
+        ['dnaConc', 'naConc', 'mgConc', 'dntpConc'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => {
+                document.getElementById('thermoPreset').value = 'custom';
+            });
+        });
 
     </script>
 </body>
