@@ -116,6 +116,141 @@
             margin-top: 10px;
             font-weight: bold;
         }
+
+        /* Interactive Junction Styles */
+        .entry-container {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 25px;
+            background: #fff;
+        }
+        .entry-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+            border-bottom: 2px solid var(--bg);
+            padding-bottom: 8px;
+        }
+        .entry-header h3 {
+            font-size: 0.85rem;
+            margin: 0;
+            color: #475569;
+            word-break: break-all;
+            flex: 1;
+            margin-right: 15px;
+        }
+        .btn-small {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            height: fit-content;
+        }
+        .frag-lengths {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 4px;
+            font-family: monospace;
+        }
+        .junction-container {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border: 1px solid #f1f5f9;
+        }
+        .viz-wrapper {
+            position: relative;
+            background: #ffffff;
+            padding: 10px 0;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: nowrap;
+            min-height: 40px;
+            border: 1px solid #e2e8f0;
+            scrollbar-width: thin;
+        }
+        .seq-row {
+            display: flex;
+            height: 24px;
+            user-select: none;
+        }
+        .nuc {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 24px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11px;
+            font-weight: bold;
+            flex-shrink: 0;
+            color: rgba(0,0,0,0.7);
+        }
+        .nuc-A { background: #dcfce7; color: #166534; }
+        .nuc-T { background: #fee2e2; color: #991b1b; }
+        .nuc-C { background: #dbeafe; color: #1e40af; }
+        .nuc-G { background: #fef9c3; color: #854d0e; }
+        
+        .highlight-layer {
+            position: absolute;
+            top: 10px;
+            height: 24px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .overlap-box {
+            position: absolute;
+            background: rgba(37, 99, 235, 0.15);
+            border: 2px solid #2563eb;
+            height: 24px;
+            pointer-events: auto;
+            cursor: grab;
+            box-sizing: border-box;
+        }
+        .overlap-box:active { cursor: grabbing; }
+        
+        .drag-handle {
+            position: absolute;
+            width: 6px;
+            height: 100%;
+            background: #2563eb;
+            cursor: ew-resize;
+            top: 0;
+            opacity: 0.8;
+        }
+        .drag-handle:hover { opacity: 1; width: 8px; }
+        .drag-handle.left { left: -3px; }
+        .drag-handle.right { right: -3px; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+            font-size: 0.75rem;
+        }
+        .stat-item {
+            background: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+        .stat-label { 
+            font-weight: 700; 
+            color: #64748b; 
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+        .stat-value {
+            color: #1e293b;
+            font-weight: 600;
+        }
+        .stat-value.fail { color: #ef4444; }
+        .stat-value.pass { color: #10b981; }
     </style>
 </head>
 <body>
@@ -159,10 +294,93 @@
             </div>
         </div>
 
+        <div class="grid">
+            <div class="form-group" title="Concentration of each DNA strand. IDT default is 250nM.">
+                <label for="dnaConc">Oligo Conc (nM)</label>
+                <input type="number" id="dnaConc" value="250" min="1">
+            </div>
+            <div class="form-group" title="Monovalent salt concentration (Na+, K+, etc.). IDT default is 50mM.">
+                <label for="naConc">Na+ Conc (mM)</label>
+                <input type="number" id="naConc" value="50" min="0">
+            </div>
+            <div class="form-group" title="Magnesium ion concentration. IDT default is 0mM.">
+                <label for="mgConc">Mg2+ Conc (mM)</label>
+                <input type="number" id="mgConc" value="0" min="0" step="0.1">
+            </div>
+            <div class="form-group" title="dNTP concentration. Usually 0 unless specifically required for Mg2+ correction.">
+                <label for="dntpConc">dNTPs Conc (mM)</label>
+                <input type="number" id="dntpConc" value="0" min="0" step="0.1">
+            </div>
+        </div>
+
         <div class="form-group checkbox-group">
             <input type="checkbox" id="addStopCodon">
             <label for="addStopCodon">Add Stop Codon (TAA) before 3' overhang</label>
         </div>
+
+        <details style="margin-top: 20px; border: 1px solid var(--border); border-radius: 4px; padding: 10px;">
+            <summary style="cursor: pointer; font-weight: 600;">Advanced Heuristics & Penalties</summary>
+            <div class="grid" style="margin-top: 15px;">
+                <div class="form-group" title="The minimum number of consecutive G or C bases to trigger a penalty. Long G/C runs are difficult to synthesize and can cause secondary structure issues.">
+                    <label for="pGCRunLen">Min G/C Run Length</label>
+                    <input type="number" id="pGCRunLen" value="3" min="2">
+                </div>
+                <div class="form-group" title="The penalty score added when a G/C run of the minimum length or greater is found.">
+                    <label for="pGCRunPenalty">G/C Run Penalty</label>
+                    <input type="number" id="pGCRunPenalty" value="100">
+                </div>
+                <div class="form-group" title="The minimum number of consecutive A or T bases to trigger a penalty. Long A/T runs can cause polymerase slippage during synthesis.">
+                    <label for="pATRunLen">Min A/T Run Length</label>
+                    <input type="number" id="pATRunLen" value="4" min="2">
+                </div>
+                <div class="form-group" title="The penalty score added when an A/T run of the minimum length or greater is found.">
+                    <label for="pATRunPenalty">A/T Run Penalty</label>
+                    <input type="number" id="pATRunPenalty" value="80">
+                </div>
+            </div>
+            <div class="grid">
+                <div class="form-group" title="A ratio threshold (unique dimers / total dimers). Below this value, the sequence is considered highly repetitive and 'low complexity'. Default 0.3.">
+                    <label for="pComplexityLow">Low Complexity Ratio</label>
+                    <input type="number" id="pComplexityLow" value="0.3" step="0.05" min="0" max="1">
+                </div>
+                <div class="form-group" title="The penalty score for sequences falling below the Low Complexity Ratio. Highly repetitive sequences are harder to synthesize and can misprime.">
+                    <label for="pComplexityLowPenalty">Low Complexity Penalty</label>
+                    <input type="number" id="pComplexityLowPenalty" value="100">
+                </div>
+                <div class="form-group" title="A secondary ratio threshold for sequence complexity. Default 0.75.">
+                    <label for="pComplexityMid">Mid Complexity Ratio</label>
+                    <input type="number" id="pComplexityMid" value="0.75" step="0.05" min="0" max="1">
+                </div>
+                <div class="form-group" title="The penalty score for sequences falling below the Mid Complexity Ratio but above the Low Complexity Ratio.">
+                    <label for="pComplexityMidPenalty">Mid Complexity Penalty</label>
+                    <input type="number" id="pComplexityMidPenalty" value="40">
+                </div>
+            </div>
+            <div class="grid">
+                <div class="form-group" title="The minimum acceptable GC content (as a decimal, e.g., 0.25 for 25%). Extremes in GC content affect Tm stability and synthesis reliability.">
+                    <label for="pGCLow">Min GC Content</label>
+                    <input type="number" id="pGCLow" value="0.35" step="0.05" min="0" max="1">
+                </div>
+                <div class="form-group" title="The maximum acceptable GC content (as a decimal, e.g., 0.75 for 75%). High GC content can lead to stable secondary structures that inhibit PCR/synthesis.">
+                    <label for="pGCHigh">Max GC Content</label>
+                    <input type="number" id="pGCHigh" value="0.65" step="0.05" min="0" max="1">
+                </div>
+                <div class="form-group" title="The penalty score added if the sequence's GC content falls outside the min/max range.">
+                    <label for="pGCOutOfRangePenalty">GC Out-of-Range Penalty</label>
+                    <input type="number" id="pGCOutOfRangePenalty" value="80">
+                </div>
+            </div>
+            <div class="grid">
+                <div class="form-group" title="A weighting factor for the overlap length during initial auto-design. Higher values favor shorter overlaps if Tm and penalty requirements are met.">
+                    <label for="pLengthWeight">Length Preference Weight</label>
+                    <input type="number" id="pLengthWeight" value="1" step="0.1" min="0">
+                </div>
+                <div class="form-group" title="A weighting factor favoring overlaps closer to the ideal center of the payload.">
+                    <label for="pDistWeight">Center Distance Weight</label>
+                    <input type="number" id="pDistWeight" value="1" step="0.1" min="0">
+                </div>
+            </div>
+        </details>
 
         <div id="errorMsg" class="error"></div>
 
@@ -173,6 +391,8 @@
 
     <div id="resultsArea" class="container">
         <h2>Results</h2>
+        <div id="entriesContainer"></div>
+
         <div class="download-buttons">
             <button class="secondary" id="downloadCsvBtn">Download Fragments (.csv)</button>
             <button class="secondary" id="downloadFastaBtn">Download Alignment (.fasta)</button>
@@ -201,23 +421,35 @@
         function calculateTm(seq) {
             seq = seq.toUpperCase();
             if (seq.length < 2) return 0;
-            const R = 1.987; 
-            const dnaConc = 500e-9; 
-            const naConc = 0.05; 
+            const R = 1.987; // Gas constant in cal/(K*mol)
+            
+            // Get values from STATE.config or defaults
+            const dnaConc = (STATE.config.dnaConc || 250) * 1e-9;
+            const naConc = (STATE.config.naConc || 50) * 1e-3;
+            const mgConc = (STATE.config.mgConc || 0) * 1e-3;
+            const dntpConc = (STATE.config.dntpConc || 0) * 1e-3;
+            const log10 = (x) => (Math.log10 ? Math.log10(x) : Math.log(x) / Math.LN10);
 
             let dH = 0;
             let dS = 0;
 
+            // Nearest Neighbor sum
             for (let i = 0; i < seq.length - 1; i++) {
                 const dimer = seq.substring(i, i + 2);
                 if (NN_PARAMS[dimer]) {
                     dH += NN_PARAMS[dimer].dH;
                     dS += NN_PARAMS[dimer].dS;
+                } else {
+                    // Handle ambiguous bases if any (simplistic: treat as average or ignore)
+                    // For now, let's assume valid DNA
                 }
             }
+
+            // Initiation parameters (SantaLucia 1998)
             dH += NN_PARAMS['init'].dH;
             dS += NN_PARAMS['init'].dS;
 
+            // Terminal AT penalties
             if (seq[0] === 'A' || seq[0] === 'T') {
                 dH += NN_PARAMS['init_AT'].dH;
                 dS += NN_PARAMS['init_AT'].dS;
@@ -226,47 +458,111 @@
                 dH += NN_PARAMS['init_AT'].dH;
                 dS += NN_PARAMS['init_AT'].dS;
             }
-            dS += 0.368 * (seq.length - 1) * Math.log(naConc);
-            const tm = (1000 * dH) / (dS + R * Math.log(dnaConc / 4)) - 273.15;
-            return tm;
+
+            // dH is in kcal/mol, dS is in cal/(K*mol)
+            // Convert dH to cal/mol for calculation
+            const dH_cal = dH * 1000;
+
+            // Tm at 1M NaCl (in Kelvin)
+            // IDT uses Ct/4 for non-self-complementary duplexes
+            // Tm = dH / (dS + R * ln(Ct/4))
+            const tm1M = dH_cal / (dS + R * Math.log(dnaConc / 4));
+
+            // Salt correction (Owczarzy et al. 2004 / 2008)
+            let tmFinal;
+            
+            const gcCount = (seq.match(/[GC]/g) || []).length;
+            const fGC = gcCount / seq.length;
+
+            // Use Mg2+ correction if Mg2+ is present and significant
+            const effectiveMg = Math.max(0, mgConc - dntpConc);
+            
+            if (effectiveMg > 0) {
+                // Owczarzy et al. 2008 divalent correction
+                // We use the "Mg-only" or "Mixed" formula depending on the ratio
+                const sqrtMg = Math.sqrt(effectiveMg);
+                const Ka = 50e-3; // Default monovalent for ratio comparison if naConc is 0
+                const ratio = sqrtMg / (naConc || Ka);
+
+                if (ratio < 0.22) {
+                    // Monovalent dominant
+                    tmFinal = saltCorrectMonovalent(tm1M, naConc, fGC, log10);
+                } else if (ratio < 6.0) {
+                    // Mixed monovalent/divalent
+                    // A, B, C, D, E, F, G parameters from Owczarzy 2008
+                    const a = 3.92e-5 * (0.843 - 0.352 * sqrtMg * Math.log(effectiveMg));
+                    const b = 3.76e-5;
+                    const c = 2.71e-5;
+                    const d = 1.63e-5; // Actually not used in this simplified version
+                    
+                    // The full formula is complex. Let's use the standard "effective sodium" 
+                    // or a simplified version of Owczarzy 2008.
+                    // Simplified Owczarzy 2008 for mixed:
+                    const logMg = Math.log(effectiveMg);
+                    // For now, let's use the salt-equivalence which is often "good enough":
+                    // Na_eq = [Na] + 120 * sqrt(Mg)
+                    const naEq = naConc + 120 * sqrtMg;
+                    tmFinal = saltCorrectMonovalent(tm1M, naEq, fGC, log10);
+                } else {
+                    // Divalent dominant
+                    const a = 3.92e-5;
+                    const b = -9.11e-6;
+                    const c = 6.26e-5;
+                    const d = 1.42e-5;
+                    // Note: Owczarzy 2008 uses log10 for concentration terms.
+                    const invTm = (1/tm1M) + (a + b*fGC + (c + d*fGC)*log10(effectiveMg));
+                    tmFinal = 1 / invTm;
+                }
+            } else {
+                // Monovalent only
+                tmFinal = saltCorrectMonovalent(tm1M, naConc, fGC, log10);
+            }
+
+            return tmFinal - 273.15;
+        }
+
+        function saltCorrectMonovalent(tm1M, naConc, fGC, log10) {
+            if (naConc <= 0) naConc = 1e-6; // Avoid log(0)
+            // Owczarzy 2004 monovalent correction
+            // IMPORTANT: this equation uses log10([Na+]) with [Na+] in molar units.
+            const l10 = log10(naConc);
+            const invTm = (1 / tm1M) + (4.29 * fGC - 3.95) * 1e-5 * l10 + 9.4e-6 * Math.pow(l10, 2);
+            return 1 / invTm;
         }
 
         // --- Improved Heuristics (Stricter G/C filtering) ---
 
-        function getSequencePenalty(seq) {
-            let penalty = 0;
+        function getSequencePenalty(seq, p) {
+            let details = {
+                gcRuns: 0,
+                atRuns: 0,
+                complexity: 0,
+                gcContent: 0,
+                total: 0
+            };
             const upper = seq.toUpperCase();
             const len = upper.length;
             
             // 1. Homopolymer runs
-            // G/C runs are significantly worse than A/T runs for synthesis and folding.
-            
-            // Critical Penalty: GGG or CCC (Length 3+)
-            // This avoids the "G-stacking" seen in the screenshot
-            if (/G{3,}/.test(upper) || /C{3,}/.test(upper)) {
-                penalty += 100; 
+            const gcRunRegex = new RegExp(`G{${p.pGCRunLen},}|C{${p.pGCRunLen},}`);
+            if (gcRunRegex.test(upper)) {
+                details.gcRuns = p.pGCRunPenalty;
             }
 
-            // High Penalty: A/T Length 4+
-            if (/A{4,}/.test(upper) || /T{4,}/.test(upper)) {
-                penalty += 80;
-            }
-            // Minor Penalty: A/T Length 3
-            else if (/A{3,}/.test(upper) || /T{3,}/.test(upper)) {
-                penalty += 20; 
+            const atRunRegex = new RegExp(`A{${p.pATRunLen},}|T{${p.pATRunLen},}`);
+            if (atRunRegex.test(upper)) {
+                details.atRuns = p.pATRunPenalty;
             }
 
             // 2. Repetitive Motifs (Dinucleotide/Trinucleotide)
-            // e.g. ATATAT (2-mer x 3) or GACGACGAC (3-mer x 3)
             if (/([ACGT]{2})\1{2,}/.test(upper)) {
-                penalty += 100;
+                details.complexity += 100;
             }
             if (/([ACGT]{3})\1{2,}/.test(upper)) {
-                penalty += 100;
+                details.complexity += 100;
             }
 
             // 3. Complexity Score (Unique Dimers / Total Dimers)
-            // Helps catch non-exact repeats and low-information regions
             if (len > 5) {
                 const dimers = new Set();
                 for (let i = 0; i < len - 1; i++) {
@@ -274,11 +570,10 @@
                 }
                 const uniqueRatio = dimers.size / (len - 1);
                 
-                // Stricter ratio requirements
-                if (uniqueRatio < 0.6) {
-                    penalty += 100; // Penalize messy/repetitive regions heavily
-                } else if (uniqueRatio < 0.75) {
-                    penalty += 40;
+                if (uniqueRatio < p.pComplexityLow) {
+                    details.complexity += p.pComplexityLowPenalty;
+                } else if (uniqueRatio < p.pComplexityMid) {
+                    details.complexity += p.pComplexityMidPenalty;
                 }
             }
 
@@ -286,17 +581,20 @@
             const gcCount = (upper.match(/[GC]/g) || []).length;
             const gcContent = gcCount / len;
             
-            // Penalize deviations from ideal 40-60% range more aggressively
-            if (gcContent < 0.25 || gcContent > 0.75) {
-                penalty += 80;
-            } else if (gcContent < 0.35 || gcContent > 0.65) {
-                penalty += 30;
+            if (gcContent < p.pGCLow || gcContent > p.pGCHigh) {
+                details.gcContent = p.pGCOutOfRangePenalty;
             }
 
-            return penalty;
+            details.total = details.gcRuns + details.atRuns + details.complexity + details.gcContent;
+            return details;
         }
 
         // --- Main Processing Logic ---
+
+        let STATE = {
+            entries: [], // { name, seq, config, fragments, fullSeq, overlaps }
+            config: {}
+        };
 
         function parseFasta(content) {
             const sequences = [];
@@ -323,6 +621,39 @@
             return sequences;
         }
 
+        function getConfig() {
+            return {
+                ov5: document.getElementById('overhang5').value.trim().toUpperCase(),
+                ov3: document.getElementById('overhang3').value.trim().toUpperCase(),
+                maxFragSize: parseInt(document.getElementById('maxFragSize').value),
+                targetTm: parseFloat(document.getElementById('targetTm').value),
+                minOverlap: parseInt(document.getElementById('minOverlap').value),
+                maxOverlap: parseInt(document.getElementById('maxOverlap').value),
+                addStop: document.getElementById('addStopCodon').checked,
+                
+                // Thermo
+                dnaConc: parseFloat(document.getElementById('dnaConc').value),
+                naConc: parseFloat(document.getElementById('naConc').value),
+                mgConc: parseFloat(document.getElementById('mgConc').value),
+                dntpConc: parseFloat(document.getElementById('dntpConc').value),
+
+                // Penalties
+                pGCRunLen: parseInt(document.getElementById('pGCRunLen').value),
+                pGCRunPenalty: parseInt(document.getElementById('pGCRunPenalty').value),
+                pATRunLen: parseInt(document.getElementById('pATRunLen').value),
+                pATRunPenalty: parseInt(document.getElementById('pATRunPenalty').value),
+                pComplexityLow: parseFloat(document.getElementById('pComplexityLow').value),
+                pComplexityLowPenalty: parseInt(document.getElementById('pComplexityLowPenalty').value),
+                pComplexityMid: parseFloat(document.getElementById('pComplexityMid').value),
+                pComplexityMidPenalty: parseInt(document.getElementById('pComplexityMidPenalty').value),
+                pGCLow: parseFloat(document.getElementById('pGCLow').value),
+                pGCHigh: parseFloat(document.getElementById('pGCHigh').value),
+                pGCOutOfRangePenalty: parseInt(document.getElementById('pGCOutOfRangePenalty').value),
+                pLengthWeight: parseFloat(document.getElementById('pLengthWeight').value),
+                pDistWeight: parseFloat(document.getElementById('pDistWeight').value)
+            };
+        }
+
         function processSequences() {
             const fileInput = document.getElementById('fastaFile');
             const errorMsg = document.getElementById('errorMsg');
@@ -336,54 +667,44 @@
                 return;
             }
 
-            const config = {
-                ov5: document.getElementById('overhang5').value.trim().toUpperCase(),
-                ov3: document.getElementById('overhang3').value.trim().toUpperCase(),
-                maxFragSize: parseInt(document.getElementById('maxFragSize').value),
-                targetTm: parseFloat(document.getElementById('targetTm').value),
-                minOverlap: parseInt(document.getElementById('minOverlap').value),
-                maxOverlap: parseInt(document.getElementById('maxOverlap').value),
-                addStop: document.getElementById('addStopCodon').checked
-            };
+            const config = getConfig();
+            STATE.config = config;
 
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
                     const fastaContent = e.target.result;
-                    const sequences = parseFasta(fastaContent);
+                    const entries = parseFasta(fastaContent);
                     
-                    if (sequences.length === 0) {
+                    if (entries.length === 0) {
                         throw new Error("No sequences found in file.");
                     }
 
-                    const allFragments = [];
-
-                    sequences.forEach(entry => {
-                        const frags = designFragments(entry, config);
-                        allFragments.push(...frags);
+                    STATE.entries = entries.map(entry => {
+                        return designEntry(entry, config);
                     });
 
-                    displayResults(allFragments);
+                    displayResults();
 
                 } catch (err) {
                     errorMsg.textContent = "Error: " + err.message;
+                    console.error(err);
                 }
             };
             reader.readAsText(fileInput.files[0]);
         }
 
-        function designFragments(entry, config) {
+        function designEntry(entry, config, numFragsOverride = null) {
             let coreSeq = entry.seq.replace(/[^a-zA-Z]/g, "").toUpperCase(); 
             if (config.addStop) coreSeq += "TAA";
             
             const fullSeq = config.ov5 + coreSeq + config.ov3;
             const fullLen = fullSeq.length;
 
-            // Effective payload calculation to strictly enforce maxFragSize
             let effectivePayload = config.maxFragSize - config.maxOverlap;
             if (effectivePayload < 50) effectivePayload = 50; 
             
-            let numFrags = Math.ceil(fullLen / effectivePayload);
+            let numFrags = numFragsOverride || Math.ceil(fullLen / effectivePayload);
             if (numFrags < 1) numFrags = 1;
             if (fullLen > config.maxFragSize && numFrags < 2) numFrags = 2;
 
@@ -410,58 +731,36 @@
 
                         const subSeq = fullSeq.substring(start, end);
                         const tm = calculateTm(subSeq);
-                        const penalty = getSequencePenalty(subSeq);
+                        const penaltyObj = getSequencePenalty(subSeq, config);
+                        const penalty = penaltyObj.total;
                         const dist = Math.abs((start + len/2) - center);
                         const isValid = tm >= config.targetTm;
 
-                        const currentCandidate = { start, end, tm, len, penalty, dist, isValid };
+                        const currentCandidate = { start, end, tm, len, penaltyObj, penalty, dist, isValid };
 
                         if (!bestOverlap) {
                             bestOverlap = currentCandidate;
                             continue;
                         }
 
-                        // Heuristic Comparison Logic
-                        // 1. Tm Requirement (Pass vs Fail)
+                        // Heuristic Comparison Logic using weights
                         if (currentCandidate.isValid && !bestOverlap.isValid) {
                             bestOverlap = currentCandidate;
-                            continue;
-                        }
-                        if (!currentCandidate.isValid && bestOverlap.isValid) {
-                            continue; // Keep best
-                        }
-
-                        // 2. Both pass or Both fail
-                        // If both valid: minimize Penalty -> minimize Length -> minimize Distance
-                        // If both invalid: maximize Tm -> minimize Penalty -> minimize Distance
-
-                        if (currentCandidate.isValid) {
-                            // Priority: Penalty > Length > Distance
-                            if (currentCandidate.penalty < bestOverlap.penalty) {
+                        } else if (!currentCandidate.isValid && bestOverlap.isValid) {
+                            // Keep best
+                        } else if (currentCandidate.isValid) {
+                            // Both valid. 
+                            // Score = Penalty + (len * lengthWeight) + (dist * distWeight)
+                            const currentScore = currentCandidate.penalty + (currentCandidate.len * config.pLengthWeight) + (currentCandidate.dist * config.pDistWeight);
+                            const bestScore = bestOverlap.penalty + (bestOverlap.len * config.pLengthWeight) + (bestOverlap.dist * config.pDistWeight);
+                            if (currentScore < bestScore) {
                                 bestOverlap = currentCandidate;
-                            } else if (currentCandidate.penalty === bestOverlap.penalty) {
-                                if (currentCandidate.len < bestOverlap.len) {
-                                    bestOverlap = currentCandidate;
-                                } else if (currentCandidate.len === bestOverlap.len) {
-                                    if (currentCandidate.dist < bestOverlap.dist) {
-                                        bestOverlap = currentCandidate;
-                                    }
-                                }
                             }
                         } else {
-                            // Both failed Tm requirement (Desperation mode)
-                            // Priority: Tm (higher is better) > Penalty > Distance
+                            // Both invalid (Desperation)
+                            // Score = (TargetTm - Tm) + Penalty + Distance
                             if (currentCandidate.tm > bestOverlap.tm) {
                                 bestOverlap = currentCandidate;
-                            } else if (Math.abs(currentCandidate.tm - bestOverlap.tm) < 0.5) {
-                                // If Tm is roughly equal, check penalty
-                                if (currentCandidate.penalty < bestOverlap.penalty) {
-                                    bestOverlap = currentCandidate;
-                                } else if (currentCandidate.penalty === bestOverlap.penalty) {
-                                    if (currentCandidate.dist < bestOverlap.dist) {
-                                        bestOverlap = currentCandidate;
-                                    }
-                                }
                             }
                         }
                     }
@@ -470,8 +769,21 @@
                 overlaps.push(bestOverlap);
             });
 
-            // Construct Fragments
+            const fragments = constructFragments(fullSeq, overlaps, entry.name);
+
+            return {
+                ...entry,
+                fullSeq,
+                fullLen,
+                numFrags,
+                overlaps,
+                fragments
+            };
+        }
+
+        function constructFragments(fullSeq, overlaps, entryName) {
             const fragments = [];
+            const fullLen = fullSeq.length;
             
             for (let i = 0; i <= overlaps.length; i++) {
                 let fragStart = 0;
@@ -491,7 +803,7 @@
                 const fragSeq = fullSeq.substring(fragStart, fragEnd);
                 
                 fragments.push({
-                    id: `${entry.name}_Frag${i+1}`,
+                    id: `${entryName}_Frag${i+1}`,
                     seq: fragSeq,
                     start: fragStart,
                     end: fragEnd,
@@ -499,18 +811,248 @@
                     tm: (i < overlaps.length) ? overlaps[i].tm : null 
                 });
             }
-
             return fragments;
         }
 
-        function displayResults(fragments) {
+        function displayResults() {
             const resultsArea = document.getElementById('resultsArea');
-            const previewBox = document.getElementById('previewBox');
+            const entriesContainer = document.getElementById('entriesContainer');
             
+            entriesContainer.innerHTML = "";
             resultsArea.style.display = 'block';
 
+            STATE.entries.forEach((entry, entryIdx) => {
+                const entryDiv = document.createElement('div');
+                entryDiv.className = 'entry-container';
+                
+                const lengths = entry.fragments.map(f => `${f.seq.length}bp`).join(", ");
+
+                let html = `
+                    <div class="entry-header">
+                        <div>
+                            <h3>${entry.name} (${entry.fullLen}bp total)</h3>
+                            <div class="frag-lengths">Fragment lengths: ${lengths}</div>
+                        </div>
+                        <button class="secondary btn-small" onclick="increaseFragCount(${entryIdx})">+ Add Frag</button>
+                    </div>
+                `;
+
+                entry.overlaps.forEach((ov, ovIdx) => {
+                    html += renderJunction(entryIdx, ovIdx);
+                });
+
+                entryDiv.innerHTML = html;
+                entriesContainer.appendChild(entryDiv);
+
+                // Center the views after they are added to DOM
+                setTimeout(() => {
+                    entry.overlaps.forEach((ov, ovIdx) => {
+                        centerJunctionView(entryIdx, ovIdx);
+                    });
+                }, 0);
+            });
+
+            updateGlobalPreviews();
+        }
+
+        function centerJunctionView(entryIdx, ovIdx) {
+            const wrapper = document.getElementById(`viz-${entryIdx}-${ovIdx}`);
+            const box = document.getElementById(`ovbox-${entryIdx}-${ovIdx}`);
+            if (wrapper && box) {
+                const boxCenter = box.offsetLeft + box.offsetWidth / 2;
+                wrapper.scrollLeft = boxCenter - wrapper.offsetWidth / 2;
+            }
+        }
+
+        function renderJunction(entryIdx, ovIdx) {
+            const entry = STATE.entries[entryIdx];
+            const ov = entry.overlaps[ovIdx];
+            const seq = entry.fullSeq;
+            
+            // Show a window around the overlap
+            const windowSize = 250; // Larger window for more context
+            const center = Math.floor((ov.start + ov.end) / 2);
+            let winStart = Math.max(0, center - windowSize);
+            let winEnd = Math.min(seq.length, center + windowSize);
+            
+            if (winStart === 0) winEnd = Math.min(seq.length, windowSize * 2);
+            if (winEnd === seq.length) winStart = Math.max(0, seq.length - windowSize * 2);
+
+            const displaySeq = seq.substring(winStart, winEnd);
+            const relStart = ov.start - winStart;
+            const relEnd = ov.end - winStart;
+            
+            const nucWidth = 14; 
+
+            let seqHtml = "";
+            for (let i = 0; i < displaySeq.length; i++) {
+                const n = displaySeq[i];
+                seqHtml += `<div class="nuc nuc-${n}">${n}</div>`;
+            }
+
+            return `
+                <div class="junction-container" id="junct-${entryIdx}-${ovIdx}">
+                    <div style="font-weight: 700; font-size: 0.75rem; margin-bottom: 5px; color: #475569;">JUNCTION ${ovIdx + 1} (Frag${ovIdx + 1} | Frag${ovIdx + 2})</div>
+                    <div class="viz-wrapper" id="viz-${entryIdx}-${ovIdx}"
+                         onmousedown="handleDragStart(event, ${entryIdx}, ${ovIdx}, ${winStart})">
+                        <div class="seq-row">${seqHtml}</div>
+                        <div class="highlight-layer">
+                            <div class="overlap-box" 
+                                 id="ovbox-${entryIdx}-${ovIdx}"
+                                 style="left: ${relStart * nucWidth}px; width: ${(ov.end - ov.start) * nucWidth}px;">
+                                <div class="drag-handle left" onmousedown="handleDragStart(event, ${entryIdx}, ${ovIdx}, ${winStart}, 'left')"></div>
+                                <div class="drag-handle right" onmousedown="handleDragStart(event, ${entryIdx}, ${ovIdx}, ${winStart}, 'right')"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stats-grid" id="stats-${entryIdx}-${ovIdx}">
+                        ${renderStats(ov)}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderStats(ov) {
+            const p = ov.penaltyObj;
+            return `
+                <div class="stat-item" title="Melting temperature of the overlap. High Tm (>60°C) is generally required for efficient Gibson Assembly.">
+                    <span class="stat-label">Tm</span>
+                    <span class="stat-value ${ov.tm < STATE.config.targetTm ? 'fail' : 'pass'}">${ov.tm.toFixed(1)}°C</span>
+                </div>
+                <div class="stat-item" title="Length of the overlap in base pairs. Usually 20-40bp is ideal.">
+                    <span class="stat-label">Length</span>
+                    <span class="stat-value">${ov.len}bp</span>
+                </div>
+                <div class="stat-item" title="Penalty for homopolymer G/C runs (e.g., GGG). These can cause synthesis and secondary structure issues.">
+                    <span class="stat-label">GC Runs</span>
+                    <span class="stat-value ${p.gcRuns > 0 ? 'fail' : ''}">${p.gcRuns}</span>
+                </div>
+                <div class="stat-item" title="Penalty for homopolymer A/T runs (e.g., AAAA). These can cause polymerase slippage during synthesis.">
+                    <span class="stat-label">AT Runs</span>
+                    <span class="stat-value ${p.atRuns > 0 ? 'fail' : ''}">${p.atRuns}</span>
+                </div>
+                <div class="stat-item" title="Complexity score based on repetitive motifs (like ATATAT) and the ratio of unique dimers. High scores indicate repetitive regions that may misprime or be difficult to synthesize.">
+                    <span class="stat-label">Complexity</span>
+                    <span class="stat-value ${p.complexity > 0 ? 'fail' : ''}">${p.complexity}</span>
+                </div>
+                <div class="stat-item" title="Penalty for GC content falling outside the acceptable range (default 25-75%). Extremes affect stability and synthesis.">
+                    <span class="stat-label">GC Bal.</span>
+                    <span class="stat-value ${p.gcContent > 0 ? 'fail' : ''}">${p.gcContent}</span>
+                </div>
+                <div class="stat-item" title="The sum of all penalty components. Lower is better.">
+                    <span class="stat-label">Total Pen.</span>
+                    <span class="stat-value ${p.total > 0 ? 'fail' : 'pass'}">${p.total}</span>
+                </div>
+                <div class="stat-item" title="The absolute start and end coordinates of this overlap within the full construct.">
+                    <span class="stat-label">Range</span>
+                    <span class="stat-value">${ov.start}-${ov.end}</span>
+                </div>
+            `;
+        }
+
+        let dragData = null;
+
+        function handleDragStart(e, entryIdx, ovIdx, winStart, type = 'move') {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const ov = STATE.entries[entryIdx].overlaps[ovIdx];
+            dragData = {
+                entryIdx,
+                ovIdx,
+                winStart,
+                type,
+                startX: e.clientX,
+                origStart: ov.start,
+                origEnd: ov.end
+            };
+
+            document.addEventListener('mousemove', handleDragMove);
+            document.addEventListener('mouseup', handleDragEnd);
+        }
+
+        function handleDragMove(e) {
+            if (!dragData) return;
+            
+            const dx = e.clientX - dragData.startX;
+            const nucWidth = 14; 
+            const dChars = Math.round(dx / nucWidth);
+            
+            const entry = STATE.entries[dragData.entryIdx];
+            const ov = entry.overlaps[dragData.ovIdx];
+            
+            let newStart = dragData.origStart;
+            let newEnd = dragData.origEnd;
+
+            if (dragData.type === 'move') {
+                newStart += dChars;
+                newEnd += dChars;
+            } else if (dragData.type === 'left') {
+                newStart += dChars;
+            } else if (dragData.type === 'right') {
+                newEnd += dChars;
+            }
+
+            // Constraints
+            if (newStart < 0) newStart = 0;
+            if (newEnd > entry.fullSeq.length) newEnd = entry.fullSeq.length;
+            if (newEnd - newStart < 10) {
+                if (dragData.type === 'left') newStart = newEnd - 10;
+                else if (dragData.type === 'right') newEnd = newStart + 10;
+            }
+
+            // Update state
+            ov.start = newStart;
+            ov.end = newEnd;
+            ov.len = newEnd - newStart;
+            
+            const subSeq = entry.fullSeq.substring(ov.start, ov.end);
+            ov.tm = calculateTm(subSeq);
+            ov.penaltyObj = getSequencePenalty(subSeq, STATE.config);
+            ov.penalty = ov.penaltyObj.total;
+            ov.isValid = ov.tm >= STATE.config.targetTm;
+
+            // Update UI
+            const box = document.getElementById(`ovbox-${dragData.entryIdx}-${dragData.ovIdx}`);
+            const relStart = ov.start - dragData.winStart;
+            box.style.left = `${relStart * nucWidth}px`;
+            box.style.width = `${ov.len * nucWidth}px`;
+            
+            const stats = document.getElementById(`stats-${dragData.entryIdx}-${dragData.ovIdx}`);
+            stats.innerHTML = renderStats(ov);
+        }
+
+        function handleDragEnd() {
+            if (!dragData) return;
+            
+            // Re-construct fragments for this entry since overlaps changed
+            const entry = STATE.entries[dragData.entryIdx];
+            entry.fragments = constructFragments(entry.fullSeq, entry.overlaps, entry.name);
+            
+            updateGlobalPreviews();
+            
+            dragData = null;
+            document.removeEventListener('mousemove', handleDragMove);
+            document.removeEventListener('mouseup', handleDragEnd);
+        }
+
+        function increaseFragCount(entryIdx) {
+            const entry = STATE.entries[entryIdx];
+            entry.numFrags += 1;
+            
+            // Re-design this entry with the new count
+            STATE.entries[entryIdx] = designEntry(entry, STATE.config, entry.numFrags);
+            
+            displayResults();
+        }
+
+        function updateGlobalPreviews() {
+            const allFragments = [];
+            STATE.entries.forEach(e => allFragments.push(...e.fragments));
+            
+            const previewBox = document.getElementById('previewBox');
             let previewText = "";
-            fragments.forEach(frag => {
+            allFragments.forEach(frag => {
                 const prefix = "-".repeat(frag.start);
                 const suffix = "-".repeat(frag.fullLen - frag.end);
                 previewText += `>${frag.id} (${frag.seq.length}bp)\n`;
@@ -518,8 +1060,8 @@
             });
             previewBox.textContent = previewText;
 
-            generateCsv(fragments);
-            generateFasta(fragments);
+            generateCsv(allFragments);
+            generateFasta(allFragments);
         }
 
         function generateCsv(fragments) {
