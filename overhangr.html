@@ -294,32 +294,33 @@
             </div>
         </div>
 
-        <div class="grid">
-            <div class="form-group" title="Concentration of each DNA strand. IDT default is 250nM.">
-                <label for="dnaConc">Oligo Conc (nM)</label>
-                <input type="number" id="dnaConc" value="250" min="1">
-            </div>
-            <div class="form-group" title="Monovalent salt concentration (Na+, K+, etc.). IDT default is 50mM.">
-                <label for="naConc">Na+ Conc (mM)</label>
-                <input type="number" id="naConc" value="50" min="0">
-            </div>
-            <div class="form-group" title="Magnesium ion concentration. IDT default is 0mM.">
-                <label for="mgConc">Mg2+ Conc (mM)</label>
-                <input type="number" id="mgConc" value="0" min="0" step="0.1">
-            </div>
-            <div class="form-group" title="dNTP concentration. Usually 0 unless specifically required for Mg2+ correction.">
-                <label for="dntpConc">dNTPs Conc (mM)</label>
-                <input type="number" id="dntpConc" value="0" min="0" step="0.1">
-            </div>
-        </div>
-
         <div class="form-group checkbox-group">
             <input type="checkbox" id="addStopCodon">
             <label for="addStopCodon">Add Stop Codon (TAA) before 3' overhang</label>
         </div>
 
         <details style="margin-top: 20px; border: 1px solid var(--border); border-radius: 4px; padding: 10px;">
-            <summary style="cursor: pointer; font-weight: 600;">Advanced Heuristics & Penalties</summary>
+            <summary style="cursor: pointer; font-weight: 600;">Advanced Settings & Thermodynamics</summary>
+            
+            <div class="grid" style="margin-top: 15px;">
+                <div class="form-group" title="Concentration of each DNA strand.">
+                    <label for="dnaConc">Oligo Conc (nM)</label>
+                    <input type="number" id="dnaConc" value="5" min="1">
+                </div>
+                <div class="form-group" title="Monovalent salt concentration (Na+, K+, etc.).">
+                    <label for="naConc">Na+ Conc (mM)</label>
+                    <input type="number" id="naConc" value="50" min="0">
+                </div>
+                <div class="form-group" title="Magnesium ion concentration.">
+                    <label for="mgConc">Mg2+ Conc (mM)</label>
+                    <input type="number" id="mgConc" value="10" min="0" step="0.1">
+                </div>
+                <div class="form-group" title="Total dNTP concentration. Used for free Mg2+ correction.">
+                    <label for="dntpConc">dNTPs Conc (mM)</label>
+                    <input type="number" id="dntpConc" value="0.8" min="0" step="0.1">
+                </div>
+            </div>
+
             <div class="grid" style="margin-top: 15px;">
                 <div class="form-group" title="The minimum number of consecutive G or C bases to trigger a penalty. Long G/C runs are difficult to synthesize and can cause secondary structure issues.">
                     <label for="pGCRunLen">Min G/C Run Length</label>
@@ -442,10 +443,10 @@
             // Get values from STATE.config or defaults
             // dnaConc entered in nM; interpret as effective [oligo] in M for the intended duplexing stoichiometry.
             // Use nullish coalescing (??) so user-entered 0 is respected (e.g., [Na+]=0 should not default).
-            const oligoEff = Math.max(1e-30, (STATE.config.dnaConc ?? 250) * 1e-9);
+            const oligoEff = Math.max(1e-30, (STATE.config.dnaConc ?? 5) * 1e-9);
             const naConc = Math.max(0, (STATE.config.naConc ?? 50) * 1e-3);
-            const tMgConc = Math.max(0, (STATE.config.mgConc ?? 0) * 1e-3);
-            const dntpConc = Math.max(0, (STATE.config.dntpConc ?? 0) * 1e-3);
+            const tMgConc = Math.max(0, (STATE.config.mgConc ?? 10) * 1e-3);
+            const dntpConc = Math.max(0, (STATE.config.dntpConc ?? 0.8) * 1e-3);
 
             // --- ΔH°, ΔS° in 1 M NaCl (NN model) ---
             let H_kcal = 0.0;
