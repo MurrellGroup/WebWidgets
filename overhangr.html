@@ -281,8 +281,12 @@
                 <input type="number" id="maxFragSize" value="1000" min="200">
             </div>
             <div class="form-group">
-                <label for="targetTm">Target Overlap Tm (°C)</label>
-                <input type="number" id="targetTm" value="60" min="40" max="90">
+                <label>Overlap Tm Range (°C)</label>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <input type="number" id="targetTm" value="60" min="0" max="100" step="0.1" aria-label="Lower overlap Tm (°C)">
+                    <span style="color:#64748b; font-weight:600;">to</span>
+                    <input type="number" id="upperTm" value="90" min="0" max="100" step="0.1" aria-label="Upper overlap Tm (°C)">
+                </div>
             </div>
             <div class="form-group">
                 <label for="minOverlap">Min Overlap Length (bp)</label>
@@ -678,11 +682,22 @@
         }
 
         function getConfig() {
+            // Normalize the user-defined Tm range once, so the rest of the code can assume:
+            // - targetTm is the LOWER bound (inclusive)
+            // - upperTm is the UPPER bound (inclusive)
+            // If the user enters them reversed, we swap.
+            let tmLow = parseFloat(document.getElementById('targetTm').value);
+            let tmHigh = parseFloat(document.getElementById('upperTm').value);
+            if (!Number.isFinite(tmLow)) tmLow = 60;
+            if (!Number.isFinite(tmHigh)) tmHigh = 90;
+            if (tmHigh < tmLow) [tmLow, tmHigh] = [tmHigh, tmLow];
+
             return {
                 ov5: document.getElementById('overhang5').value.trim().toUpperCase(),
                 ov3: document.getElementById('overhang3').value.trim().toUpperCase(),
                 maxFragSize: parseInt(document.getElementById('maxFragSize').value),
-                targetTm: parseFloat(document.getElementById('targetTm').value),
+                targetTm: tmLow,
+                upperTm: tmHigh,
                 minOverlap: parseInt(document.getElementById('minOverlap').value),
                 maxOverlap: parseInt(document.getElementById('maxOverlap').value),
                 addStop: document.getElementById('addStopCodon').checked,
@@ -790,9 +805,13 @@
                         const penaltyObj = getSequencePenalty(subSeq, config);
                         const penalty = penaltyObj.total;
                         const dist = Math.abs((start + len/2) - center);
-                        const isValid = tm >= config.targetTm;
+                        // Tm range penalty: 0 inside range; otherwise distance (°C) to nearest bound.
+                        const tmOutOfRange = (tm < config.targetTm) ? (config.targetTm - tm)
+                            : (tm > config.upperTm) ? (tm - config.upperTm)
+                            : 0;
+                        const isValid = tmOutOfRange === 0;
 
-                        const currentCandidate = { start, end, tm, len, penaltyObj, penalty, dist, isValid };
+                        const currentCandidate = { start, end, tm, len, penaltyObj, penalty, dist, tmOutOfRange, isValid };
 
                         if (!bestOverlap) {
                             bestOverlap = currentCandidate;
@@ -813,10 +832,17 @@
                                 bestOverlap = currentCandidate;
                             }
                         } else {
-                            // Both invalid (Desperation)
-                            // Score = (TargetTm - Tm) + Penalty + Distance
-                            if (currentCandidate.tm > bestOverlap.tm) {
+                            // Both invalid (Desperation): prefer overlaps closest to the Tm range.
+                            // Primary: minimize Tm distance outside the range.
+                            // Secondary: minimize the usual weighted score.
+                            if (currentCandidate.tmOutOfRange < bestOverlap.tmOutOfRange) {
                                 bestOverlap = currentCandidate;
+                            } else if (currentCandidate.tmOutOfRange === bestOverlap.tmOutOfRange) {
+                                const currentScore = currentCandidate.penalty + (currentCandidate.len * config.pLengthWeight) + (currentCandidate.dist * config.pDistWeight);
+                                const bestScore = bestOverlap.penalty + (bestOverlap.len * config.pLengthWeight) + (bestOverlap.dist * config.pDistWeight);
+                                if (currentScore < bestScore) {
+                                    bestOverlap = currentCandidate;
+                                }
                             }
                         }
                     }
@@ -970,10 +996,11 @@
 
         function renderStats(ov) {
             const p = ov.penaltyObj;
+            const tmFail = (ov.tm < STATE.config.targetTm) || (ov.tm > STATE.config.upperTm);
             return `
-                <div class="stat-item" title="Melting temperature of the overlap. High Tm (>60°C) is generally required for efficient Gibson Assembly.">
+                <div class="stat-item" title="Melting temperature of the overlap. Overlaps are preferred within the specified Tm range.">
                     <span class="stat-label">Tm</span>
-                    <span class="stat-value ${ov.tm < STATE.config.targetTm ? 'fail' : 'pass'}">${ov.tm.toFixed(1)}°C</span>
+                    <span class="stat-value ${tmFail ? 'fail' : 'pass'}">${ov.tm.toFixed(1)}°C</span>
                 </div>
                 <div class="stat-item" title="Length of the overlap in base pairs. Usually 20-40bp is ideal.">
                     <span class="stat-label">Length</span>
@@ -1066,7 +1093,10 @@
             ov.tm = calculateTm(subSeq);
             ov.penaltyObj = getSequencePenalty(subSeq, STATE.config);
             ov.penalty = ov.penaltyObj.total;
-            ov.isValid = ov.tm >= STATE.config.targetTm;
+            ov.tmOutOfRange = (ov.tm < STATE.config.targetTm) ? (STATE.config.targetTm - ov.tm)
+                : (ov.tm > STATE.config.upperTm) ? (ov.tm - STATE.config.upperTm)
+                : 0;
+            ov.isValid = ov.tmOutOfRange === 0;
 
             // Update UI
             const box = document.getElementById(`ovbox-${dragData.entryIdx}-${dragData.ovIdx}`);
