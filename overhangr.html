@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gibson Assembly Fragment Designer</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        h1, h2 { color: #0f172a; }
+        
+        .container {
+            background: var(--surface);
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        input[type="text"], input[type="number"], input[type="file"] {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .checkbox-group {
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #1d4ed8;
+        }
+
+        button.secondary {
+            background-color: #64748b;
+        }
+
+        button.secondary:hover {
+            background-color: #475569;
+        }
+
+        #resultsArea {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .preview-box {
+            background: #1e293b;
+            color: #bef264;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre;
+            font-size: 12px;
+            max-height: 400px;
+        }
+
+        .error {
+            color: #ef4444;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Gibson Assembly Fragment Designer</h1>
+    <p>Upload a FASTA file to generate fragments with optimal overlaps for Gibson Assembly.</p>
+
+    <div class="container">
+        <div class="form-group" style="margin-bottom: 20px;">
+            <label for="fastaFile">Input FASTA File</label>
+            <input type="file" id="fastaFile" accept=".fasta,.fa,.txt">
+        </div>
+
+        <div class="grid">
+            <div class="form-group">
+                <label for="overhang5">5' Overhang (Upstream)</label>
+                <input type="text" id="overhang5" placeholder="e.g. ggctagct" value="">
+            </div>
+            <div class="form-group">
+                <label for="overhang3">3' Overhang (Downstream)</label>
+                <input type="text" id="overhang3" placeholder="e.g. ttacgcca" value="">
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="form-group">
+                <label for="maxFragSize">Max Fragment Size (bp)</label>
+                <input type="number" id="maxFragSize" value="1000" min="200">
+            </div>
+            <div class="form-group">
+                <label for="targetTm">Target Overlap Tm (°C)</label>
+                <input type="number" id="targetTm" value="60" min="40" max="90">
+            </div>
+            <div class="form-group">
+                <label for="minOverlap">Min Overlap Length (bp)</label>
+                <input type="number" id="minOverlap" value="20" min="15">
+            </div>
+            <div class="form-group">
+                <label for="maxOverlap">Max Overlap Length (bp)</label>
+                <input type="number" id="maxOverlap" value="60" min="20">
+            </div>
+        </div>
+
+        <div class="form-group checkbox-group">
+            <input type="checkbox" id="addStopCodon">
+            <label for="addStopCodon">Add Stop Codon (TAA) before 3' overhang</label>
+        </div>
+
+        <div id="errorMsg" class="error"></div>
+
+        <div style="margin-top: 20px;">
+            <button id="processBtn">Generate Fragments</button>
+        </div>
+    </div>
+
+    <div id="resultsArea" class="container">
+        <h2>Results</h2>
+        <div class="download-buttons">
+            <button class="secondary" id="downloadCsvBtn">Download Fragments (.csv)</button>
+            <button class="secondary" id="downloadFastaBtn">Download Alignment (.fasta)</button>
+        </div>
+
+        <label>Preview (Alignment):</label>
+        <div class="preview-box" id="previewBox"></div>
+    </div>
+
+    <script>
+        // --- Thermodynamics (Nearest Neighbor Parameters - SantaLucia 1998) ---
+        const NN_PARAMS = {
+            'AA': {dH: -7.9, dS: -22.2}, 'TT': {dH: -7.9, dS: -22.2},
+            'AT': {dH: -7.2, dS: -20.4}, 'TA': {dH: -7.2, dS: -21.3},
+            'CA': {dH: -8.5, dS: -22.7}, 'TG': {dH: -8.5, dS: -22.7},
+            'GT': {dH: -8.4, dS: -22.4}, 'AC': {dH: -8.4, dS: -22.4},
+            'CT': {dH: -7.8, dS: -21.0}, 'AG': {dH: -7.8, dS: -21.0},
+            'GA': {dH: -8.2, dS: -22.2}, 'TC': {dH: -8.2, dS: -22.2},
+            'CG': {dH: -10.6, dS: -27.2}, 'GC': {dH: -9.8, dS: -24.4},
+            'GG': {dH: -8.0, dS: -19.9}, 'CC': {dH: -8.0, dS: -19.9},
+            'init': {dH: 0.2, dS: -5.7},
+            'init_AT': {dH: 2.2, dS: 6.9},
+            'sym': {dH: 0, dS: -1.4}
+        };
+
+        function calculateTm(seq) {
+            seq = seq.toUpperCase();
+            if (seq.length < 2) return 0;
+            const R = 1.987; 
+            const dnaConc = 500e-9; 
+            const naConc = 0.05; 
+
+            let dH = 0;
+            let dS = 0;
+
+            for (let i = 0; i < seq.length - 1; i++) {
+                const dimer = seq.substring(i, i + 2);
+                if (NN_PARAMS[dimer]) {
+                    dH += NN_PARAMS[dimer].dH;
+                    dS += NN_PARAMS[dimer].dS;
+                }
+            }
+            dH += NN_PARAMS['init'].dH;
+            dS += NN_PARAMS['init'].dS;
+
+            if (seq[0] === 'A' || seq[0] === 'T') {
+                dH += NN_PARAMS['init_AT'].dH;
+                dS += NN_PARAMS['init_AT'].dS;
+            }
+            if (seq[seq.length - 1] === 'A' || seq[seq.length - 1] === 'T') {
+                dH += NN_PARAMS['init_AT'].dH;
+                dS += NN_PARAMS['init_AT'].dS;
+            }
+            dS += 0.368 * (seq.length - 1) * Math.log(naConc);
+            const tm = (1000 * dH) / (dS + R * Math.log(dnaConc / 4)) - 273.15;
+            return tm;
+        }
+
+        // --- Improved Heuristics (Stricter G/C filtering) ---
+
+        function getSequencePenalty(seq) {
+            let penalty = 0;
+            const upper = seq.toUpperCase();
+            const len = upper.length;
+            
+            // 1. Homopolymer runs
+            // G/C runs are significantly worse than A/T runs for synthesis and folding.
+            
+            // Critical Penalty: GGG or CCC (Length 3+)
+            // This avoids the "G-stacking" seen in the screenshot
+            if (/G{3,}/.test(upper) || /C{3,}/.test(upper)) {
+                penalty += 100; 
+            }
+
+            // High Penalty: A/T Length 4+
+            if (/A{4,}/.test(upper) || /T{4,}/.test(upper)) {
+                penalty += 80;
+            }
+            // Minor Penalty: A/T Length 3
+            else if (/A{3,}/.test(upper) || /T{3,}/.test(upper)) {
+                penalty += 20; 
+            }
+
+            // 2. Repetitive Motifs (Dinucleotide/Trinucleotide)
+            // e.g. ATATAT (2-mer x 3) or GACGACGAC (3-mer x 3)
+            if (/([ACGT]{2})\1{2,}/.test(upper)) {
+                penalty += 100;
+            }
+            if (/([ACGT]{3})\1{2,}/.test(upper)) {
+                penalty += 100;
+            }
+
+            // 3. Complexity Score (Unique Dimers / Total Dimers)
+            // Helps catch non-exact repeats and low-information regions
+            if (len > 5) {
+                const dimers = new Set();
+                for (let i = 0; i < len - 1; i++) {
+                    dimers.add(upper.substring(i, i + 2));
+                }
+                const uniqueRatio = dimers.size / (len - 1);
+                
+                // Stricter ratio requirements
+                if (uniqueRatio < 0.6) {
+                    penalty += 100; // Penalize messy/repetitive regions heavily
+                } else if (uniqueRatio < 0.75) {
+                    penalty += 40;
+                }
+            }
+
+            // 4. GC Content Balance
+            const gcCount = (upper.match(/[GC]/g) || []).length;
+            const gcContent = gcCount / len;
+            
+            // Penalize deviations from ideal 40-60% range more aggressively
+            if (gcContent < 0.25 || gcContent > 0.75) {
+                penalty += 80;
+            } else if (gcContent < 0.35 || gcContent > 0.65) {
+                penalty += 30;
+            }
+
+            return penalty;
+        }
+
+        // --- Main Processing Logic ---
+
+        function parseFasta(content) {
+            const sequences = [];
+            const lines = content.split(/\r?\n/);
+            let currentName = "";
+            let currentSeq = [];
+
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+                if (line.startsWith(">")) {
+                    if (currentName) {
+                        sequences.push({ name: currentName, seq: currentSeq.join("") });
+                    }
+                    currentName = line.substring(1).trim().replace(/[ ,]+/g, "_");
+                    currentSeq = [];
+                } else {
+                    currentSeq.push(line);
+                }
+            });
+            if (currentName) {
+                sequences.push({ name: currentName, seq: currentSeq.join("") });
+            }
+            return sequences;
+        }
+
+        function processSequences() {
+            const fileInput = document.getElementById('fastaFile');
+            const errorMsg = document.getElementById('errorMsg');
+            const resultsArea = document.getElementById('resultsArea');
+            
+            errorMsg.textContent = "";
+            resultsArea.style.display = "none";
+
+            if (!fileInput.files.length) {
+                errorMsg.textContent = "Please select a FASTA file.";
+                return;
+            }
+
+            const config = {
+                ov5: document.getElementById('overhang5').value.trim().toUpperCase(),
+                ov3: document.getElementById('overhang3').value.trim().toUpperCase(),
+                maxFragSize: parseInt(document.getElementById('maxFragSize').value),
+                targetTm: parseFloat(document.getElementById('targetTm').value),
+                minOverlap: parseInt(document.getElementById('minOverlap').value),
+                maxOverlap: parseInt(document.getElementById('maxOverlap').value),
+                addStop: document.getElementById('addStopCodon').checked
+            };
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const fastaContent = e.target.result;
+                    const sequences = parseFasta(fastaContent);
+                    
+                    if (sequences.length === 0) {
+                        throw new Error("No sequences found in file.");
+                    }
+
+                    const allFragments = [];
+
+                    sequences.forEach(entry => {
+                        const frags = designFragments(entry, config);
+                        allFragments.push(...frags);
+                    });
+
+                    displayResults(allFragments);
+
+                } catch (err) {
+                    errorMsg.textContent = "Error: " + err.message;
+                }
+            };
+            reader.readAsText(fileInput.files[0]);
+        }
+
+        function designFragments(entry, config) {
+            let coreSeq = entry.seq.replace(/[^a-zA-Z]/g, "").toUpperCase(); 
+            if (config.addStop) coreSeq += "TAA";
+            
+            const fullSeq = config.ov5 + coreSeq + config.ov3;
+            const fullLen = fullSeq.length;
+
+            // Effective payload calculation to strictly enforce maxFragSize
+            let effectivePayload = config.maxFragSize - config.maxOverlap;
+            if (effectivePayload < 50) effectivePayload = 50; 
+            
+            let numFrags = Math.ceil(fullLen / effectivePayload);
+            if (numFrags < 1) numFrags = 1;
+            if (fullLen > config.maxFragSize && numFrags < 2) numFrags = 2;
+
+            const cutPositions = [];
+            for (let i = 1; i < numFrags; i++) {
+                cutPositions.push(Math.floor(i * (fullLen / numFrags)));
+            }
+
+            const overlaps = []; 
+
+            cutPositions.forEach(center => {
+                let bestOverlap = null;
+                
+                const minL = config.minOverlap;
+                const maxL = config.maxOverlap;
+                const searchRadius = 50; 
+
+                for (let len = minL; len <= maxL; len++) {
+                    for (let offset = -searchRadius; offset <= searchRadius; offset++) {
+                        const start = center + offset - Math.floor(len / 2);
+                        const end = start + len;
+
+                        if (start < 0 || end > fullLen) continue;
+
+                        const subSeq = fullSeq.substring(start, end);
+                        const tm = calculateTm(subSeq);
+                        const penalty = getSequencePenalty(subSeq);
+                        const dist = Math.abs((start + len/2) - center);
+                        const isValid = tm >= config.targetTm;
+
+                        const currentCandidate = { start, end, tm, len, penalty, dist, isValid };
+
+                        if (!bestOverlap) {
+                            bestOverlap = currentCandidate;
+                            continue;
+                        }
+
+                        // Heuristic Comparison Logic
+                        // 1. Tm Requirement (Pass vs Fail)
+                        if (currentCandidate.isValid && !bestOverlap.isValid) {
+                            bestOverlap = currentCandidate;
+                            continue;
+                        }
+                        if (!currentCandidate.isValid && bestOverlap.isValid) {
+                            continue; // Keep best
+                        }
+
+                        // 2. Both pass or Both fail
+                        // If both valid: minimize Penalty -> minimize Length -> minimize Distance
+                        // If both invalid: maximize Tm -> minimize Penalty -> minimize Distance
+
+                        if (currentCandidate.isValid) {
+                            // Priority: Penalty > Length > Distance
+                            if (currentCandidate.penalty < bestOverlap.penalty) {
+                                bestOverlap = currentCandidate;
+                            } else if (currentCandidate.penalty === bestOverlap.penalty) {
+                                if (currentCandidate.len < bestOverlap.len) {
+                                    bestOverlap = currentCandidate;
+                                } else if (currentCandidate.len === bestOverlap.len) {
+                                    if (currentCandidate.dist < bestOverlap.dist) {
+                                        bestOverlap = currentCandidate;
+                                    }
+                                }
+                            }
+                        } else {
+                            // Both failed Tm requirement (Desperation mode)
+                            // Priority: Tm (higher is better) > Penalty > Distance
+                            if (currentCandidate.tm > bestOverlap.tm) {
+                                bestOverlap = currentCandidate;
+                            } else if (Math.abs(currentCandidate.tm - bestOverlap.tm) < 0.5) {
+                                // If Tm is roughly equal, check penalty
+                                if (currentCandidate.penalty < bestOverlap.penalty) {
+                                    bestOverlap = currentCandidate;
+                                } else if (currentCandidate.penalty === bestOverlap.penalty) {
+                                    if (currentCandidate.dist < bestOverlap.dist) {
+                                        bestOverlap = currentCandidate;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                overlaps.push(bestOverlap);
+            });
+
+            // Construct Fragments
+            const fragments = [];
+            
+            for (let i = 0; i <= overlaps.length; i++) {
+                let fragStart = 0;
+                let fragEnd = 0;
+                
+                if (i === 0) {
+                    fragStart = 0;
+                    fragEnd = (overlaps.length > 0) ? overlaps[0].end : fullLen;
+                } else if (i === overlaps.length) {
+                    fragStart = overlaps[i-1].start;
+                    fragEnd = fullLen;
+                } else {
+                    fragStart = overlaps[i-1].start;
+                    fragEnd = overlaps[i].end;
+                }
+
+                const fragSeq = fullSeq.substring(fragStart, fragEnd);
+                
+                fragments.push({
+                    id: `${entry.name}_Frag${i+1}`,
+                    seq: fragSeq,
+                    start: fragStart,
+                    end: fragEnd,
+                    fullLen: fullLen,
+                    tm: (i < overlaps.length) ? overlaps[i].tm : null 
+                });
+            }
+
+            return fragments;
+        }
+
+        function displayResults(fragments) {
+            const resultsArea = document.getElementById('resultsArea');
+            const previewBox = document.getElementById('previewBox');
+            
+            resultsArea.style.display = 'block';
+
+            let previewText = "";
+            fragments.forEach(frag => {
+                const prefix = "-".repeat(frag.start);
+                const suffix = "-".repeat(frag.fullLen - frag.end);
+                previewText += `>${frag.id} (${frag.seq.length}bp)\n`;
+                previewText += `${prefix}${frag.seq}${suffix}\n`;
+            });
+            previewBox.textContent = previewText;
+
+            generateCsv(fragments);
+            generateFasta(fragments);
+        }
+
+        function generateCsv(fragments) {
+            let csvContent = "Fragment Name,Sequence,Length\n";
+            fragments.forEach(f => {
+                csvContent += `${f.id},${f.seq},${f.seq.length}\n`;
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.getElementById('downloadCsvBtn');
+            link.onclick = () => {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'gibson_fragments.csv';
+                a.click();
+            };
+        }
+
+        function generateFasta(fragments) {
+            let fastaContent = "";
+            fragments.forEach(frag => {
+                const prefix = "-".repeat(frag.start);
+                const suffix = "-".repeat(frag.fullLen - frag.end);
+                fastaContent += `>${frag.id}\n${prefix}${frag.seq}${suffix}\n`;
+            });
+
+            const blob = new Blob([fastaContent], { type: 'text/plain;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.getElementById('downloadFastaBtn');
+            link.onclick = () => {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'gibson_alignment.fasta';
+                a.click();
+            };
+        }
+
+        document.getElementById('processBtn').addEventListener('click', processSequences);
+
+    </script>
+</body>
+</html>
