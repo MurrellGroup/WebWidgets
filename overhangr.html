@@ -403,7 +403,13 @@
     </div>
 
     <script>
-        // --- Thermodynamics (Nearest Neighbor Parameters - SantaLucia 1998) ---
+        // --- Thermodynamics ---
+        // Spec implemented per user-provided details:
+        // - NN ΔH°, ΔS° in 1 M NaCl (SantaLucia 1998 step parameters)
+        // - Initiation terms per terminal base (applied at both ends)
+        // - Optional symmetry correction for self-complementary duplexes
+        // - IDT salt corrections using natural logs (ln), incl. Mg2+ regime
+        // - Free Mg2+ from Mg–dNTP binding via association constant Ka
         const NN_PARAMS = {
             'AA': {dH: -7.9, dS: -22.2}, 'TT': {dH: -7.9, dS: -22.2},
             'AT': {dH: -7.2, dS: -20.4}, 'TA': {dH: -7.2, dS: -21.3},
@@ -413,121 +419,170 @@
             'GA': {dH: -8.2, dS: -22.2}, 'TC': {dH: -8.2, dS: -22.2},
             'CG': {dH: -10.6, dS: -27.2}, 'GC': {dH: -9.8, dS: -24.4},
             'GG': {dH: -8.0, dS: -19.9}, 'CC': {dH: -8.0, dS: -19.9},
-            'init': {dH: 0.2, dS: -5.7},
-            'init_AT': {dH: 2.2, dS: 6.9},
             'sym': {dH: 0, dS: -1.4}
         };
 
         function calculateTm(seq) {
-            seq = seq.toUpperCase();
+            // Returns °C. Uses Kelvin internally. All logs are natural log (ln).
+            // Concentrations:
+            // - dnaConc: treated as the *effective* [oligo] (M) for the duplexing model you intend.
+            // - naConc: total monovalent cations (M)
+            // - mgConc: total Mg2+ (M)
+            // - dntpConc: total dNTP (M)
+            seq = (seq || "").toUpperCase();
             if (seq.length < 2) return 0;
-            const R = 1.987; // Gas constant in cal/(K*mol)
-            
+
+            // Enforce A/C/G/T-only for thermodynamics model; if not, return 0 rather than silently miscompute.
+            if (/[^ACGT]/.test(seq)) return 0;
+
+            const R_gas = 1.987; // cal·K^-1·mol^-1
+            const K0 = 273.15;
+            const Ka_Mg_dNTP = 3.0e4; // M^-1
+
             // Get values from STATE.config or defaults
-            const dnaConc = (STATE.config.dnaConc || 250) * 1e-9;
-            const naConc = (STATE.config.naConc || 50) * 1e-3;
-            const mgConc = (STATE.config.mgConc || 0) * 1e-3;
-            const dntpConc = (STATE.config.dntpConc || 0) * 1e-3;
-            const log10 = (x) => (Math.log10 ? Math.log10(x) : Math.log(x) / Math.LN10);
+            // dnaConc entered in nM; interpret as effective [oligo] in M for the intended duplexing stoichiometry.
+            // Use nullish coalescing (??) so user-entered 0 is respected (e.g., [Na+]=0 should not default).
+            const oligoEff = Math.max(1e-30, (STATE.config.dnaConc ?? 250) * 1e-9);
+            const naConc = Math.max(0, (STATE.config.naConc ?? 50) * 1e-3);
+            const tMgConc = Math.max(0, (STATE.config.mgConc ?? 0) * 1e-3);
+            const dntpConc = Math.max(0, (STATE.config.dntpConc ?? 0) * 1e-3);
 
-            let dH = 0;
-            let dS = 0;
+            // --- ΔH°, ΔS° in 1 M NaCl (NN model) ---
+            let H_kcal = 0.0;
+            let S_calK = 0.0;
 
-            // Nearest Neighbor sum
             for (let i = 0; i < seq.length - 1; i++) {
                 const dimer = seq.substring(i, i + 2);
-                if (NN_PARAMS[dimer]) {
-                    dH += NN_PARAMS[dimer].dH;
-                    dS += NN_PARAMS[dimer].dS;
-                } else {
-                    // Handle ambiguous bases if any (simplistic: treat as average or ignore)
-                    // For now, let's assume valid DNA
+                const p = NN_PARAMS[dimer];
+                if (!p) return 0;
+                H_kcal += p.dH;
+                S_calK += p.dS;
+            }
+
+            // Initiation terms (apply at both ends, based on terminal base)
+            // Terminal base G/C:  ΔH += +0.1 kcal/mol, ΔS += -2.8 cal/K/mol
+            // Terminal base A/T:  ΔH += +2.3 kcal/mol, ΔS += +4.1 cal/K/mol
+            const end5 = seq[0];
+            const end3 = seq[seq.length - 1];
+            [end5, end3].forEach(end => {
+                if (end === 'G' || end === 'C') {
+                    H_kcal += 0.1;
+                    S_calK += -2.8;
+                } else if (end === 'A' || end === 'T') {
+                    H_kcal += 2.3;
+                    S_calK += 4.1;
                 }
+            });
+
+            // Symmetry correction for self-complementary duplexes
+            if (isSelfComplementary(seq)) {
+                S_calK += NN_PARAMS.sym.dS; // -1.4
             }
 
-            // Initiation parameters (SantaLucia 1998)
-            dH += NN_PARAMS['init'].dH;
-            dS += NN_PARAMS['init'].dS;
+            const H_cal = 1000.0 * H_kcal;
 
-            // Terminal AT penalties
-            if (seq[0] === 'A' || seq[0] === 'T') {
-                dH += NN_PARAMS['init_AT'].dH;
-                dS += NN_PARAMS['init_AT'].dS;
-            }
-            if (seq[seq.length - 1] === 'A' || seq[seq.length - 1] === 'T') {
-                dH += NN_PARAMS['init_AT'].dH;
-                dS += NN_PARAMS['init_AT'].dS;
-            }
+            // Baseline Tm in 1 M NaCl (K)
+            const Tm_1M_K = H_cal / (S_calK + R_gas * Math.log(oligoEff));
 
-            // dH is in kcal/mol, dS is in cal/(K*mol)
-            // Convert dH to cal/mol for calculation
-            const dH_cal = dH * 1000;
-
-            // Tm at 1M NaCl (in Kelvin)
-            // IDT uses Ct/4 for non-self-complementary duplexes
-            // Tm = dH / (dS + R * ln(Ct/4))
-            const tm1M = dH_cal / (dS + R * Math.log(dnaConc / 4));
-
-            // Salt correction (Owczarzy et al. 2004 / 2008)
-            let tmFinal;
-            
+            // GC fraction
             const gcCount = (seq.match(/[GC]/g) || []).length;
-            const fGC = gcCount / seq.length;
+            const f_GC = gcCount / seq.length;
 
-            // Use Mg2+ correction if Mg2+ is present and significant
-            const effectiveMg = Math.max(0, mgConc - dntpConc);
-            
-            if (effectiveMg > 0) {
-                // Owczarzy et al. 2008 divalent correction
-                // We use the "Mg-only" or "Mixed" formula depending on the ratio
-                const sqrtMg = Math.sqrt(effectiveMg);
-                const Ka = 50e-3; // Default monovalent for ratio comparison if naConc is 0
-                const ratio = sqrtMg / (naConc || Ka);
+            // --- Salt corrections (IDT-style) ---
+            // Step A: free Mg2+ from total Mg2+ and dNTP
+            const mgFree = computeFreeMg(tMgConc, dntpConc, Ka_Mg_dNTP);
 
-                if (ratio < 0.22) {
-                    // Monovalent dominant
-                    tmFinal = saltCorrectMonovalent(tm1M, naConc, fGC, log10);
-                } else if (ratio < 6.0) {
-                    // Mixed monovalent/divalent
-                    // A, B, C, D, E, F, G parameters from Owczarzy 2008
-                    const a = 3.92e-5 * (0.843 - 0.352 * sqrtMg * Math.log(effectiveMg));
-                    const b = 3.76e-5;
-                    const c = 2.71e-5;
-                    const d = 1.63e-5; // Actually not used in this simplified version
-                    
-                    // The full formula is complex. Let's use the standard "effective sodium" 
-                    // or a simplified version of Owczarzy 2008.
-                    // Simplified Owczarzy 2008 for mixed:
-                    const logMg = Math.log(effectiveMg);
-                    // For now, let's use the salt-equivalence which is often "good enough":
-                    // Na_eq = [Na] + 120 * sqrt(Mg)
-                    const naEq = naConc + 120 * sqrtMg;
-                    tmFinal = saltCorrectMonovalent(tm1M, naEq, fGC, log10);
+            // Step B: regime decision
+            // If [Na+]==0, use divalent correction branch (if Mg>0), else fall back to Tm_1M.
+            let useMonovalent = false;
+            let useDivalent = false;
+
+            if (naConc > 0) {
+                if (mgFree > 0) {
+                    const R_ratio = Math.sqrt(mgFree) / naConc;
+                    if (R_ratio < 0.22) useMonovalent = true;
+                    else useDivalent = true;
                 } else {
-                    // Divalent dominant
-                    const a = 3.92e-5;
-                    const b = -9.11e-6;
-                    const c = 6.26e-5;
-                    const d = 1.42e-5;
-                    // Note: Owczarzy 2008 uses log10 for concentration terms.
-                    const invTm = (1/tm1M) + (a + b*fGC + (c + d*fGC)*log10(effectiveMg));
-                    tmFinal = 1 / invTm;
+                    // MgFree == 0 => monovalent
+                    useMonovalent = true;
                 }
             } else {
-                // Monovalent only
-                tmFinal = saltCorrectMonovalent(tm1M, naConc, fGC, log10);
+                // Na == 0 => divalent branch (if possible)
+                if (mgFree > 0) useDivalent = true;
             }
 
-            return tmFinal - 273.15;
+            // Step C1: monovalent correction (requires Na>0)
+            if (useMonovalent) {
+                const L = Math.log(naConc);
+                const invTm_Na = (1 / Tm_1M_K) + (((4.29 * f_GC - 3.95) * L + 0.940 * (L * L)) * 1e-5);
+                const Tm_K = 1 / invTm_Na;
+                return Tm_K - K0;
+            }
+
+            // Step C2: divalent correction (requires Mg>0)
+            if (useDivalent) {
+                const N_bp = seq.length;
+                const M = Math.log(mgFree);
+                let a, d, g;
+
+                if (naConc > 0) {
+                    const R_ratio = Math.sqrt(mgFree) / naConc;
+                    if (R_ratio >= 0.22 && R_ratio <= 6.0) {
+                        const N = Math.log(naConc);
+                        a = 3.92 * (0.843 - 0.352 * Math.sqrt(naConc) * N);
+                        d = 1.42 * (1.279 - 4.03e-3 * N - 8.03e-3 * (N * N));
+                        g = 8.31 * (0.486 - 0.258 * N + 5.25e-3 * (N * N * N));
+                    } else {
+                        a = 3.92;
+                        d = 1.42;
+                        g = 8.31;
+                    }
+                } else {
+                    a = 3.92;
+                    d = 1.42;
+                    g = 8.31;
+                }
+
+                const term =
+                    a
+                    - 0.911 * M
+                    + f_GC * (6.26 + d * M)
+                    + (1 / (2 * (N_bp - 1))) * (-48.2 + 52.5 * M + g * (M * M));
+
+                const invTm_Mg = (1 / Tm_1M_K) + term * 1e-5;
+                const Tm_K = 1 / invTm_Mg;
+                return Tm_K - K0;
+            }
+
+            // Fallback: no valid salt correction possible; return baseline 1 M NaCl Tm
+            return Tm_1M_K - K0;
         }
 
-        function saltCorrectMonovalent(tm1M, naConc, fGC, log10) {
-            if (naConc <= 0) naConc = 1e-6; // Avoid log(0)
-            // Owczarzy 2004 monovalent correction
-            // IMPORTANT: this equation uses log10([Na+]) with [Na+] in molar units.
-            const l10 = log10(naConc);
-            const invTm = (1 / tm1M) + (4.29 * fGC - 3.95) * 1e-5 * l10 + 9.4e-6 * Math.pow(l10, 2);
-            return 1 / invTm;
+        function computeFreeMg(totalMg, totalDntp, Ka) {
+            // Spec:
+            // A = Ka*[dNTP] - Ka*[tMg] + 1
+            // D = A^2 + 4*Ka*[tMg]
+            // [Mg] = ( -A + sqrt(D) ) / ( 2*Ka )
+            if (totalMg <= 0 || Ka <= 0) return 0;
+            const A = Ka * totalDntp - Ka * totalMg + 1;
+            const D = A * A + 4 * Ka * totalMg;
+            const mg = (-A + Math.sqrt(Math.max(0, D))) / (2 * Ka);
+            // Clamp to physical range
+            return Math.min(totalMg, Math.max(0, mg));
+        }
+
+        function isSelfComplementary(seq) {
+            // Self-complementary if sequence equals its reverse complement.
+            // NOTE: This is the strict perfect self-complement definition used for symmetry correction.
+            const comp = { A: 'T', T: 'A', C: 'G', G: 'C' };
+            let rc = "";
+            for (let i = seq.length - 1; i >= 0; i--) {
+                const b = seq[i];
+                const c = comp[b];
+                if (!c) return false;
+                rc += c;
+            }
+            return rc === seq;
         }
 
         // --- Improved Heuristics (Stricter G/C filtering) ---
