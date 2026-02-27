@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A3M/FASTA Alignment Viewer</title>
+    <style>
+        :root {
+            --toolbar-bg: #f1f3f5;
+            --toolbar-border: #dee2e6;
+            --bg-color: #ffffff;
+            --text-color: #333333;
+            --font-main: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --font-mono: 'Consolas', 'Courier New', monospace;
+            --btn-bg: #007bff;
+            --btn-hover: #0056b3;
+            --btn-alt: #6c757d;
+            --btn-alt-hover: #5a6268;
+        }
+        
+        * { box-sizing: border-box; }
+        
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column;
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+        }
+
+        #toolbar {
+            display: flex; flex-wrap: wrap; gap: 15px; align-items: center;
+            padding: 10px 20px;
+            background-color: var(--toolbar-bg);
+            border-bottom: 1px solid var(--toolbar-border);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+
+        .control-group {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 13px;
+        }
+
+        select, input[type="file"], input[type="number"], button {
+            font-family: var(--font-main);
+            font-size: 12px; padding: 5px 10px;
+            border: 1px solid #ccc; border-radius: 4px;
+            background: white; cursor: pointer;
+        }
+
+        input[type="number"] { width: 55px; cursor: text; }
+
+        button {
+            background-color: var(--btn-bg); color: white; border: none; font-weight: 600;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: var(--btn-hover); }
+        
+        button.btn-secondary { background-color: var(--btn-alt); }
+        button.btn-secondary:hover { background-color: var(--btn-alt-hover); }
+
+        #main-area {
+            flex: 1; display: flex; overflow: hidden;
+            background: #fafafa;
+        }
+
+        #id-pane {
+            width: 220px; flex-shrink: 0;
+            position: relative; overflow: hidden; /* Syncs vertical scroll */
+            background-color: #f8f9fa;
+            border-right: 1px solid var(--toolbar-border);
+            z-index: 5;
+        }
+
+        #seq-pane {
+            flex: 1; position: relative; overflow: auto; /* Handles both vertical and horizontal scroll */
+            cursor: crosshair; /* Indicate selection is possible */
+        }
+
+        #phantom-size {
+            position: absolute; top: 0; left: 0;
+        }
+
+        #id-canvas, #seq-canvas {
+            display: block;
+        }
+
+        #seq-canvas {
+            position: sticky; top: 0; left: 0;
+            pointer-events: none; /* Let seq-pane handle scroll and mouse natively */
+        }
+
+        #tooltip {
+            position: absolute; display: none; pointer-events: none;
+            background: rgba(0, 0, 0, 0.85); color: #fff;
+            padding: 8px 12px; border-radius: 6px; font-size: 13px; font-family: var(--font-mono);
+            z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            white-space: pre-line;
+        }
+
+        .divider { width: 1px; height: 20px; background: #ccc; }
+        
+        #sel-info {
+            font-weight: bold; color: #0056b3; font-size: 12px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        <div class="control-group">
+            <input type="file" id="file-input" accept=".a3m,.fasta,.fa,.fas">
+        </div>
+        <div class="divider"></div>
+        <div class="control-group">
+            <label for="view-mode">View:</label>
+            <select id="view-mode">
+                <option value="1">Mode 1: Hide Insertions</option>
+                <option value="2">Mode 2: Show Insertions</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="color-scheme">Colors:</label>
+            <select id="color-scheme">
+                <option value="auto">Auto</option>
+                <option value="aa">Amino Acid</option>
+                <option value="nt">Nucleotide</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <input type="checkbox" id="highlight" checked>
+            <label for="highlight">Highlight Mutations</label>
+        </div>
+        <div class="divider"></div>
+        <div class="control-group">
+            <label for="div-count" title="Select Top N diverse sequences">Top N:</label>
+            <input type="number" id="div-count" value="100" min="1">
+            <label for="div-cov" title="Minimum percentage of query covered by a sequence to be considered">Min Cov %:</label>
+            <input type="number" id="div-cov" value="50" min="0" max="100">
+            <button id="btn-filter-div" class="btn-secondary" title="Filter by coverage, then pick most diverse">Cluster</button>
+            <button id="btn-reset-div" class="btn-secondary" style="display:none;">Reset</button>
+        </div>
+        <div class="divider"></div>
+        <div class="control-group">
+            <span id="sel-info"></span>
+            <button id="btn-clear-sel" class="btn-secondary" style="display:none;">Clear Selection</button>
+            <button id="btn-dl-a3m">Download A3M</button>
+            <button id="btn-dl-fasta">Download FASTA</button>
+        </div>
+    </div>
+
+    <div id="main-area">
+        <div id="id-pane">
+            <canvas id="id-canvas"></canvas>
+        </div>
+        <div id="seq-pane">
+            <div id="phantom-size"></div>
+            <canvas id="seq-canvas"></canvas>
+        </div>
+        <div id="tooltip"></div>
+    </div>
+
+    <script>
+        // --- Core Data Structures ---
+        let rawSeqs =[];     
+        let fullProcessed = []; // Holds all parsed sequences
+        let processed =[];     // Currently active sequences (may be filtered subset)
+        let colMap =[];       
+        let L = 0;             
+        let max_inserts =[];  
+        let isNT = false;      
+
+        // --- Selection State ---
+        let selStartM = -1;
+        let selEndM = -1;
+        let isSelecting = false;
+
+        // --- Visual Constants & State ---
+        const charW = 14;      
+        const charH = 22;      
+        
+        let idPane = document.getElementById('id-pane');
+        let idCanvas = document.getElementById('id-canvas');
+        let idCtx = idCanvas.getContext('2d', { alpha: false });
+        
+        let seqPane = document.getElementById('seq-pane');
+        let seqCanvas = document.getElementById('seq-canvas');
+        let seqCtx = seqCanvas.getContext('2d', { alpha: false });
+        
+        let phantom = document.getElementById('phantom-size');
+
+        // --- Color Schemes ---
+        const colorsAA = {
+            'A':'#a0baff', 'I':'#a0baff', 'L':'#a0baff', 'M':'#a0baff', 'F':'#a0baff', 'W':'#a0baff', 'V':'#a0baff', 
+            'K':'#ff9a9a', 'R':'#ff9a9a', 
+            'E':'#e69ce6', 'D':'#e69ce6', 
+            'N':'#90e890', 'Q':'#90e890', 'S':'#90e890', 'T':'#90e890', 
+            'C':'#ffbaba', 
+            'G':'#ffc19a', 
+            'P':'#e8e86a', 
+            'H':'#8ae0e0', 'Y':'#8ae0e0'  
+        };
+        const colorsNT = {
+            'A':'#ff9a9a', 
+            'T':'#a0baff', 'U':'#a0baff', 
+            'G':'#e8e86a', 
+            'C':'#90e890'  
+        };
+
+        // --- Initialization ---
+        window.addEventListener('resize', resizeCanvas);
+        seqPane.addEventListener('scroll', render); 
+        
+        idPane.addEventListener('wheel', function(e) {
+            if (!processed.length) return;
+            seqPane.scrollTop += e.deltaY;
+            seqPane.scrollLeft += e.deltaX; 
+            e.preventDefault();
+        }, { passive: false });
+        
+        document.getElementById('view-mode').addEventListener('change', updateViewMode);
+        document.getElementById('color-scheme').addEventListener('change', render);
+        document.getElementById('highlight').addEventListener('change', render);
+        
+        document.getElementById('btn-dl-a3m').addEventListener('click', downloadA3M);
+        document.getElementById('btn-dl-fasta').addEventListener('click', downloadFASTA);
+        
+        document.getElementById('btn-filter-div').addEventListener('click', applyDiversity);
+        document.getElementById('btn-reset-div').addEventListener('click', resetDiversity);
+        document.getElementById('btn-clear-sel').addEventListener('click', clearSelection);
+
+        // --- Selection Listeners ---
+        seqPane.addEventListener('mousedown', function(e) {
+            if (!processed.length || e.button !== 0) return;
+            let rect = seqCanvas.getBoundingClientRect();
+            let x = e.clientX - rect.left;
+            let c = Math.floor((x + seqPane.scrollLeft) / charW);
+            if (c >= 0 && c < colMap.length) {
+                let m_idx = colMap[c].m_idx;
+                selStartM = m_idx;
+                selEndM = m_idx;
+                isSelecting = true;
+                updateSelectionUI();
+                render();
+            }
+        });
+
+        window.addEventListener('mouseup', function() {
+            if (isSelecting) {
+                isSelecting = false;
+                updateSelectionUI();
+            }
+        });
+
+        seqPane.addEventListener('mousemove', function(e) {
+            if (!isSelecting || !processed.length) return;
+            let rect = seqCanvas.getBoundingClientRect();
+            let x = e.clientX - rect.left;
+            let c = Math.floor((x + seqPane.scrollLeft) / charW);
+            if (c < 0) c = 0;
+            if (c >= colMap.length) c = colMap.length - 1;
+            let m_idx = colMap[c].m_idx;
+            if (selEndM !== m_idx) {
+                selEndM = m_idx;
+                updateSelectionUI();
+                render();
+            }
+        });
+
+        resizeCanvas(); 
+
+        // --- File Parsing ---
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            let file = e.target.files[0];
+            if (!file) return;
+            let reader = new FileReader();
+            reader.onload = function(evt) {
+                let text = evt.target.result;
+                rawSeqs = parseFasta(text);
+                if (!rawSeqs.length) return alert("No sequences found.");
+                
+                isNT = detectSeqType(rawSeqs);
+                clearSelection();
+                processA3M(rawSeqs);
+                
+                seqPane.scrollLeft = 0;
+                seqPane.scrollTop = 0;
+                updateViewMode();
+                document.getElementById('btn-reset-div').style.display = 'none';
+            };
+            reader.readAsText(file);
+        });
+
+        function parseFasta(text) {
+            const lines = text.split(/\r?\n/);
+            const seqs =[];
+            let currentSeq = null;
+            for (const line of lines) {
+                if (line.startsWith('>')) {
+                    if (currentSeq) seqs.push(currentSeq);
+                    currentSeq = { id: line.substring(1).trim(), seq: "" };
+                } else if (currentSeq) {
+                    currentSeq.seq += line.trim();
+                }
+            }
+            if (currentSeq) seqs.push(currentSeq);
+            return seqs;
+        }
+
+        function detectSeqType(seqs) {
+            let query = seqs[0].seq.toUpperCase();
+            let ntCount = 0, totalCount = 0;
+            for (let i = 0; i < query.length; i++) {
+                let c = query[i];
+                if (c >= 'A' && c <= 'Z') {
+                    totalCount++;
+                    if ("ACGTU".includes(c)) ntCount++;
+                }
+            }
+            return (totalCount > 0 && ntCount / totalCount > 0.8);
+        }
+
+        function computeMaxInserts(seqArray, length) {
+            let m_ins =[];
+            for (let i = 0; i <= length; i++) {
+                let max_len = 0;
+                for (let s of seqArray) {
+                    if (s.inserts[i].length > max_len) max_len = s.inserts[i].length;
+                }
+                m_ins.push(max_len);
+            }
+            return m_ins;
+        }
+
+        // --- Core A3M Logic ---
+        function processA3M(seqs) {
+            fullProcessed =[];
+            
+            for (let s of seqs) {
+                let matches =[];
+                let inserts = [""];
+                let m_idx = 0;
+                for (let i = 0; i < s.seq.length; i++) {
+                    let c = s.seq[i];
+                    if (c >= 'a' && c <= 'z') {
+                        inserts[m_idx] += c;
+                    } else {
+                        matches.push(c);
+                        inserts.push("");
+                        m_idx++;
+                    }
+                }
+                fullProcessed.push({ id: s.id, matches, inserts });
+            }
+
+            L = fullProcessed[0].matches.length;
+            
+            for (let s of fullProcessed) {
+                while(s.matches.length < L) { s.matches.push('-'); s.inserts.push(""); }
+                if (s.matches.length > L) {
+                    s.matches.length = L;
+                    s.inserts.length = L + 1;
+                }
+            }
+
+            processed = [...fullProcessed];
+            max_inserts = computeMaxInserts(processed, L);
+        }
+
+        // --- Diversity & Coverage Filtering ---
+        function applyDiversity() {
+            if (!fullProcessed.length) return;
+            
+            // Get Target Number
+            let count = parseInt(document.getElementById('div-count').value);
+            if (isNaN(count) || count <= 0) count = 1;
+
+            // Get Minimum Coverage %
+            let covVal = parseInt(document.getElementById('div-cov').value);
+            if (isNaN(covVal) || covVal < 0) covVal = 0;
+            if (covVal > 100) covVal = 100;
+            let covThresh = covVal / 100.0;
+            
+            // Step 1: Filter by Coverage (Preferentially sample sequences spanning query)
+            let pool = [];
+            pool.push(fullProcessed[0]); // Always keep the query sequence
+
+            for (let i = 1; i < fullProcessed.length; i++) {
+                let s = fullProcessed[i];
+                let nonGaps = 0;
+                for (let c = 0; c < L; c++) {
+                    if (s.matches[c] !== '-' && s.matches[c] !== '.') nonGaps++;
+                }
+                if ((nonGaps / L) >= covThresh) {
+                    pool.push(s);
+                }
+            }
+
+            // If requested count is greater or equal to our valid pool, just return the pool
+            if (count >= pool.length) {
+                processed = pool;
+                max_inserts = computeMaxInserts(processed, L);
+                document.getElementById('btn-reset-div').style.display = 'inline-block';
+                updateViewMode();
+                return;
+            }
+
+            // Step 2: MaxMin Diversity Selection on the coverage-filtered pool
+            let selected = [pool[0]]; // Query is first
+            let selectedSet = new Uint8Array(pool.length);
+            selectedSet[0] = 1;
+            
+            let minDists = new Float32Array(pool.length).fill(Infinity);
+            
+            for (let step = 1; step < count; step++) {
+                let lastAdded = selected[selected.length - 1];
+                let maxDist = -1;
+                let bestIdx = -1;
+
+                let m1 = lastAdded.matches;
+                for (let i = 1; i < pool.length; i++) {
+                    if (selectedSet[i]) continue;
+
+                    let dist = 0;
+                    let m2 = pool[i].matches;
+                    // Compute basic Hamming distance to find the most different sequence
+                    for (let c = 0; c < L; c++) {
+                        if (m1[c] !== m2[c]) dist++;
+                    }
+
+                    if (dist < minDists[i]) minDists[i] = dist;
+
+                    if (minDists[i] > maxDist) {
+                        maxDist = minDists[i];
+                        bestIdx = i;
+                    }
+                }
+
+                if (bestIdx !== -1) {
+                    selected.push(pool[bestIdx]);
+                    selectedSet[bestIdx] = 1;
+                } else {
+                    break;
+                }
+            }
+
+            processed = selected;
+            max_inserts = computeMaxInserts(processed, L);
+            document.getElementById('btn-reset-div').style.display = 'inline-block';
+            updateViewMode();
+        }
+
+        function resetDiversity() {
+            if (!fullProcessed.length) return;
+            processed = [...fullProcessed];
+            max_inserts = computeMaxInserts(processed, L);
+            document.getElementById('btn-reset-div').style.display = 'none';
+            updateViewMode();
+        }
+
+        // --- View & Rendering ---
+        function updateViewMode() {
+            if (!processed.length) return;
+            let mode = parseInt(document.getElementById('view-mode').value);
+            colMap =[];
+            
+            if (mode === 1) { 
+                for (let i = 0; i < L; i++) colMap.push({ type: 'match', m_idx: i });
+            } else { 
+                for (let i = 0; i <= L; i++) {
+                    for (let j = 0; j < max_inserts[i]; j++) {
+                        colMap.push({ type: 'insert', m_idx: i, i_idx: j });
+                    }
+                    if (i < L) colMap.push({ type: 'match', m_idx: i });
+                }
+            }
+
+            phantom.style.width = (colMap.length * charW) + 'px';
+            phantom.style.height = (processed.length * charH) + 'px';
+            
+            resizeCanvas();
+        }
+
+        function getChar(r, c) {
+            let mapping = colMap[c];
+            let seq = processed[r];
+            if (mapping.type === 'match') {
+                return seq.matches[mapping.m_idx];
+            } else {
+                let ins = seq.inserts[mapping.m_idx];
+                return mapping.i_idx < ins.length ? ins[mapping.i_idx] : '-';
+            }
+        }
+
+        function resizeCanvas() {
+            let dpr = window.devicePixelRatio || 1;
+            
+            let idW = idPane.clientWidth;
+            let idH = idPane.clientHeight;
+            idCanvas.width = idW * dpr;
+            idCanvas.height = idH * dpr;
+            idCanvas.style.width = idW + 'px';
+            idCanvas.style.height = idH + 'px';
+            idCtx.setTransform(1, 0, 0, 1, 0, 0); 
+            idCtx.scale(dpr, dpr);
+
+            let seqW = seqPane.clientWidth;
+            let seqH = seqPane.clientHeight;
+            seqCanvas.width = seqW * dpr;
+            seqCanvas.height = seqH * dpr;
+            seqCanvas.style.width = seqW + 'px';
+            seqCanvas.style.height = seqH + 'px';
+            seqCtx.setTransform(1, 0, 0, 1, 0, 0); 
+            seqCtx.scale(dpr, dpr);
+            
+            render();
+        }
+
+        function render() {
+            let idW = idPane.clientWidth;
+            let idH = idPane.clientHeight;
+            let seqW = seqPane.clientWidth;
+            let seqH = seqPane.clientHeight;
+            
+            if (!processed.length) {
+                idCtx.fillStyle = '#f8f9fa';
+                idCtx.fillRect(0, 0, idW, idH);
+                
+                seqCtx.fillStyle = '#fafafa';
+                seqCtx.fillRect(0, 0, seqW, seqH);
+                seqCtx.fillStyle = '#666666';
+                seqCtx.font = "16px var(--font-main)";
+                seqCtx.textAlign = "center";
+                seqCtx.textBaseline = "middle";
+                seqCtx.fillText("Upload an .a3m or .fasta file to view", seqW/2, seqH/2);
+                return;
+            }
+
+            let scrollTop = seqPane.scrollTop;
+            let scrollLeft = seqPane.scrollLeft;
+
+            let startRow = Math.max(0, Math.floor(scrollTop / charH));
+            let endRow = Math.min(processed.length, startRow + Math.ceil(seqH / charH) + 1);
+            let startCol = Math.max(0, Math.floor(scrollLeft / charW));
+            let endCol = Math.min(colMap.length, startCol + Math.ceil(seqW / charW) + 1);
+
+            let highlight = document.getElementById('highlight').checked;
+            let schemePref = document.getElementById('color-scheme').value;
+            let isNTScheme = schemePref === 'nt' || (schemePref === 'auto' && isNT);
+
+            let selMin = selStartM !== -1 ? Math.min(selStartM, selEndM) : -1;
+            let selMax = selStartM !== -1 ? Math.max(selStartM, selEndM) : -1;
+
+            // --- Draw ID Canvas ---
+            idCtx.fillStyle = '#f8f9fa';
+            idCtx.fillRect(0, 0, idW, idH);
+
+            idCtx.textAlign = "left";
+            idCtx.textBaseline = "middle";
+            idCtx.font = "13px var(--font-mono)";
+            idCtx.fillStyle = '#333333';
+            
+            for (let r = startRow; r < endRow; r++) {
+                let y = r * charH - scrollTop;
+                let id = processed[r].id;
+                idCtx.fillText(id.length > 25 ? id.substring(0, 23) + '..' : id, 10, y + charH/2 + 1);
+            }
+
+            // --- Draw Seq Canvas ---
+            seqCtx.fillStyle = '#fafafa';
+            seqCtx.fillRect(0, 0, seqW, seqH);
+
+            seqCtx.font = `14px var(--font-mono)`;
+            seqCtx.textAlign = "center";
+            seqCtx.textBaseline = "middle";
+
+            for (let r = startRow; r < endRow; r++) {
+                let y = r * charH - scrollTop;
+                for (let c = startCol; c < endCol; c++) {
+                    let x = c * charW - scrollLeft;
+                    let char = getChar(r, c);
+                    let upper = char.toUpperCase();
+                    let qChar = getChar(0, c).toUpperCase();
+
+                    let map = colMap[c];
+                    let m_idx = map.m_idx;
+                    
+                    let bg = '#ffffff';
+                    let fg = '#000000';
+
+                    let isGap = upper === '-' || upper === '.';
+                    let isMatch = upper === qChar && !isGap;
+
+                    let baseColor = isNTScheme ? (colorsNT[upper] || '#ffffff') : (colorsAA[upper] || '#ffffff');
+                    
+                    // Basic background color based on match/mutation status
+                    if (highlight) {
+                        if (isMatch) { bg = '#f0f0f0'; fg = '#aaaaaa'; } 
+                        else if (!isGap) { bg = baseColor; } 
+                    } else {
+                        if (!isGap) { bg = baseColor; } 
+                    }
+
+                    if (bg !== '#ffffff') {
+                        seqCtx.fillStyle = bg;
+                        seqCtx.fillRect(x, y, charW, charH);
+                    }
+
+                    // Selection Highlighting Overlay
+                    if (selMin !== -1) {
+                        let isSelected = false;
+                        if (m_idx > selMin && m_idx <= selMax) {
+                            isSelected = true; // Between borders
+                        } else if (m_idx === selMin && map.type === 'match') {
+                            isSelected = true; // Include the starting match state
+                        }
+                        if (isSelected) {
+                            seqCtx.fillStyle = 'rgba(0, 120, 255, 0.15)';
+                            seqCtx.fillRect(x, y, charW, charH);
+                        }
+                    }
+
+                    // Draw Text
+                    if (!isGap || (isGap && highlight && !isMatch)) { 
+                        seqCtx.fillStyle = fg;
+                        seqCtx.fillText(char, x + charW/2, y + charH/2 + 1);
+                    } else if (isGap) {
+                        seqCtx.fillStyle = '#cccccc';
+                        seqCtx.fillText('-', x + charW/2, y + charH/2 + 1);
+                    }
+                }
+            }
+        }
+
+        // --- UI State Modifiers ---
+        function clearSelection() {
+            selStartM = -1;
+            selEndM = -1;
+            updateSelectionUI();
+            render();
+        }
+
+        function updateSelectionUI() {
+            let hasSel = selStartM !== -1;
+            let info = document.getElementById('sel-info');
+            let clearBtn = document.getElementById('btn-clear-sel');
+            let a3mBtn = document.getElementById('btn-dl-a3m');
+            let faBtn = document.getElementById('btn-dl-fasta');
+
+            if (hasSel) {
+                let min = Math.min(selStartM, selEndM);
+                let max = Math.max(selStartM, selEndM);
+                info.innerText = `Cols: ${min + 1}-${max + 1}`;
+                info.style.display = 'inline-block';
+                clearBtn.style.display = 'inline-block';
+                a3mBtn.innerText = 'Download A3M (Crop)';
+                faBtn.innerText = 'Download FASTA (Crop)';
+            } else {
+                info.style.display = 'none';
+                clearBtn.style.display = 'none';
+                a3mBtn.innerText = 'Download A3M';
+                faBtn.innerText = 'Download FASTA';
+            }
+        }
+
+        // --- Mouse Interaction / Tooltips (Only on ID Pane) ---
+        idPane.addEventListener('mousemove', function(e) {
+            if (!processed.length) return;
+            let rect = idPane.getBoundingClientRect();
+            let y = e.clientY - rect.top + seqPane.scrollTop;
+            let tooltip = document.getElementById('tooltip');
+            let r = Math.floor(y / charH);
+
+            if (r >= 0 && r < processed.length) {
+                tooltip.innerHTML = `Seq: ${processed[r].id}`;
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.clientX + 15) + 'px';
+                tooltip.style.top = (e.clientY + 15) + 'px';
+            } else { 
+                tooltip.style.display = 'none'; 
+            }
+        });
+
+        idPane.addEventListener('mouseout', () => document.getElementById('tooltip').style.display = 'none');
+
+        // --- Export & Conversion ---
+        function downloadFile(content, filename) {
+            let blob = new Blob([content], { type: 'text/plain' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url; a.download = filename; a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function getExportData() {
+            if (selStartM === -1) {
+                return { seqs: processed, expL: L, expMaxInserts: max_inserts };
+            }
+            
+            let start = Math.min(selStartM, selEndM);
+            let end = Math.max(selStartM, selEndM);
+            let expL = end - start + 1;
+            
+            let expSeqs = processed.map(s => {
+                return {
+                    id: s.id,
+                    matches: s.matches.slice(start, end + 1),
+                    inserts:["", ...s.inserts.slice(start + 1, end + 1), ""]
+                };
+            });
+            
+            let expMaxInserts = computeMaxInserts(expSeqs, expL);
+            return { seqs: expSeqs, expL, expMaxInserts };
+        }
+
+        function downloadFASTA() {
+            if (!processed.length) return;
+            let { seqs, expL, expMaxInserts } = getExportData();
+            
+            let tempColMap =[];
+            for (let i = 0; i <= expL; i++) {
+                for (let j = 0; j < expMaxInserts[i]; j++) tempColMap.push({ type: 'insert', m_idx: i, i_idx: j });
+                if (i < expL) tempColMap.push({ type: 'match', m_idx: i });
+            }
+
+            let lines =[];
+            for (let r = 0; r < seqs.length; r++) {
+                let seqStr = "";
+                let seq = seqs[r];
+                for (let c = 0; c < tempColMap.length; c++) {
+                    let map = tempColMap[c];
+                    let char = map.type === 'match' ? seq.matches[map.m_idx] : 
+                               (map.i_idx < seq.inserts[map.m_idx].length ? seq.inserts[map.m_idx][map.i_idx] : '-');
+                    seqStr += char.toUpperCase(); 
+                }
+                lines.push(`>${seq.id}\n${seqStr}`);
+            }
+            
+            let suffix = selStartM !== -1 ? "_cropped" : "_expanded";
+            downloadFile(lines.join("\n"), `alignment${suffix}.fasta`);
+        }
+
+        function downloadA3M() {
+            if (!processed.length) return;
+            let { seqs, expL, expMaxInserts } = getExportData();
+
+            let tempColMap =[];
+            for (let i = 0; i <= expL; i++) {
+                for (let j = 0; j < expMaxInserts[i]; j++) tempColMap.push({ type: 'insert', m_idx: i, i_idx: j });
+                if (i < expL) tempColMap.push({ type: 'match', m_idx: i });
+            }
+
+            let lines =[];
+            for (let r = 0; r < seqs.length; r++) {
+                let seqStr = "";
+                let seq = seqs[r];
+                let qSeq = seqs[0];
+                for (let c = 0; c < tempColMap.length; c++) {
+                    let map = tempColMap[c];
+                    
+                    let sChar = map.type === 'match' ? seq.matches[map.m_idx] : 
+                                (map.i_idx < seq.inserts[map.m_idx].length ? seq.inserts[map.m_idx][map.i_idx] : '-');
+                    
+                    let qChar = map.type === 'match' ? qSeq.matches[map.m_idx] : 
+                                (map.i_idx < qSeq.inserts[map.m_idx].length ? qSeq.inserts[map.m_idx][map.i_idx] : '-');
+
+                    if (qChar === '-') {
+                        if (sChar !== '-') seqStr += sChar.toLowerCase();
+                    } else {
+                        seqStr += sChar.toUpperCase();
+                    }
+                }
+                lines.push(`>${seq.id}\n${seqStr}`);
+            }
+            
+            let suffix = selStartM !== -1 ? "_cropped" : "";
+            downloadFile(lines.join("\n"), `alignment${suffix}.a3m`);
+        }
+    </script>
+</body>
+</html>
