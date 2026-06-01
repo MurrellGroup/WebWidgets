@@ -1,0 +1,1502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Global virus watchpoint map editor</title>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+
+<style>
+  :root {
+    --panel-bg: rgba(255,255,255,0.94);
+    --panel-border: rgba(0,0,0,0.12);
+    --text: #171717;
+    --muted: #666;
+  }
+
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: Inter, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: #fbfbf8;
+  }
+
+  #wrap {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: #fbfbf8;
+  }
+
+  #controls {
+    position: absolute;
+    right: 14px;
+    top: 14px;
+    width: 430px;
+    max-height: calc(100vh - 28px);
+    overflow: auto;
+    padding: 14px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.12);
+    font-size: 12px;
+  }
+
+  #controls h2 {
+    margin: 0 0 8px 0;
+    font-size: 15px;
+    line-height: 1.2;
+  }
+
+  details {
+    border-top: 1px solid rgba(0,0,0,0.09);
+    padding-top: 9px;
+    margin-top: 9px;
+  }
+
+  summary {
+    cursor: pointer;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #444;
+    user-select: none;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 150px 1fr 52px;
+    align-items: center;
+    gap: 8px;
+    margin: 7px 0;
+  }
+
+  .row.two {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .row.one {
+    grid-template-columns: 1fr;
+  }
+
+  .row input[type="range"] {
+    width: 100%;
+  }
+
+  .row input[type="color"] {
+    width: 48px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid #bbb;
+    border-radius: 5px;
+  }
+
+  input[type="number"],
+  input[type="text"],
+  textarea,
+  select {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #c9c9c9;
+    border-radius: 7px;
+    padding: 6px 7px;
+    font: inherit;
+    background: white;
+  }
+
+  textarea {
+    min-height: 72px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
+
+  button {
+    border: 1px solid #bbb;
+    background: #fff;
+    border-radius: 8px;
+    padding: 7px 9px;
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  button:hover {
+    background: #f2f2f2;
+  }
+
+  .checks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px 12px;
+    margin: 8px 0;
+  }
+
+  .small {
+    color: var(--muted);
+    line-height: 1.35;
+  }
+
+  .region-card {
+    margin: 8px 0;
+    padding: 9px;
+    border: 1px solid rgba(0,0,0,0.10);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.72);
+  }
+
+  .region-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 7px;
+    align-items: center;
+    font-weight: 800;
+  }
+
+  .virus-list,
+  .hotspot-list {
+    margin: 8px 0 0 22px;
+  }
+
+  .virus-line,
+  .hotspot-line {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 7px;
+    align-items: center;
+    margin: 4px 0;
+  }
+
+  .hotspot-line {
+    grid-template-columns: auto 1fr 58px 58px 58px auto;
+  }
+
+  .tiny {
+    font-size: 10px;
+    color: #666;
+  }
+
+  .danger {
+    color: #9f1d1d;
+  }
+
+  .label {
+    cursor: move;
+  }
+
+  .label text {
+    user-select: none;
+  }
+
+  .label.locked rect {
+    stroke: rgba(0,0,0,0.28);
+    stroke-dasharray: 4 3;
+  }
+
+  #modalBackdrop {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.18);
+    align-items: center;
+    justify-content: center;
+  }
+
+  #modal {
+    width: 430px;
+    background: rgba(255,255,255,0.98);
+    border: 1px solid rgba(0,0,0,0.18);
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.22);
+    font-size: 13px;
+  }
+
+  #modal h3 {
+    margin: 0 0 10px 0;
+  }
+
+  #modal .form-row {
+    margin: 9px 0;
+  }
+
+  #modal label {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  #modal .modal-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+  }
+</style>
+</head>
+
+<body>
+<div id="wrap">
+  <svg id="map" viewBox="0 0 1800 1000" preserveAspectRatio="xMidYMid meet"></svg>
+
+  <div id="controls">
+    <h2>Virus watchpoint map editor</h2>
+    <div class="small">
+      Drag labels. Double-click a label to lock/unlock it. Right-click the map to add a hotspot and label.
+    </div>
+
+    <details open>
+      <summary>Actions and state</summary>
+      <div class="row two">
+        <button id="autoPlace">Auto-place labels</button>
+        <button id="resetLabels">Reset label positions</button>
+      </div>
+      <div class="row two">
+        <button id="downloadSvg">Download SVG</button>
+        <button id="downloadJson">Save JSON state</button>
+      </div>
+      <div class="row two">
+        <button id="copyJson">Copy JSON state</button>
+        <button id="unlockAll">Unlock all labels</button>
+      </div>
+      <div class="row one">
+        <input id="loadJsonFile" type="file" accept="application/json,.json" />
+      </div>
+      <div class="row one">
+        <textarea id="stateBox" placeholder="JSON state appears here, or paste JSON here and click Load pasted JSON."></textarea>
+      </div>
+      <div class="row two">
+        <button id="loadPastedJson">Load pasted JSON</button>
+        <button id="resetEverything">Reset everything</button>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Regions, boxes, viruses</summary>
+      <div class="small">
+        Box toggles affect annotations. Virus toggles affect each box’s text. Hotspot toggles affect contours.
+      </div>
+      <div id="regionControls"></div>
+    </details>
+
+    <details>
+      <summary>Visibility</summary>
+      <div class="checks">
+        <label><input data-setting="showLabels" type="checkbox"> labels</label>
+        <label><input data-setting="showBoxes" type="checkbox"> boxes</label>
+        <label><input data-setting="showLeaders" type="checkbox"> leader lines</label>
+        <label><input data-setting="showContours" type="checkbox"> contours</label>
+        <label><input data-setting="showBorders" type="checkbox"> country borders</label>
+        <label><input data-setting="showGraticule" type="checkbox"> graticule</label>
+        <label><input data-setting="showTitle" type="checkbox"> title</label>
+        <label><input data-setting="showAnchors" type="checkbox"> anchor dots</label>
+      </div>
+    </details>
+
+    <details>
+      <summary>Text and label boxes</summary>
+      <div class="row"><label>virus font size</label><input data-setting="fontSize" type="range" min="7" max="22" step="0.5"><output></output></div>
+      <div class="row"><label>region title size</label><input data-setting="labelTitleSize" type="range" min="9" max="28" step="0.5"><output></output></div>
+      <div class="row"><label>label padding</label><input data-setting="labelPadding" type="range" min="2" max="28" step="1"><output></output></div>
+      <div class="row"><label>line spacing</label><input data-setting="lineGap" type="range" min="12" max="34" step="1"><output></output></div>
+      <div class="row"><label>box opacity</label><input data-setting="boxOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>box radius</label><input data-setting="boxRadius" type="range" min="0" max="30" step="1"><output></output></div>
+      <div class="row"><label>box fill</label><input data-setting="boxFill" type="color"><span></span></div>
+      <div class="row"><label>text color</label><input data-setting="textColor" type="color"><span></span></div>
+      <div class="row"><label>leader color</label><input data-setting="leaderColor" type="color"><span></span></div>
+      <div class="row"><label>leader width</label><input data-setting="leaderWidth" type="range" min="0.2" max="4" step="0.1"><output></output></div>
+    </details>
+
+    <details>
+      <summary>Contours</summary>
+      <div class="row"><label>kernel scale</label><input data-setting="kernelScale" type="range" min="0.25" max="3.5" step="0.05"><output></output></div>
+      <div class="row"><label>grid step</label><input data-setting="gridStep" type="range" min="5" max="24" step="1"><output></output></div>
+      <div class="row"><label>low threshold</label><input data-setting="thrLow" type="range" min="0.02" max="0.8" step="0.01"><output></output></div>
+      <div class="row"><label>mid threshold</label><input data-setting="thrMid" type="range" min="0.02" max="0.9" step="0.01"><output></output></div>
+      <div class="row"><label>high threshold</label><input data-setting="thrHigh" type="range" min="0.02" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>contour opacity</label><input data-setting="contourOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>contour stroke</label><input data-setting="contourStrokeWidth" type="range" min="0" max="4" step="0.1"><output></output></div>
+      <div class="row"><label>low color</label><input data-setting="lowColor" type="color"><span></span></div>
+      <div class="row"><label>mid color</label><input data-setting="midColor" type="color"><span></span></div>
+      <div class="row"><label>high color</label><input data-setting="highColor" type="color"><span></span></div>
+    </details>
+
+    <details>
+      <summary>Base map</summary>
+      <div class="row"><label>land color</label><input data-setting="landColor" type="color"><span></span></div>
+      <div class="row"><label>ocean color</label><input data-setting="oceanColor" type="color"><span></span></div>
+      <div class="row"><label>border color</label><input data-setting="borderColor" type="color"><span></span></div>
+      <div class="row"><label>border opacity</label><input data-setting="borderOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+      <div class="row"><label>graticule opacity</label><input data-setting="graticuleOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+    </details>
+  </div>
+
+  <div id="modalBackdrop">
+    <div id="modal">
+      <h3>Add hotspot and label</h3>
+      <div class="small" id="modalCoords"></div>
+
+      <div class="form-row">
+        <label>Region / box title</label>
+        <input id="newRegionName" type="text" value="New watchpoint" />
+      </div>
+
+      <div class="form-row">
+        <label>Virus lines, one per row</label>
+        <textarea id="newViruses">New virus</textarea>
+      </div>
+
+      <div class="form-row">
+        <label>Kernel width, km</label>
+        <input id="newRxKm" type="number" min="50" step="50" value="800" />
+      </div>
+
+      <div class="form-row">
+        <label>Kernel height, km</label>
+        <input id="newRyKm" type="number" min="50" step="50" value="500" />
+      </div>
+
+      <div class="form-row">
+        <label>Intensity weight</label>
+        <input id="newWeight" type="number" min="0.05" step="0.05" value="1.0" />
+      </div>
+
+      <div class="modal-actions">
+        <button id="addHotspotConfirm">Add</button>
+        <button id="addHotspotCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const defaultState = {
+  version: 2,
+  settings: {
+    showLabels: true,
+    showBoxes: true,
+    showLeaders: true,
+    showContours: true,
+    showBorders: true,
+    showGraticule: true,
+    showTitle: true,
+    showAnchors: true,
+
+    fontSize: 13,
+    labelTitleSize: 16,
+    labelPadding: 12,
+    lineGap: 20,
+    boxOpacity: 0.56,
+    boxRadius: 14,
+    boxFill: "#fffefb",
+    textColor: "#171717",
+    leaderColor: "#222222",
+    leaderWidth: 1.2,
+
+    kernelScale: 1.0,
+    gridStep: 10,
+    thrLow: 0.15,
+    thrMid: 0.30,
+    thrHigh: 0.48,
+    contourOpacity: 0.76,
+    contourStrokeWidth: 0,
+    lowColor: "#f4c36f",
+    midColor: "#ee8a35",
+    highColor: "#db3f31",
+
+    landColor: "#e9e5da",
+    oceanColor: "#f8f7f4",
+    borderColor: "#8d8a82",
+    borderOpacity: 0.55,
+    graticuleOpacity: 0.30
+  },
+
+  regions: [
+    {
+      id: 1,
+      name: "North America",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [-98, 38],
+      label: {x: 70, y: 215, locked: false},
+      viruses: [
+        {name: "H5N1 / H5Nx avian influenza", enabled: true},
+        {name: "West Nile virus", enabled: true},
+        {name: "Hantaviruses", enabled: true}
+      ],
+      hotspots: [
+        {id: "1a", lon: -111, lat: 39, rxKm: 900,  ryKm: 620, weight: 0.90, enabled: true},
+        {id: "1b", lon:  -92, lat: 37, rxKm: 1180, ryKm: 720, weight: 1.00, enabled: true},
+        {id: "1c", lon:  -78, lat: 35, rxKm: 720,  ryKm: 520, weight: 0.72, enabled: true}
+      ]
+    },
+    {
+      id: 2,
+      name: "Europe / Mediterranean",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [18, 43],
+      label: {x: 500, y: 175, locked: false},
+      viruses: [
+        {name: "West Nile virus", enabled: true},
+        {name: "Usutu virus", enabled: true},
+        {name: "Dengue & chikungunya expansion", enabled: true},
+        {name: "Crimean-Congo haemorrhagic fever virus", enabled: true},
+        {name: "H5N1 / H5Nx avian influenza", enabled: true}
+      ],
+      hotspots: [
+        {id: "2a", lon: 10, lat: 44, rxKm: 700, ryKm: 360, weight: 0.85, enabled: true},
+        {id: "2b", lon: 24, lat: 42, rxKm: 770, ryKm: 360, weight: 1.00, enabled: true},
+        {id: "2c", lon: 34, lat: 39, rxKm: 660, ryKm: 320, weight: 0.82, enabled: true}
+      ]
+    },
+    {
+      id: 3,
+      name: "Mesoamerica / Caribbean",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [-84, 16],
+      label: {x: 70, y: 430, locked: false},
+      viruses: [
+        {name: "Dengue virus", enabled: true},
+        {name: "Chikungunya virus", enabled: true},
+        {name: "Zika virus", enabled: true},
+        {name: "Mayaro virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "3a", lon: -88, lat: 16, rxKm: 700, ryKm: 350, weight: 1.00, enabled: true},
+        {id: "3b", lon: -76, lat: 18, rxKm: 700, ryKm: 300, weight: 0.55, enabled: true}
+      ]
+    },
+    {
+      id: 4,
+      name: "Amazon / Tropical South America",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [-63, -8],
+      label: {x: 90, y: 660, locked: false},
+      viruses: [
+        {name: "Dengue virus", enabled: true},
+        {name: "Oropouche virus", enabled: true},
+        {name: "Mayaro virus", enabled: true},
+        {name: "Yellow fever virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "4a", lon: -64, lat: -7,  rxKm: 1600, ryKm: 1060, weight: 1.00, enabled: true},
+        {id: "4b", lon: -73, lat: -8,  rxKm: 850,  ryKm: 640,  weight: 0.55, enabled: true},
+        {id: "4c", lon: -50, lat: -11, rxKm: 920,  ryKm: 680,  weight: 0.35, enabled: true}
+      ]
+    },
+    {
+      id: 5,
+      name: "Southern Andes / temperate South America",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [-72, -41],
+      label: {x: 300, y: 825, locked: false},
+      viruses: [{name: "Andes virus / hantaviruses", enabled: true}],
+      hotspots: [{id: "5a", lon: -72, lat: -41, rxKm: 540, ryKm: 520, weight: 1.00, enabled: true}]
+    },
+    {
+      id: 6,
+      name: "West Africa",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [-4, 8],
+      label: {x: 485, y: 470, locked: false},
+      viruses: [
+        {name: "Lassa virus", enabled: true},
+        {name: "Yellow fever virus", enabled: true},
+        {name: "Dengue virus", enabled: true},
+        {name: "West Nile virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "6a", lon: -5, lat: 8, rxKm: 850, ryKm: 470, weight: 1.00, enabled: true},
+        {id: "6b", lon:  7, lat: 7, rxKm: 780, ryKm: 420, weight: 0.60, enabled: true}
+      ]
+    },
+    {
+      id: 7,
+      name: "Central Africa / Congo Basin",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [23, -1],
+      label: {x: 700, y: 705, locked: false},
+      viruses: [
+        {name: "Ebolavirus", enabled: true},
+        {name: "Marburgvirus", enabled: true},
+        {name: "Mpox virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "7a", lon: 22, lat: -1, rxKm: 1250, ryKm: 780, weight: 1.00, enabled: true},
+        {id: "7b", lon: 31, lat:  1, rxKm: 770,  ryKm: 540, weight: 0.55, enabled: true}
+      ]
+    },
+    {
+      id: 8,
+      name: "East Africa / Great Lakes / Horn",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [39, -2],
+      label: {x: 960, y: 750, locked: false},
+      viruses: [
+        {name: "Rift Valley fever virus", enabled: true},
+        {name: "Crimean-Congo haemorrhagic fever virus", enabled: true},
+        {name: "Marburgvirus", enabled: true},
+        {name: "West Nile virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "8a", lon: 38, lat: -1,  rxKm: 700, ryKm: 560, weight: 1.00, enabled: true},
+        {id: "8b", lon: 44, lat:  8,  rxKm: 540, ryKm: 430, weight: 0.58, enabled: true},
+        {id: "8c", lon: 33, lat: -12, rxKm: 580, ryKm: 420, weight: 0.45, enabled: true}
+      ]
+    },
+    {
+      id: 9,
+      name: "Arabian Peninsula",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [45, 24],
+      label: {x: 1030, y: 500, locked: false},
+      viruses: [
+        {name: "MERS-CoV", enabled: true},
+        {name: "Rift Valley fever virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "9a", lon: 45, lat: 24, rxKm: 650, ryKm: 430, weight: 1.00, enabled: true},
+        {id: "9b", lon: 42, lat: 18, rxKm: 520, ryKm: 360, weight: 0.40, enabled: true}
+      ]
+    },
+    {
+      id: 10,
+      name: "Middle East / West-Central Asia",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [60, 41],
+      label: {x: 980, y: 200, locked: false},
+      viruses: [
+        {name: "Crimean-Congo haemorrhagic fever virus", enabled: true},
+        {name: "West Nile virus", enabled: true},
+        {name: "Hantaviruses", enabled: true}
+      ],
+      hotspots: [
+        {id: "10a", lon: 47, lat: 37, rxKm: 760,  ryKm: 360, weight: 0.55, enabled: true},
+        {id: "10b", lon: 62, lat: 40, rxKm: 1180, ryKm: 390, weight: 1.00, enabled: true},
+        {id: "10c", lon: 75, lat: 39, rxKm: 700,  ryKm: 300, weight: 0.50, enabled: true}
+      ]
+    },
+    {
+      id: 11,
+      name: "South Asia / Bengal plain",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [88, 23],
+      label: {x: 1160, y: 360, locked: false},
+      viruses: [
+        {name: "Nipah virus", enabled: true},
+        {name: "Dengue virus", enabled: true},
+        {name: "Japanese encephalitis virus", enabled: true},
+        {name: "Crimean-Congo haemorrhagic fever virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "11a", lon: 88, lat: 23, rxKm: 530, ryKm: 460, weight: 1.00, enabled: true},
+        {id: "11b", lon: 78, lat: 20, rxKm: 610, ryKm: 620, weight: 0.55, enabled: true}
+      ]
+    },
+    {
+      id: 12,
+      name: "Mainland Southeast Asia / Mekong",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [104, 15],
+      label: {x: 1430, y: 440, locked: false},
+      viruses: [
+        {name: "H5N1 / H5Nx avian influenza", enabled: true},
+        {name: "Japanese encephalitis virus", enabled: true},
+        {name: "Dengue virus", enabled: true},
+        {name: "Chikungunya virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "12a", lon: 103, lat: 16, rxKm: 780, ryKm: 650, weight: 1.00, enabled: true},
+        {id: "12b", lon: 108, lat:  8, rxKm: 720, ryKm: 520, weight: 0.65, enabled: true}
+      ]
+    },
+    {
+      id: 13,
+      name: "Maritime SE Asia / Western Pacific",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [119, -2],
+      label: {x: 1380, y: 650, locked: false},
+      viruses: [
+        {name: "Dengue virus", enabled: true},
+        {name: "H5N1 / H5Nx avian influenza", enabled: true},
+        {name: "Japanese encephalitis virus", enabled: true},
+        {name: "Chikungunya virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "13a", lon: 117, lat: -3, rxKm: 1080, ryKm: 600, weight: 1.00, enabled: true},
+        {id: "13b", lon: 127, lat:  9, rxKm: 680,  ryKm: 520, weight: 0.50, enabled: true},
+        {id: "13c", lon: 140, lat: -5, rxKm: 760,  ryKm: 480, weight: 0.35, enabled: true}
+      ]
+    },
+    {
+      id: 14,
+      name: "Australia / Oceania",
+      boxEnabled: true,
+      hotspotsEnabled: true,
+      anchor: [147, -24],
+      label: {x: 1380, y: 820, locked: false},
+      viruses: [
+        {name: "Hendra virus", enabled: true},
+        {name: "Dengue virus", enabled: true},
+        {name: "Japanese encephalitis virus", enabled: true}
+      ],
+      hotspots: [
+        {id: "14a", lon: 147, lat: -24, rxKm: 560, ryKm: 360, weight: 1.00, enabled: true},
+        {id: "14b", lon: 130, lat: -14, rxKm: 650, ryKm: 250, weight: 0.35, enabled: true}
+      ]
+    }
+  ]
+};
+
+let state = structuredClone(defaultState);
+let pendingAdd = null;
+let countries, borders;
+
+const svg = d3.select("#map");
+const W = 1800;
+const H = 1000;
+
+const projection = d3.geoNaturalEarth1()
+  .fitExtent([[40, 95], [1760, 930]], {type: "Sphere"});
+
+const path = d3.geoPath(projection);
+
+const gBase = svg.append("g").attr("id", "base-map");
+const gContours = svg.append("g").attr("id", "contours");
+const gLeaders = svg.append("g").attr("id", "leader-lines");
+const gLabels = svg.append("g").attr("id", "labels");
+const gTitle = svg.append("g").attr("id", "title");
+
+function setting(k) {
+  return state.settings[k];
+}
+
+function setSetting(k, v) {
+  state.settings[k] = v;
+}
+
+function syncSettingInputs() {
+  document.querySelectorAll("[data-setting]").forEach(input => {
+    const key = input.dataset.setting;
+    const value = setting(key);
+    if (input.type === "checkbox") input.checked = !!value;
+    else input.value = value;
+  });
+
+  document.querySelectorAll(".row").forEach(row => {
+    const input = row.querySelector("input[type='range']");
+    const out = row.querySelector("output");
+    if (input && out) out.value = input.value;
+  });
+}
+
+function bindSettingInputs() {
+  document.querySelectorAll("[data-setting]").forEach(input => {
+    input.addEventListener("input", () => {
+      const key = input.dataset.setting;
+      let value = input.value;
+
+      if (input.type === "checkbox") value = input.checked;
+      else if (input.type === "range" || input.type === "number") value = +input.value;
+
+      setSetting(key, value);
+
+      const contourKeys = new Set([
+        "kernelScale", "gridStep", "thrLow", "thrMid", "thrHigh",
+        "contourOpacity", "contourStrokeWidth", "lowColor", "midColor",
+        "highColor", "showContours"
+      ]);
+
+      const baseKeys = new Set([
+        "landColor", "oceanColor", "borderColor", "borderOpacity",
+        "graticuleOpacity", "showBorders", "showGraticule"
+      ]);
+
+      if (contourKeys.has(key)) redraw({contours: true, base: false, labels: false});
+      else if (baseKeys.has(key)) redraw({contours: false, base: true, labels: false});
+      else redraw({contours: false, base: false, labels: true});
+
+      syncSettingInputs();
+    });
+  });
+}
+
+function renderRegionControls() {
+  const holder = d3.select("#regionControls");
+  holder.selectAll("*").remove();
+
+  const cards = holder.selectAll("div.region-card")
+    .data(state.regions, d => d.id)
+    .join("div")
+    .attr("class", "region-card");
+
+  const head = cards.append("div").attr("class", "region-head");
+
+  head.append("input")
+    .attr("type", "checkbox")
+    .property("checked", d => d.boxEnabled)
+    .on("change", (event, d) => {
+      d.boxEnabled = event.target.checked;
+      renderLabels();
+    });
+
+  head.append("span")
+    .text(d => `${d.id}. ${d.name}`);
+
+  head.append("button")
+    .attr("class", "danger")
+    .text("delete")
+    .on("click", (event, d) => {
+      state.regions = state.regions.filter(r => r.id !== d.id);
+      redraw({base: false, contours: true, labels: true});
+      renderRegionControls();
+    });
+
+  const toggles = cards.append("div")
+    .attr("class", "checks")
+    .style("grid-template-columns", "1fr 1fr");
+
+  const boxLab = toggles.append("label");
+  boxLab.append("input")
+    .attr("type", "checkbox")
+    .property("checked", d => d.boxEnabled)
+    .on("change", (event, d) => {
+      d.boxEnabled = event.target.checked;
+      renderLabels();
+      renderRegionControls();
+    });
+  boxLab.append("span").text(" label box");
+
+  const hotLab = toggles.append("label");
+  hotLab.append("input")
+    .attr("type", "checkbox")
+    .property("checked", d => d.hotspotsEnabled)
+    .on("change", (event, d) => {
+      d.hotspotsEnabled = event.target.checked;
+      renderContours();
+    });
+  hotLab.append("span").text(" hotspots");
+
+  cards.append("div")
+    .attr("class", "tiny")
+    .text("Viruses");
+
+  const virusList = cards.append("div").attr("class", "virus-list");
+
+  virusList.selectAll("label")
+    .data(d => d.viruses.map(v => ({region: d, virus: v})))
+    .join("label")
+    .attr("class", "virus-line")
+    .each(function(d) {
+      const line = d3.select(this);
+      line.append("input")
+        .attr("type", "checkbox")
+        .property("checked", d.virus.enabled)
+        .on("change", event => {
+          d.virus.enabled = event.target.checked;
+          renderLabels();
+        });
+
+      line.append("span").text(d.virus.name);
+    });
+
+  cards.append("div")
+    .attr("class", "tiny")
+    .style("margin-top", "8px")
+    .text("Hotspot kernels");
+
+  const hsList = cards.append("div").attr("class", "hotspot-list");
+
+  hsList.selectAll("div")
+    .data(d => d.hotspots.map(h => ({region: d, hotspot: h})))
+    .join("div")
+    .attr("class", "hotspot-line")
+    .each(function(d) {
+      const row = d3.select(this);
+
+      row.append("input")
+        .attr("type", "checkbox")
+        .property("checked", d.hotspot.enabled)
+        .on("change", event => {
+          d.hotspot.enabled = event.target.checked;
+          renderContours();
+        });
+
+      row.append("span")
+        .attr("class", "tiny")
+        .text(`lon ${fmt(d.hotspot.lon)}, lat ${fmt(d.hotspot.lat)}`);
+
+      row.append("input")
+        .attr("type", "number")
+        .attr("title", "rx km")
+        .property("value", d.hotspot.rxKm)
+        .on("change", event => {
+          d.hotspot.rxKm = +event.target.value;
+          renderContours();
+        });
+
+      row.append("input")
+        .attr("type", "number")
+        .attr("title", "ry km")
+        .property("value", d.hotspot.ryKm)
+        .on("change", event => {
+          d.hotspot.ryKm = +event.target.value;
+          renderContours();
+        });
+
+      row.append("input")
+        .attr("type", "number")
+        .attr("title", "weight")
+        .attr("step", "0.05")
+        .property("value", d.hotspot.weight)
+        .on("change", event => {
+          d.hotspot.weight = +event.target.value;
+          renderContours();
+        });
+
+      row.append("button")
+        .attr("class", "danger")
+        .text("x")
+        .on("click", () => {
+          d.region.hotspots = d.region.hotspots.filter(h => h.id !== d.hotspot.id);
+          renderContours();
+          renderRegionControls();
+        });
+    });
+}
+
+function kmToProjectedDelta(lon, lat, rxKm, ryKm) {
+  const p0 = projection([lon, lat]);
+  if (!p0) return [80, 60];
+
+  const lonDeg = rxKm / (111.32 * Math.max(0.25, Math.cos(lat * Math.PI / 180)));
+  const latDeg = ryKm / 111.32;
+
+  const px = projection([lon + lonDeg, lat]);
+  const py = projection([lon, lat + latDeg]);
+
+  const sx = px ? Math.abs(px[0] - p0[0]) : rxKm / 12;
+  const sy = py ? Math.abs(py[1] - p0[1]) : ryKm / 12;
+
+  return [Math.max(8, sx), Math.max(8, sy)];
+}
+
+function activeHotspotsProjected() {
+  const k = setting("kernelScale");
+
+  return state.regions.flatMap(region => {
+    if (!region.hotspotsEnabled) return [];
+    return region.hotspots
+      .filter(h => h.enabled)
+      .map(h => {
+        const p = projection([h.lon, h.lat]);
+        if (!p) return null;
+        const [sx, sy] = kmToProjectedDelta(h.lon, h.lat, h.rxKm * k, h.ryKm * k);
+        return {x: p[0], y: p[1], sx, sy, weight: h.weight};
+      })
+      .filter(Boolean);
+  });
+}
+
+function renderBase() {
+  gBase.selectAll("*").remove();
+
+  gBase.append("path")
+    .datum({type: "Sphere"})
+    .attr("d", path)
+    .attr("fill", setting("oceanColor"))
+    .attr("stroke", "#d2cec4")
+    .attr("stroke-width", 1.1);
+
+  gBase.append("path")
+    .datum(d3.geoGraticule10())
+    .attr("d", path)
+    .attr("fill", "none")
+    .attr("stroke", "#bdb9b0")
+    .attr("stroke-width", 0.55)
+    .attr("opacity", setting("showGraticule") ? setting("graticuleOpacity") : 0);
+
+  if (!countries) return;
+
+  gBase.append("path")
+    .datum(countries)
+    .attr("d", path)
+    .attr("fill", setting("landColor"))
+    .attr("stroke", "none");
+
+  gBase.append("path")
+    .datum(borders)
+    .attr("d", path)
+    .attr("fill", "none")
+    .attr("stroke", setting("borderColor"))
+    .attr("stroke-width", 0.55)
+    .attr("opacity", setting("showBorders") ? setting("borderOpacity") : 0);
+}
+
+function renderContours() {
+  gContours.selectAll("*").remove();
+  gContours.style("display", setting("showContours") ? null : "none");
+
+  const step = setting("gridStep");
+  const cols = Math.ceil(W / step);
+  const rows = Math.ceil(H / step);
+  const values = new Float32Array(cols * rows);
+  const kernels = activeHotspotsProjected();
+
+  for (let j = 0; j < rows; j++) {
+    const y = j * step;
+
+    for (let i = 0; i < cols; i++) {
+      const x = i * step;
+      let z = 0;
+
+      for (const h of kernels) {
+        const dx = (x - h.x) / h.sx;
+        const dy = (y - h.y) / h.sy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < 18) z += h.weight * Math.exp(-0.5 * d2);
+      }
+
+      values[j * cols + i] = z;
+    }
+  }
+
+  const maxZ = d3.max(values) || 1;
+  for (let i = 0; i < values.length; i++) values[i] /= maxZ;
+
+  const thresholds = [
+    Math.min(setting("thrLow"), setting("thrMid"), setting("thrHigh")),
+    median3(setting("thrLow"), setting("thrMid"), setting("thrHigh")),
+    Math.max(setting("thrLow"), setting("thrMid"), setting("thrHigh"))
+  ];
+
+  const colors = new Map([
+    [thresholds[0], setting("lowColor")],
+    [thresholds[1], setting("midColor")],
+    [thresholds[2], setting("highColor")]
+  ]);
+
+  const contourGen = d3.contours()
+    .size([cols, rows])
+    .smooth(true)
+    .thresholds(thresholds);
+
+  const identity = d3.geoIdentity().scale(step);
+  const contourPath = d3.geoPath(identity);
+
+  gContours.selectAll("path")
+    .data(contourGen(values))
+    .join("path")
+    .attr("d", contourPath)
+    .attr("fill", d => colors.get(d.value))
+    .attr("opacity", setting("contourOpacity"))
+    .attr("stroke", d => colors.get(d.value))
+    .attr("stroke-width", setting("contourStrokeWidth"))
+    .attr("stroke-linejoin", "round");
+}
+
+function renderTitle() {
+  gTitle.selectAll("*").remove();
+  gTitle.style("display", setting("showTitle") ? null : "none");
+
+  gTitle.append("text")
+    .attr("x", 32)
+    .attr("y", 26)
+    .attr("font-size", 34)
+    .attr("font-weight", 800)
+    .attr("fill", setting("textColor"))
+    .text("Global virus watchpoint map");
+
+  gTitle.append("text")
+    .attr("x", 34)
+    .attr("y", 64)
+    .attr("font-size", 15)
+    .attr("fill", "#555")
+    .text("Regional hotspot synthesis and draggable virus labels");
+}
+
+function labelLines(region) {
+  return [
+    region.name,
+    ...region.viruses
+      .filter(v => v.enabled)
+      .map(v => "• " + v.name)
+  ];
+}
+
+function renderLabels() {
+  gLabels.selectAll("*").remove();
+  gLeaders.selectAll("*").remove();
+
+  gLabels.style("display", setting("showLabels") ? null : "none");
+  gLeaders.style("display", setting("showLeaders") ? null : "none");
+
+  const pad = setting("labelPadding");
+  const titleSize = setting("labelTitleSize");
+  const fontSize = setting("fontSize");
+  const lineGap = setting("lineGap");
+
+  const visible = state.regions.filter(r => r.boxEnabled);
+
+  const groups = gLabels.selectAll("g.label")
+    .data(visible, d => d.id)
+    .join("g")
+    .attr("class", d => "label" + (d.label.locked ? " locked" : ""))
+    .attr("transform", d => `translate(${d.label.x},${d.label.y})`)
+    .call(
+      d3.drag()
+        .on("start", function(event, d) {
+          d3.select(this).raise();
+          d.label.locked = true;
+        })
+        .on("drag", function(event, d) {
+          d.label.x = clamp(event.x, 0, W - (d.label.w || 160));
+          d.label.y = clamp(event.y, 0, H - (d.label.h || 80));
+          d3.select(this).attr("transform", `translate(${d.label.x},${d.label.y})`);
+          updateLeaders();
+        })
+    )
+    .on("dblclick", function(event, d) {
+      d.label.locked = !d.label.locked;
+      d3.select(this).classed("locked", d.label.locked);
+    });
+
+  groups.each(function(d) {
+    const g = d3.select(this);
+    const badgeR = Math.max(9, titleSize * 0.70);
+    const textX = pad + Math.max(26, titleSize * 1.8);
+
+    g.append("rect")
+      .attr("x", 0)
+      .attr("y", 0)
+      .attr("rx", setting("boxRadius"))
+      .attr("fill", setting("boxFill"))
+      .attr("opacity", setting("showBoxes") ? setting("boxOpacity") : 0)
+      .attr("stroke", "none");
+
+    g.append("circle")
+      .attr("cx", pad)
+      .attr("cy", pad + 4)
+      .attr("r", badgeR)
+      .attr("fill", "#111");
+
+    g.append("text")
+      .attr("x", pad)
+      .attr("y", pad + 4)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "central")
+      .attr("font-size", titleSize * 0.78)
+      .attr("font-weight", 800)
+      .attr("fill", "#fff")
+      .text(d.id);
+
+    const text = g.append("text")
+      .attr("x", textX)
+      .attr("y", pad)
+      .attr("fill", setting("textColor"));
+
+    labelLines(d).forEach((line, i) => {
+      text.append("tspan")
+        .attr("x", textX)
+        .attr("dy", i === 0 ? 0 : lineGap)
+        .attr("font-size", i === 0 ? titleSize : fontSize)
+        .attr("font-weight", i === 0 ? 800 : 500)
+        .text(line);
+    });
+
+    const bbox = g.node().getBBox();
+    d.label.w = bbox.width + pad * 1.2;
+    d.label.h = bbox.height + pad * 1.25;
+
+    g.select("rect")
+      .attr("width", d.label.w)
+      .attr("height", d.label.h);
+  });
+
+  updateLeaders();
+}
+
+function updateLeaders() {
+  gLeaders.selectAll("*").remove();
+
+  const data = state.regions
+    .filter(d => d.boxEnabled)
+    .map(d => {
+      const anchor = projection(d.anchor);
+      if (!anchor) return null;
+      const p = edgePoint(d.label.x, d.label.y, d.label.w || 160, d.label.h || 80, anchor[0], anchor[1]);
+
+      return {
+        id: d.id,
+        x1: p[0],
+        y1: p[1],
+        x2: anchor[0],
+        y2: anchor[1]
+      };
+    })
+    .filter(Boolean);
+
+  gLeaders.selectAll("line")
+    .data(data, d => d.id)
+    .join("line")
+    .attr("x1", d => d.x1)
+    .attr("y1", d => d.y1)
+    .attr("x2", d => d.x2)
+    .attr("y2", d => d.y2)
+    .attr("stroke", setting("leaderColor"))
+    .attr("stroke-width", setting("leaderWidth"))
+    .attr("stroke-linecap", "round")
+    .attr("opacity", 0.86);
+
+  if (setting("showAnchors")) {
+    gLeaders.selectAll("circle.anchor")
+      .data(data, d => d.id)
+      .join("circle")
+      .attr("class", "anchor")
+      .attr("cx", d => d.x2)
+      .attr("cy", d => d.y2)
+      .attr("r", 3.2)
+      .attr("fill", setting("leaderColor"));
+  }
+}
+
+function edgePoint(x, y, w, h, ax, ay) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const dx = ax - cx;
+  const dy = ay - cy;
+  const candidates = [];
+
+  if (dx !== 0) {
+    for (const ex of [x, x + w]) {
+      const t = (ex - cx) / dx;
+      const ey = cy + t * dy;
+      if (t > 0 && ey >= y && ey <= y + h) candidates.push([t, ex, ey]);
+    }
+  }
+
+  if (dy !== 0) {
+    for (const ey of [y, y + h]) {
+      const t = (ey - cy) / dy;
+      const ex = cx + t * dx;
+      if (t > 0 && ex >= x && ex <= x + w) candidates.push([t, ex, ey]);
+    }
+  }
+
+  if (!candidates.length) return [cx, cy];
+  candidates.sort((a, b) => a[0] - b[0]);
+  return [candidates[0][1], candidates[0][2]];
+}
+
+function autoPlaceLabels() {
+  const nodes = state.regions.filter(r => r.boxEnabled);
+
+  nodes.forEach(d => {
+    if (!d.label.locked) {
+      d.label.x = d.label.x ?? d.label.startX ?? 80;
+      d.label.y = d.label.y ?? d.label.startY ?? 120;
+    }
+  });
+
+  for (let iter = 0; iter < 600; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      if (a.label.locked) continue;
+
+      const homeX = a.label.homeX ?? a.label.x;
+      const homeY = a.label.homeY ?? a.label.y;
+      a.label.x += (homeX - a.label.x) * 0.015;
+      a.label.y += (homeY - a.label.y) * 0.015;
+
+      for (let j = 0; j < nodes.length; j++) {
+        if (i === j) continue;
+
+        const b = nodes[j];
+        const aw = a.label.w || 160;
+        const ah = a.label.h || 80;
+        const bw = b.label.w || 160;
+        const bh = b.label.h || 80;
+
+        const overlapX = Math.min(a.label.x + aw, b.label.x + bw) - Math.max(a.label.x, b.label.x);
+        const overlapY = Math.min(a.label.y + ah, b.label.y + bh) - Math.max(a.label.y, b.label.y);
+
+        if (overlapX > 0 && overlapY > 0) {
+          const push = 0.64;
+
+          if (overlapX < overlapY) {
+            const dir = (a.label.x + aw / 2) < (b.label.x + bw / 2) ? -1 : 1;
+            a.label.x += dir * overlapX * push;
+          } else {
+            const dir = (a.label.y + ah / 2) < (b.label.y + bh / 2) ? -1 : 1;
+            a.label.y += dir * overlapY * push;
+          }
+        }
+      }
+
+      a.label.x = clamp(a.label.x, 8, W - (a.label.w || 160) - 8);
+      a.label.y = clamp(a.label.y, 95, H - (a.label.h || 80) - 8);
+    }
+  }
+
+  renderLabels();
+}
+
+function openAddModal(event) {
+  event.preventDefault();
+
+  const [x, y] = d3.pointer(event, svg.node());
+  const lonLat = projection.invert([x, y]);
+  if (!lonLat) return;
+
+  pendingAdd = {x, y, lon: lonLat[0], lat: lonLat[1]};
+
+  document.getElementById("modalCoords").textContent =
+    `Clicked lon ${fmt(lonLat[0])}, lat ${fmt(lonLat[1])}.`;
+
+  document.getElementById("modalBackdrop").style.display = "flex";
+}
+
+function closeAddModal() {
+  pendingAdd = null;
+  document.getElementById("modalBackdrop").style.display = "none";
+}
+
+function addHotspotFromModal() {
+  if (!pendingAdd) return;
+
+  const name = document.getElementById("newRegionName").value.trim() || "New watchpoint";
+  const virusLines = document.getElementById("newViruses").value
+    .split(/\n+/)
+    .map(x => x.trim())
+    .filter(Boolean);
+
+  const rxKm = +document.getElementById("newRxKm").value || 800;
+  const ryKm = +document.getElementById("newRyKm").value || 500;
+  const weight = +document.getElementById("newWeight").value || 1;
+
+  const nextId = Math.max(0, ...state.regions.map(r => +r.id || 0)) + 1;
+
+  const region = {
+    id: nextId,
+    name,
+    boxEnabled: true,
+    hotspotsEnabled: true,
+    anchor: [pendingAdd.lon, pendingAdd.lat],
+    label: {
+      x: clamp(pendingAdd.x + 20, 8, W - 230),
+      y: clamp(pendingAdd.y + 20, 95, H - 110),
+      locked: true
+    },
+    viruses: virusLines.map(v => ({name: v, enabled: true})),
+    hotspots: [{
+      id: `${nextId}a`,
+      lon: pendingAdd.lon,
+      lat: pendingAdd.lat,
+      rxKm,
+      ryKm,
+      weight,
+      enabled: true
+    }]
+  };
+
+  region.label.homeX = region.label.x;
+  region.label.homeY = region.label.y;
+
+  state.regions.push(region);
+
+  closeAddModal();
+  renderRegionControls();
+  redraw({base: false, contours: true, labels: true});
+}
+
+function serializeState() {
+  return JSON.stringify(state, null, 2);
+}
+
+function loadStateObject(obj) {
+  if (!obj || !obj.settings || !Array.isArray(obj.regions)) {
+    alert("Invalid state JSON.");
+    return;
+  }
+
+  state = obj;
+  syncSettingInputs();
+  renderRegionControls();
+  redraw();
+}
+
+function downloadJson() {
+  const blob = new Blob([serializeState()], {type: "application/json"});
+  downloadBlob(blob, "virus-watchpoint-map-state.json");
+}
+
+function downloadSvg() {
+  const clone = svg.node().cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", W);
+  clone.setAttribute("height", H);
+
+  const style = document.createElement("style");
+  style.textContent = "text { font-family: Inter, Helvetica, Arial, sans-serif; }";
+  clone.insertBefore(style, clone.firstChild);
+
+  const blob = new Blob([new XMLSerializer().serializeToString(clone)], {type: "image/svg+xml"});
+  downloadBlob(blob, "virus-watchpoint-map.svg");
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function redraw({contours = true, base = true, labels = true} = {}) {
+  syncSettingInputs();
+  if (base) renderBase();
+  if (contours) renderContours();
+  renderTitle();
+  if (labels) renderLabels();
+}
+
+function setupEvents() {
+  bindSettingInputs();
+
+  svg.on("contextmenu", openAddModal);
+
+  document.getElementById("addHotspotConfirm").addEventListener("click", addHotspotFromModal);
+  document.getElementById("addHotspotCancel").addEventListener("click", closeAddModal);
+  document.getElementById("modalBackdrop").addEventListener("click", event => {
+    if (event.target.id === "modalBackdrop") closeAddModal();
+  });
+
+  document.getElementById("autoPlace").addEventListener("click", autoPlaceLabels);
+
+  document.getElementById("resetLabels").addEventListener("click", () => {
+    state.regions.forEach(r => {
+      const dflt = defaultState.regions.find(x => x.id === r.id);
+      if (dflt) {
+        r.label.x = dflt.label.x;
+        r.label.y = dflt.label.y;
+      }
+      r.label.locked = false;
+    });
+    renderLabels();
+  });
+
+  document.getElementById("unlockAll").addEventListener("click", () => {
+    state.regions.forEach(r => r.label.locked = false);
+    renderLabels();
+  });
+
+  document.getElementById("downloadSvg").addEventListener("click", downloadSvg);
+  document.getElementById("downloadJson").addEventListener("click", downloadJson);
+
+  document.getElementById("copyJson").addEventListener("click", async () => {
+    const json = serializeState();
+    document.getElementById("stateBox").value = json;
+    try {
+      await navigator.clipboard.writeText(json);
+    } catch (_) {}
+  });
+
+  document.getElementById("loadPastedJson").addEventListener("click", () => {
+    try {
+      loadStateObject(JSON.parse(document.getElementById("stateBox").value));
+    } catch (err) {
+      alert("Could not parse JSON.");
+      console.error(err);
+    }
+  });
+
+  document.getElementById("loadJsonFile").addEventListener("change", async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      loadStateObject(JSON.parse(text));
+    } catch (err) {
+      alert("Could not load JSON.");
+      console.error(err);
+    }
+  });
+
+  document.getElementById("resetEverything").addEventListener("click", () => {
+    state = structuredClone(defaultState);
+    initializeHomes();
+    syncSettingInputs();
+    renderRegionControls();
+    redraw();
+  });
+}
+
+function initializeHomes() {
+  state.regions.forEach(r => {
+    if (r.label.homeX == null) r.label.homeX = r.label.x;
+    if (r.label.homeY == null) r.label.homeY = r.label.y;
+  });
+}
+
+function clamp(x, lo, hi) {
+  return Math.max(lo, Math.min(hi, x));
+}
+
+function median3(a, b, c) {
+  return [a, b, c].sort((x, y) => x - y)[1];
+}
+
+function fmt(x) {
+  return Number(x).toFixed(2);
+}
+
+async function init() {
+  initializeHomes();
+  setupEvents();
+  syncSettingInputs();
+  renderRegionControls();
+
+  const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
+  countries = topojson.feature(world, world.objects.countries);
+  borders = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
+
+  redraw();
+  setTimeout(autoPlaceLabels, 80);
+}
+
+init().catch(err => {
+  console.error(err);
+  svg.append("text")
+    .attr("x", 40)
+    .attr("y", 120)
+    .attr("fill", "crimson")
+    .attr("font-size", 18)
+    .text("Failed to load basemap. Check internet access for jsDelivr world-atlas.");
+});
+</script>
+</body>
+</html>
