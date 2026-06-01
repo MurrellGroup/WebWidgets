@@ -387,6 +387,7 @@
           <label><input data-setting="showGraticule" type="checkbox"> graticule</label>
           <label><input data-setting="showTitle" type="checkbox"> title</label>
           <label><input data-setting="showAnchors" type="checkbox"> anchor dots</label>
+          <label><input data-setting="showLabelNumbers" type="checkbox"> box numbers</label>
         </div>
       </details>
 
@@ -488,6 +489,7 @@ const defaultState = {
     showGraticule: true,
     showTitle: true,
     showAnchors: true,
+    showLabelNumbers: true,
 
     fontSize: 13,
     labelTitleSize: 16,
@@ -1198,6 +1200,31 @@ function labelLines(region) {
   ];
 }
 
+function labelTextX(pad, titleSize) {
+  if (!setting("showLabelNumbers")) return pad;
+  return pad + Math.max(26, titleSize * 1.8);
+}
+
+function appendLabelBadge(g, d, pad, titleSize) {
+  if (!setting("showLabelNumbers")) return;
+  const badgeR = Math.max(9, titleSize * 0.70);
+  g.append("circle")
+    .attr("cx", pad)
+    .attr("cy", pad + 4)
+    .attr("r", badgeR)
+    .attr("fill", "#111");
+
+  g.append("text")
+    .attr("x", pad)
+    .attr("y", pad + 4)
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "central")
+    .attr("font-size", titleSize * 0.78)
+    .attr("font-weight", 800)
+    .attr("fill", "#fff")
+    .text(d.id);
+}
+
 function renderLabels() {
   gLabels.selectAll("*").remove();
   gLeaders.selectAll("*").remove();
@@ -1260,8 +1287,7 @@ function renderStaticLabel(g, d) {
   const titleSize = setting("labelTitleSize");
   const fontSize = setting("fontSize");
   const lineGap = setting("lineGap");
-  const badgeR = Math.max(9, titleSize * 0.70);
-  const textX = pad + Math.max(26, titleSize * 1.8);
+  const textX = labelTextX(pad, titleSize);
 
   g.append("rect")
     .attr("class", "label-box")
@@ -1272,21 +1298,7 @@ function renderStaticLabel(g, d) {
     .attr("opacity", setting("showBoxes") ? setting("boxOpacity") : 0)
     .attr("stroke", "none");
 
-  g.append("circle")
-    .attr("cx", pad)
-    .attr("cy", pad + 4)
-    .attr("r", badgeR)
-    .attr("fill", "#111");
-
-  g.append("text")
-    .attr("x", pad)
-    .attr("y", pad + 4)
-    .attr("text-anchor", "middle")
-    .attr("dominant-baseline", "central")
-    .attr("font-size", titleSize * 0.78)
-    .attr("font-weight", 800)
-    .attr("fill", "#fff")
-    .text(d.id);
+  appendLabelBadge(g, d, pad, titleSize);
 
   const text = g.append("text")
     .attr("x", textX)
@@ -1316,8 +1328,9 @@ function renderEditableLabel(g, d) {
   const titleSize = setting("labelTitleSize");
   const fontSize = setting("fontSize");
   const lineGap = setting("lineGap");
+  const textX = labelTextX(pad, titleSize);
+  const showNumbers = setting("showLabelNumbers");
   const badgeR = Math.max(9, titleSize * 0.70);
-  const textX = pad + Math.max(26, titleSize * 1.8);
 
   const activeViruses = d.viruses.filter(v => v.enabled);
   const maxText = Math.max(
@@ -1325,11 +1338,9 @@ function renderEditableLabel(g, d) {
     ...activeViruses.map(v => textWidthApprox("• " + v.name, fontSize, 500))
   );
 
+  const minH = pad * 2 + titleSize + activeViruses.length * lineGap + 8;
   d.label.w = Math.max(130, textX + maxText + pad * 1.8);
-  d.label.h = Math.max(
-    pad * 2 + badgeR * 2,
-    pad * 2 + titleSize + activeViruses.length * lineGap + 8
-  );
+  d.label.h = showNumbers ? Math.max(pad * 2 + badgeR * 2, minH) : minH;
 
   g.append("rect")
     .attr("class", "label-box")
@@ -1342,21 +1353,7 @@ function renderEditableLabel(g, d) {
     .attr("opacity", setting("showBoxes") ? setting("boxOpacity") : 0)
     .attr("stroke", d.id === selectedRegionId ? "rgba(0,0,0,0.55)" : "none");
 
-  g.append("circle")
-    .attr("cx", pad)
-    .attr("cy", pad + 4)
-    .attr("r", badgeR)
-    .attr("fill", "#111");
-
-  g.append("text")
-    .attr("x", pad)
-    .attr("y", pad + 4)
-    .attr("text-anchor", "middle")
-    .attr("dominant-baseline", "central")
-    .attr("font-size", titleSize * 0.78)
-    .attr("font-weight", 800)
-    .attr("fill", "#fff")
-    .text(d.id);
+  appendLabelBadge(g, d, pad, titleSize);
 
   const fo = g.append("foreignObject")
     .attr("x", textX)
