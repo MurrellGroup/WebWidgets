@@ -32,10 +32,13 @@
     height: 100vh;
   }
 
-  svg {
+  #map {
+    position: absolute;
+    left: 10px;
+    top: 10px;
     display: block;
-    width: 100%;
-    height: 100%;
+    width: calc(100vw - 20px);
+    height: calc(100vh - 20px);
     background: #fbfbf8;
   }
 
@@ -52,10 +55,29 @@
     border-radius: 14px;
     box-shadow: 0 8px 28px rgba(0,0,0,0.12);
     font-size: 12px;
+    transition: width 0.15s ease, padding 0.15s ease;
+  }
+
+  #controls.collapsed {
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    padding: 8px 10px;
+  }
+
+  #controls.collapsed #panelBody {
+    display: none;
+  }
+
+  #panelHeader {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
   }
 
   #controls h2 {
-    margin: 0 0 8px 0;
+    margin: 0;
     font-size: 15px;
     line-height: 1.2;
   }
@@ -198,9 +220,53 @@
     user-select: none;
   }
 
-  .label.locked rect {
+  .label.locked rect.label-box {
     stroke: rgba(0,0,0,0.28);
     stroke-dasharray: 4 3;
+  }
+
+  .label.selected rect.label-box {
+    stroke: rgba(0,0,0,0.55);
+    stroke-width: 1.4;
+  }
+
+  .label-html {
+    box-sizing: border-box;
+    overflow: visible;
+    font-family: Inter, Helvetica, Arial, sans-serif;
+  }
+
+  .label-html input {
+    display: block;
+    border: 0;
+    background: rgba(255,255,255,0.30);
+    border-radius: 4px;
+    padding: 1px 4px;
+    margin: 0 0 2px 0;
+    color: inherit;
+    font-family: Inter, Helvetica, Arial, sans-serif;
+  }
+
+  .label-html input:focus {
+    outline: 1px solid rgba(0,0,0,0.35);
+    background: rgba(255,255,255,0.72);
+  }
+
+  .hotspot-handle {
+    cursor: grab;
+  }
+
+  .hotspot-handle:active {
+    cursor: grabbing;
+  }
+
+  .hotspot-handle text {
+    pointer-events: none;
+    user-select: none;
+    paint-order: stroke;
+    stroke: rgba(255,255,255,0.88);
+    stroke-width: 3px;
+    stroke-linejoin: round;
   }
 
   #modalBackdrop {
@@ -250,108 +316,130 @@
   <svg id="map" viewBox="0 0 1800 1000" preserveAspectRatio="xMidYMid meet"></svg>
 
   <div id="controls">
-    <h2>Virus watchpoint map editor</h2>
-    <div class="small">
-      Drag labels. Double-click a label to lock/unlock it. Right-click the map to add a hotspot and label.
+    <div id="panelHeader">
+      <h2>Virus watchpoint map editor</h2>
+      <button id="panelToggle">Hide</button>
     </div>
 
-    <details open>
-      <summary>Actions and state</summary>
-      <div class="row two">
-        <button id="autoPlace">Auto-place labels</button>
-        <button id="resetLabels">Reset label positions</button>
-      </div>
-      <div class="row two">
-        <button id="downloadSvg">Download SVG</button>
-        <button id="downloadJson">Save JSON state</button>
-      </div>
-      <div class="row two">
-        <button id="copyJson">Copy JSON state</button>
-        <button id="unlockAll">Unlock all labels</button>
-      </div>
-      <div class="row one">
-        <input id="loadJsonFile" type="file" accept="application/json,.json" />
-      </div>
-      <div class="row one">
-        <textarea id="stateBox" placeholder="JSON state appears here, or paste JSON here and click Load pasted JSON."></textarea>
-      </div>
-      <div class="row two">
-        <button id="loadPastedJson">Load pasted JSON</button>
-        <button id="resetEverything">Reset everything</button>
-      </div>
-    </details>
-
-    <details open>
-      <summary>Regions, boxes, viruses</summary>
+    <div id="panelBody">
       <div class="small">
-        Box toggles affect annotations. Virus toggles affect each box’s text. Hotspot toggles affect contours.
+        Drag labels. Double-click a label to lock/unlock it. In hotspot mode, click a label to select it; right-click the map to add a hotspot to that label.
       </div>
-      <div id="regionControls"></div>
-    </details>
 
-    <details>
-      <summary>Visibility</summary>
-      <div class="checks">
-        <label><input data-setting="showLabels" type="checkbox"> labels</label>
-        <label><input data-setting="showBoxes" type="checkbox"> boxes</label>
-        <label><input data-setting="showLeaders" type="checkbox"> leader lines</label>
-        <label><input data-setting="showContours" type="checkbox"> contours</label>
-        <label><input data-setting="showBorders" type="checkbox"> country borders</label>
-        <label><input data-setting="showGraticule" type="checkbox"> graticule</label>
-        <label><input data-setting="showTitle" type="checkbox"> title</label>
-        <label><input data-setting="showAnchors" type="checkbox"> anchor dots</label>
-      </div>
-    </details>
+      <details open>
+        <summary>Actions and state</summary>
+        <div class="row two">
+          <button id="autoPlace">Auto-place labels</button>
+          <button id="resetLabels">Reset label positions</button>
+        </div>
+        <div class="row two">
+          <button id="downloadSvg">Download SVG</button>
+          <button id="downloadJson">Save JSON state</button>
+        </div>
+        <div class="row two">
+          <button id="copyJson">Copy JSON state</button>
+          <button id="unlockAll">Unlock all labels</button>
+        </div>
+        <div class="row"><label>map zoom</label><input data-setting="mapScale" type="range" min="0.35" max="1" step="0.01"><output></output></div>
+        <div class="row one">
+          <input id="loadJsonFile" type="file" accept="application/json,.json" />
+        </div>
+        <div class="row one">
+          <textarea id="stateBox" placeholder="JSON state appears here, or paste JSON here and click Load pasted JSON."></textarea>
+        </div>
+        <div class="row two">
+          <button id="loadPastedJson">Load pasted JSON</button>
+          <button id="resetEverything">Reset everything</button>
+        </div>
+      </details>
 
-    <details>
-      <summary>Text and label boxes</summary>
-      <div class="row"><label>virus font size</label><input data-setting="fontSize" type="range" min="7" max="22" step="0.5"><output></output></div>
-      <div class="row"><label>region title size</label><input data-setting="labelTitleSize" type="range" min="9" max="28" step="0.5"><output></output></div>
-      <div class="row"><label>label padding</label><input data-setting="labelPadding" type="range" min="2" max="28" step="1"><output></output></div>
-      <div class="row"><label>line spacing</label><input data-setting="lineGap" type="range" min="12" max="34" step="1"><output></output></div>
-      <div class="row"><label>box opacity</label><input data-setting="boxOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
-      <div class="row"><label>box radius</label><input data-setting="boxRadius" type="range" min="0" max="30" step="1"><output></output></div>
-      <div class="row"><label>box fill</label><input data-setting="boxFill" type="color"><span></span></div>
-      <div class="row"><label>text color</label><input data-setting="textColor" type="color"><span></span></div>
-      <div class="row"><label>leader color</label><input data-setting="leaderColor" type="color"><span></span></div>
-      <div class="row"><label>leader width</label><input data-setting="leaderWidth" type="range" min="0.2" max="4" step="0.1"><output></output></div>
-    </details>
+      <details open>
+        <summary>View mode: hotspot centroids</summary>
+        <div class="checks">
+          <label><input data-setting="hotspotEditMode" type="checkbox"> edit hotspot centroids</label>
+          <label><input data-setting="syncAnchorOnHotspotDrag" type="checkbox"> move label anchor with hotspots</label>
+        </div>
+        <div class="row"><label>handle size</label><input data-setting="hotspotHandleSize" type="range" min="3" max="22" step="1"><output></output></div>
+        <div class="row"><label>wheel intensity step</label><input data-setting="hotspotWheelStep" type="range" min="0.01" max="0.25" step="0.01"><output></output></div>
+        <div class="row"><label>handle color</label><input data-setting="hotspotHandleColor" type="color"><span></span></div>
+        <div class="small">
+          In centroid edit mode, drag centroids to move kernels. Mouse-wheel over a centroid changes its intensity.
+          Shift = faster. Alt/Option = finer. Select a hotspot and press Backspace/Delete to remove it.
+        </div>
+      </details>
 
-    <details>
-      <summary>Contours</summary>
-      <div class="row"><label>kernel scale</label><input data-setting="kernelScale" type="range" min="0.25" max="3.5" step="0.05"><output></output></div>
-      <div class="row"><label>grid step</label><input data-setting="gridStep" type="range" min="5" max="24" step="1"><output></output></div>
-      <div class="row"><label>low threshold</label><input data-setting="thrLow" type="range" min="0.02" max="0.8" step="0.01"><output></output></div>
-      <div class="row"><label>mid threshold</label><input data-setting="thrMid" type="range" min="0.02" max="0.9" step="0.01"><output></output></div>
-      <div class="row"><label>high threshold</label><input data-setting="thrHigh" type="range" min="0.02" max="1" step="0.01"><output></output></div>
-      <div class="row"><label>contour opacity</label><input data-setting="contourOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
-      <div class="row"><label>contour stroke</label><input data-setting="contourStrokeWidth" type="range" min="0" max="4" step="0.1"><output></output></div>
-      <div class="row"><label>low color</label><input data-setting="lowColor" type="color"><span></span></div>
-      <div class="row"><label>mid color</label><input data-setting="midColor" type="color"><span></span></div>
-      <div class="row"><label>high color</label><input data-setting="highColor" type="color"><span></span></div>
-    </details>
+      <details open>
+        <summary>Regions, boxes, viruses</summary>
+        <div class="small">
+          Box toggles affect annotations. Virus toggles affect each box’s text. Hotspot toggles affect contours.
+        </div>
+        <div id="regionControls"></div>
+      </details>
 
-    <details>
-      <summary>Base map</summary>
-      <div class="row"><label>land color</label><input data-setting="landColor" type="color"><span></span></div>
-      <div class="row"><label>ocean color</label><input data-setting="oceanColor" type="color"><span></span></div>
-      <div class="row"><label>border color</label><input data-setting="borderColor" type="color"><span></span></div>
-      <div class="row"><label>border opacity</label><input data-setting="borderOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
-      <div class="row"><label>graticule opacity</label><input data-setting="graticuleOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
-    </details>
+      <details>
+        <summary>Visibility</summary>
+        <div class="checks">
+          <label><input data-setting="showLabels" type="checkbox"> labels</label>
+          <label><input data-setting="showBoxes" type="checkbox"> boxes</label>
+          <label><input data-setting="showLeaders" type="checkbox"> leader lines</label>
+          <label><input data-setting="showContours" type="checkbox"> contours</label>
+          <label><input data-setting="showBorders" type="checkbox"> country borders</label>
+          <label><input data-setting="showGraticule" type="checkbox"> graticule</label>
+          <label><input data-setting="showTitle" type="checkbox"> title</label>
+          <label><input data-setting="showAnchors" type="checkbox"> anchor dots</label>
+        </div>
+      </details>
+
+      <details>
+        <summary>Text and label boxes</summary>
+        <div class="row"><label>virus font size</label><input data-setting="fontSize" type="range" min="7" max="22" step="0.5"><output></output></div>
+        <div class="row"><label>region title size</label><input data-setting="labelTitleSize" type="range" min="9" max="28" step="0.5"><output></output></div>
+        <div class="row"><label>label padding</label><input data-setting="labelPadding" type="range" min="2" max="28" step="1"><output></output></div>
+        <div class="row"><label>line spacing</label><input data-setting="lineGap" type="range" min="12" max="34" step="1"><output></output></div>
+        <div class="row"><label>box opacity</label><input data-setting="boxOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+        <div class="row"><label>box radius</label><input data-setting="boxRadius" type="range" min="0" max="30" step="1"><output></output></div>
+        <div class="row"><label>box fill</label><input data-setting="boxFill" type="color"><span></span></div>
+        <div class="row"><label>text color</label><input data-setting="textColor" type="color"><span></span></div>
+        <div class="row"><label>leader color</label><input data-setting="leaderColor" type="color"><span></span></div>
+        <div class="row"><label>leader width</label><input data-setting="leaderWidth" type="range" min="0.2" max="4" step="0.1"><output></output></div>
+      </details>
+
+      <details>
+        <summary>Contours</summary>
+        <div class="row"><label>kernel scale</label><input data-setting="kernelScale" type="range" min="0.25" max="3.5" step="0.05"><output></output></div>
+        <div class="row"><label>grid step</label><input data-setting="gridStep" type="range" min="5" max="24" step="1"><output></output></div>
+        <div class="row"><label>low threshold</label><input data-setting="thrLow" type="range" min="0.02" max="0.8" step="0.01"><output></output></div>
+        <div class="row"><label>mid threshold</label><input data-setting="thrMid" type="range" min="0.02" max="0.9" step="0.01"><output></output></div>
+        <div class="row"><label>high threshold</label><input data-setting="thrHigh" type="range" min="0.02" max="1" step="0.01"><output></output></div>
+        <div class="row"><label>contour opacity</label><input data-setting="contourOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+        <div class="row"><label>contour stroke</label><input data-setting="contourStrokeWidth" type="range" min="0" max="4" step="0.1"><output></output></div>
+        <div class="row"><label>low color</label><input data-setting="lowColor" type="color"><span></span></div>
+        <div class="row"><label>mid color</label><input data-setting="midColor" type="color"><span></span></div>
+        <div class="row"><label>high color</label><input data-setting="highColor" type="color"><span></span></div>
+      </details>
+
+      <details>
+        <summary>Base map</summary>
+        <div class="row"><label>land color</label><input data-setting="landColor" type="color"><span></span></div>
+        <div class="row"><label>ocean color</label><input data-setting="oceanColor" type="color"><span></span></div>
+        <div class="row"><label>border color</label><input data-setting="borderColor" type="color"><span></span></div>
+        <div class="row"><label>border opacity</label><input data-setting="borderOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+        <div class="row"><label>graticule opacity</label><input data-setting="graticuleOpacity" type="range" min="0" max="1" step="0.01"><output></output></div>
+      </details>
+    </div>
   </div>
 
   <div id="modalBackdrop">
     <div id="modal">
-      <h3>Add hotspot and label</h3>
+      <h3 id="modalTitle">Add hotspot and label</h3>
       <div class="small" id="modalCoords"></div>
 
-      <div class="form-row">
+      <div class="form-row" id="newRegionNameRow">
         <label>Region / box title</label>
         <input id="newRegionName" type="text" value="New watchpoint" />
       </div>
 
-      <div class="form-row">
+      <div class="form-row" id="newVirusesRow">
         <label>Virus lines, one per row</label>
         <textarea id="newViruses">New virus</textarea>
       </div>
@@ -383,6 +471,15 @@
 const defaultState = {
   version: 2,
   settings: {
+    panelCollapsed: false,
+    mapScale: 1.0,
+
+    hotspotEditMode: false,
+    syncAnchorOnHotspotDrag: true,
+    hotspotHandleSize: 9,
+    hotspotWheelStep: 0.05,
+    hotspotHandleColor: "#111111",
+
     showLabels: true,
     showBoxes: true,
     showLeaders: true,
@@ -672,7 +769,10 @@ const defaultState = {
 
 let state = structuredClone(defaultState);
 let pendingAdd = null;
+let selectedRegionId = null;
+let selectedHotspot = null;
 let countries, borders;
+let contourRenderPending = false;
 
 const svg = d3.select("#map");
 const W = 1800;
@@ -687,6 +787,7 @@ const gBase = svg.append("g").attr("id", "base-map");
 const gContours = svg.append("g").attr("id", "contours");
 const gLeaders = svg.append("g").attr("id", "leader-lines");
 const gLabels = svg.append("g").attr("id", "labels");
+const gHotspotHandles = svg.append("g").attr("id", "hotspot-centroid-handles");
 const gTitle = svg.append("g").attr("id", "title");
 
 function setting(k) {
@@ -695,6 +796,10 @@ function setting(k) {
 
 function setSetting(k, v) {
   state.settings[k] = v;
+}
+
+function ui(id) {
+  return document.getElementById(id);
 }
 
 function syncSettingInputs() {
@@ -710,6 +815,24 @@ function syncSettingInputs() {
     const out = row.querySelector("output");
     if (input && out) out.value = input.value;
   });
+
+  applyMapScale();
+  applyPanelState();
+}
+
+function applyMapScale() {
+  const s = clamp(+setting("mapScale") || 1, 0.35, 1);
+  svg
+    .style("width", `calc(${100 * s}vw - 20px)`)
+    .style("height", `calc(${100 * s}vh - 20px)`)
+    .style("left", "10px")
+    .style("top", "10px");
+}
+
+function applyPanelState() {
+  const collapsed = !!setting("panelCollapsed");
+  ui("controls").classList.toggle("collapsed", collapsed);
+  ui("panelToggle").textContent = collapsed ? "Show controls" : "Hide";
 }
 
 function bindSettingInputs() {
@@ -723,6 +846,11 @@ function bindSettingInputs() {
 
       setSetting(key, value);
 
+      if (key === "mapScale") {
+        syncSettingInputs();
+        return;
+      }
+
       const contourKeys = new Set([
         "kernelScale", "gridStep", "thrLow", "thrMid", "thrHigh",
         "contourOpacity", "contourStrokeWidth", "lowColor", "midColor",
@@ -734,9 +862,15 @@ function bindSettingInputs() {
         "graticuleOpacity", "showBorders", "showGraticule"
       ]);
 
-      if (contourKeys.has(key)) redraw({contours: true, base: false, labels: false});
-      else if (baseKeys.has(key)) redraw({contours: false, base: true, labels: false});
-      else redraw({contours: false, base: false, labels: true});
+      const handleKeys = new Set([
+        "hotspotEditMode", "hotspotHandleSize", "hotspotWheelStep",
+        "hotspotHandleColor", "syncAnchorOnHotspotDrag"
+      ]);
+
+      if (contourKeys.has(key)) redraw({contours: true, base: false, labels: false, handles: true});
+      else if (baseKeys.has(key)) redraw({contours: false, base: true, labels: false, handles: true});
+      else if (handleKeys.has(key)) redraw({contours: false, base: false, labels: true, handles: true});
+      else redraw({contours: false, base: false, labels: true, handles: true});
 
       syncSettingInputs();
     });
@@ -760,6 +894,7 @@ function renderRegionControls() {
     .on("change", (event, d) => {
       d.boxEnabled = event.target.checked;
       renderLabels();
+      renderHotspotHandles();
     });
 
   head.append("span")
@@ -770,7 +905,9 @@ function renderRegionControls() {
     .text("delete")
     .on("click", (event, d) => {
       state.regions = state.regions.filter(r => r.id !== d.id);
-      redraw({base: false, contours: true, labels: true});
+      if (selectedRegionId === d.id) selectedRegionId = null;
+      if (selectedHotspot?.regionId === d.id) selectedHotspot = null;
+      redraw({base: false, contours: true, labels: true, handles: true});
       renderRegionControls();
     });
 
@@ -785,6 +922,7 @@ function renderRegionControls() {
     .on("change", (event, d) => {
       d.boxEnabled = event.target.checked;
       renderLabels();
+      renderHotspotHandles();
       renderRegionControls();
     });
   boxLab.append("span").text(" label box");
@@ -796,6 +934,7 @@ function renderRegionControls() {
     .on("change", (event, d) => {
       d.hotspotsEnabled = event.target.checked;
       renderContours();
+      renderHotspotHandles();
     });
   hotLab.append("span").text(" hotspots");
 
@@ -811,6 +950,7 @@ function renderRegionControls() {
     .attr("class", "virus-line")
     .each(function(d) {
       const line = d3.select(this);
+
       line.append("input")
         .attr("type", "checkbox")
         .property("checked", d.virus.enabled)
@@ -842,6 +982,7 @@ function renderRegionControls() {
         .on("change", event => {
           d.hotspot.enabled = event.target.checked;
           renderContours();
+          renderHotspotHandles();
         });
 
       row.append("span")
@@ -855,6 +996,7 @@ function renderRegionControls() {
         .on("change", event => {
           d.hotspot.rxKm = +event.target.value;
           renderContours();
+          renderHotspotHandles();
         });
 
       row.append("input")
@@ -864,6 +1006,7 @@ function renderRegionControls() {
         .on("change", event => {
           d.hotspot.ryKm = +event.target.value;
           renderContours();
+          renderHotspotHandles();
         });
 
       row.append("input")
@@ -874,15 +1017,14 @@ function renderRegionControls() {
         .on("change", event => {
           d.hotspot.weight = +event.target.value;
           renderContours();
+          renderHotspotHandles();
         });
 
       row.append("button")
         .attr("class", "danger")
         .text("x")
         .on("click", () => {
-          d.region.hotspots = d.region.hotspots.filter(h => h.id !== d.hotspot.id);
-          renderContours();
-          renderRegionControls();
+          deleteHotspot(d.region.id, d.hotspot.id);
         });
     });
 }
@@ -1017,6 +1159,16 @@ function renderContours() {
     .attr("stroke-linejoin", "round");
 }
 
+function scheduleContourRender() {
+  if (contourRenderPending) return;
+  contourRenderPending = true;
+
+  requestAnimationFrame(() => {
+    contourRenderPending = false;
+    renderContours();
+  });
+}
+
 function renderTitle() {
   gTitle.selectAll("*").remove();
   gTitle.style("display", setting("showTitle") ? null : "none");
@@ -1053,96 +1205,218 @@ function renderLabels() {
   gLabels.style("display", setting("showLabels") ? null : "none");
   gLeaders.style("display", setting("showLeaders") ? null : "none");
 
-  const pad = setting("labelPadding");
-  const titleSize = setting("labelTitleSize");
-  const fontSize = setting("fontSize");
-  const lineGap = setting("lineGap");
-
-  const visible = state.regions.filter(r => r.boxEnabled);
+  const visible = state.regions.filter(r => r.boxEnabled && r.hotspots.length > 0);
 
   const groups = gLabels.selectAll("g.label")
     .data(visible, d => d.id)
     .join("g")
-    .attr("class", d => "label" + (d.label.locked ? " locked" : ""))
+    .attr("class", d => {
+      const bits = ["label"];
+      if (d.label.locked) bits.push("locked");
+      if (setting("hotspotEditMode") && d.id === selectedRegionId) bits.push("selected");
+      return bits.join(" ");
+    })
     .attr("transform", d => `translate(${d.label.x},${d.label.y})`)
     .call(
       d3.drag()
         .on("start", function(event, d) {
+          if (isTextEditingTarget(event.sourceEvent?.target)) return;
           d3.select(this).raise();
           d.label.locked = true;
         })
         .on("drag", function(event, d) {
+          if (isTextEditingTarget(event.sourceEvent?.target)) return;
           d.label.x = clamp(event.x, 0, W - (d.label.w || 160));
           d.label.y = clamp(event.y, 0, H - (d.label.h || 80));
           d3.select(this).attr("transform", `translate(${d.label.x},${d.label.y})`);
           updateLeaders();
         })
     )
+    .on("click", function(event, d) {
+      if (!setting("hotspotEditMode")) return;
+      selectedRegionId = d.id;
+      selectedHotspot = null;
+      renderLabels();
+      renderHotspotHandles();
+      event.stopPropagation();
+    })
     .on("dblclick", function(event, d) {
+      if (isTextEditingTarget(event.target)) return;
       d.label.locked = !d.label.locked;
       d3.select(this).classed("locked", d.label.locked);
     });
 
   groups.each(function(d) {
     const g = d3.select(this);
-    const badgeR = Math.max(9, titleSize * 0.70);
-    const textX = pad + Math.max(26, titleSize * 1.8);
-
-    g.append("rect")
-      .attr("x", 0)
-      .attr("y", 0)
-      .attr("rx", setting("boxRadius"))
-      .attr("fill", setting("boxFill"))
-      .attr("opacity", setting("showBoxes") ? setting("boxOpacity") : 0)
-      .attr("stroke", "none");
-
-    g.append("circle")
-      .attr("cx", pad)
-      .attr("cy", pad + 4)
-      .attr("r", badgeR)
-      .attr("fill", "#111");
-
-    g.append("text")
-      .attr("x", pad)
-      .attr("y", pad + 4)
-      .attr("text-anchor", "middle")
-      .attr("dominant-baseline", "central")
-      .attr("font-size", titleSize * 0.78)
-      .attr("font-weight", 800)
-      .attr("fill", "#fff")
-      .text(d.id);
-
-    const text = g.append("text")
-      .attr("x", textX)
-      .attr("y", pad)
-      .attr("fill", setting("textColor"));
-
-    labelLines(d).forEach((line, i) => {
-      text.append("tspan")
-        .attr("x", textX)
-        .attr("dy", i === 0 ? 0 : lineGap)
-        .attr("font-size", i === 0 ? titleSize : fontSize)
-        .attr("font-weight", i === 0 ? 800 : 500)
-        .text(line);
-    });
-
-    const bbox = g.node().getBBox();
-    d.label.w = bbox.width + pad * 1.2;
-    d.label.h = bbox.height + pad * 1.25;
-
-    g.select("rect")
-      .attr("width", d.label.w)
-      .attr("height", d.label.h);
+    if (setting("hotspotEditMode")) renderEditableLabel(g, d);
+    else renderStaticLabel(g, d);
   });
 
   updateLeaders();
+}
+
+function renderStaticLabel(g, d) {
+  const pad = setting("labelPadding");
+  const titleSize = setting("labelTitleSize");
+  const fontSize = setting("fontSize");
+  const lineGap = setting("lineGap");
+  const badgeR = Math.max(9, titleSize * 0.70);
+  const textX = pad + Math.max(26, titleSize * 1.8);
+
+  g.append("rect")
+    .attr("class", "label-box")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("rx", setting("boxRadius"))
+    .attr("fill", setting("boxFill"))
+    .attr("opacity", setting("showBoxes") ? setting("boxOpacity") : 0)
+    .attr("stroke", "none");
+
+  g.append("circle")
+    .attr("cx", pad)
+    .attr("cy", pad + 4)
+    .attr("r", badgeR)
+    .attr("fill", "#111");
+
+  g.append("text")
+    .attr("x", pad)
+    .attr("y", pad + 4)
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "central")
+    .attr("font-size", titleSize * 0.78)
+    .attr("font-weight", 800)
+    .attr("fill", "#fff")
+    .text(d.id);
+
+  const text = g.append("text")
+    .attr("x", textX)
+    .attr("y", pad)
+    .attr("fill", setting("textColor"));
+
+  labelLines(d).forEach((line, i) => {
+    text.append("tspan")
+      .attr("x", textX)
+      .attr("dy", i === 0 ? 0 : lineGap)
+      .attr("font-size", i === 0 ? titleSize : fontSize)
+      .attr("font-weight", i === 0 ? 800 : 500)
+      .text(line);
+  });
+
+  const bbox = g.node().getBBox();
+  d.label.w = bbox.width + pad * 1.2;
+  d.label.h = bbox.height + pad * 1.25;
+
+  g.select("rect.label-box")
+    .attr("width", d.label.w)
+    .attr("height", d.label.h);
+}
+
+function renderEditableLabel(g, d) {
+  const pad = setting("labelPadding");
+  const titleSize = setting("labelTitleSize");
+  const fontSize = setting("fontSize");
+  const lineGap = setting("lineGap");
+  const badgeR = Math.max(9, titleSize * 0.70);
+  const textX = pad + Math.max(26, titleSize * 1.8);
+
+  const activeViruses = d.viruses.filter(v => v.enabled);
+  const maxText = Math.max(
+    textWidthApprox(d.name, titleSize, 800),
+    ...activeViruses.map(v => textWidthApprox("• " + v.name, fontSize, 500))
+  );
+
+  d.label.w = Math.max(130, textX + maxText + pad * 1.8);
+  d.label.h = Math.max(
+    pad * 2 + badgeR * 2,
+    pad * 2 + titleSize + activeViruses.length * lineGap + 8
+  );
+
+  g.append("rect")
+    .attr("class", "label-box")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("rx", setting("boxRadius"))
+    .attr("width", d.label.w)
+    .attr("height", d.label.h)
+    .attr("fill", setting("boxFill"))
+    .attr("opacity", setting("showBoxes") ? setting("boxOpacity") : 0)
+    .attr("stroke", d.id === selectedRegionId ? "rgba(0,0,0,0.55)" : "none");
+
+  g.append("circle")
+    .attr("cx", pad)
+    .attr("cy", pad + 4)
+    .attr("r", badgeR)
+    .attr("fill", "#111");
+
+  g.append("text")
+    .attr("x", pad)
+    .attr("y", pad + 4)
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "central")
+    .attr("font-size", titleSize * 0.78)
+    .attr("font-weight", 800)
+    .attr("fill", "#fff")
+    .text(d.id);
+
+  const fo = g.append("foreignObject")
+    .attr("x", textX)
+    .attr("y", pad - 2)
+    .attr("width", Math.max(80, d.label.w - textX - pad))
+    .attr("height", d.label.h - pad);
+
+  const div = fo.append("xhtml:div")
+    .attr("class", "label-html")
+    .style("color", setting("textColor"))
+    .style("line-height", `${lineGap}px`);
+
+  div.append("xhtml:input")
+    .attr("type", "text")
+    .attr("value", d.name)
+    .style("font-size", `${titleSize}px`)
+    .style("font-weight", 800)
+    .style("width", `${Math.max(55, textWidthApprox(d.name, titleSize, 800) + 18)}px`)
+    .on("mousedown", event => event.stopPropagation())
+    .on("click", event => {
+      selectedRegionId = d.id;
+      selectedHotspot = null;
+      event.stopPropagation();
+    })
+    .on("input", function() {
+      d.name = this.value;
+    })
+    .on("blur", () => {
+      renderRegionControls();
+      renderLabels();
+    });
+
+  activeViruses.forEach(v => {
+    div.append("xhtml:input")
+      .attr("type", "text")
+      .attr("value", "• " + v.name)
+      .style("font-size", `${fontSize}px`)
+      .style("font-weight", 500)
+      .style("width", `${Math.max(55, textWidthApprox("• " + v.name, fontSize, 500) + 18)}px`)
+      .on("mousedown", event => event.stopPropagation())
+      .on("click", event => {
+        selectedRegionId = d.id;
+        selectedHotspot = null;
+        event.stopPropagation();
+      })
+      .on("input", function() {
+        v.name = this.value.replace(/^•\s*/, "");
+      })
+      .on("blur", () => {
+        renderRegionControls();
+        renderLabels();
+      });
+  });
 }
 
 function updateLeaders() {
   gLeaders.selectAll("*").remove();
 
   const data = state.regions
-    .filter(d => d.boxEnabled)
+    .filter(d => d.boxEnabled && d.hotspots.length > 0)
     .map(d => {
       const anchor = projection(d.anchor);
       if (!anchor) return null;
@@ -1182,6 +1456,179 @@ function updateLeaders() {
   }
 }
 
+function renderHotspotHandles() {
+  gHotspotHandles.selectAll("*").remove();
+
+  const editMode = setting("hotspotEditMode");
+  gHotspotHandles.style("display", editMode ? null : "none");
+  if (!editMode) return;
+
+  const handleSize = setting("hotspotHandleSize");
+  const handleColor = setting("hotspotHandleColor");
+
+  const data = state.regions.flatMap(region => {
+    return region.hotspots.map((hotspot, index) => {
+      const p = projection([hotspot.lon, hotspot.lat]);
+      if (!p) return null;
+
+      return {
+        id: `${region.id}:${hotspot.id}`,
+        region,
+        hotspot,
+        index,
+        x: p[0],
+        y: p[1]
+      };
+    }).filter(Boolean);
+  });
+
+  const handles = gHotspotHandles.selectAll("g.hotspot-handle")
+    .data(data, d => d.id)
+    .join("g")
+    .attr("class", "hotspot-handle")
+    .attr("transform", d => `translate(${d.x},${d.y})`)
+    .call(
+      d3.drag()
+        .on("start", function(event, d) {
+          selectHotspot(d.region.id, d.hotspot.id);
+          d3.select(this).raise();
+        })
+        .on("drag", function(event, d) {
+          const lonLat = projection.invert([event.x, event.y]);
+          if (!lonLat) return;
+
+          d.hotspot.lon = clamp(lonLat[0], -180, 180);
+          d.hotspot.lat = clamp(lonLat[1], -85, 85);
+
+          if (setting("syncAnchorOnHotspotDrag")) syncRegionAnchorToHotspots(d.region);
+
+          const p = projection([d.hotspot.lon, d.hotspot.lat]);
+          d3.select(this).attr("transform", `translate(${p[0]},${p[1]})`);
+
+          scheduleContourRender();
+          updateLeaders();
+        })
+        .on("end", function() {
+          renderRegionControls();
+          renderHotspotHandles();
+        })
+    )
+    .on("click", function(event, d) {
+      selectHotspot(d.region.id, d.hotspot.id);
+      event.stopPropagation();
+    })
+    .on("wheel", function(event, d) {
+      event.preventDefault();
+
+      selectHotspot(d.region.id, d.hotspot.id);
+
+      let step = setting("hotspotWheelStep") || 0.05;
+      if (event.shiftKey) step *= 5;
+      if (event.altKey) step *= 0.2;
+
+      const direction = event.deltaY < 0 ? 1 : -1;
+      d.hotspot.weight = clamp(d.hotspot.weight + direction * step, 0, 5);
+
+      if (setting("syncAnchorOnHotspotDrag")) syncRegionAnchorToHotspots(d.region);
+
+      scheduleContourRender();
+      updateLeaders();
+      renderHotspotHandles();
+      renderRegionControls();
+    });
+
+  handles.each(function(d) {
+    const g = d3.select(this);
+    const active = d.region.hotspotsEnabled && d.hotspot.enabled;
+    const selected = selectedHotspot &&
+      selectedHotspot.regionId === d.region.id &&
+      selectedHotspot.hotspotId === d.hotspot.id;
+
+    const r = handleSize * (0.8 + 0.35 * Math.sqrt(Math.max(0, d.hotspot.weight)));
+
+    g.append("circle")
+      .attr("r", r + 8)
+      .attr("fill", "transparent")
+      .attr("stroke", "none");
+
+    g.append("circle")
+      .attr("r", r)
+      .attr("fill", active ? handleColor : "#ffffff")
+      .attr("stroke", selected ? "#ffffff" : active ? "#ffffff" : "#777777")
+      .attr("stroke-width", selected ? 4 : 2)
+      .attr("opacity", active ? 0.95 : 0.35);
+
+    g.append("circle")
+      .attr("r", r + 5)
+      .attr("fill", "none")
+      .attr("stroke", selected ? "#000000" : active ? handleColor : "#777777")
+      .attr("stroke-width", selected ? 2.2 : 1.2)
+      .attr("opacity", selected ? 0.85 : active ? 0.55 : 0.25);
+
+    g.append("text")
+      .attr("x", r + 8)
+      .attr("y", -r - 2)
+      .attr("font-size", 11)
+      .attr("font-weight", 800)
+      .attr("fill", handleColor)
+      .text(`${d.region.id}.${d.index + 1}  w=${fmt(d.hotspot.weight)}`);
+
+    g.append("title")
+      .text(`${d.region.name}\nlon ${fmt(d.hotspot.lon)}, lat ${fmt(d.hotspot.lat)}\nweight ${fmt(d.hotspot.weight)}\nDrag to move. Wheel to change intensity. Backspace/Delete removes selected hotspot.`);
+  });
+}
+
+function selectHotspot(regionId, hotspotId) {
+  selectedRegionId = regionId;
+  selectedHotspot = {regionId, hotspotId};
+  renderLabels();
+  renderHotspotHandles();
+}
+
+function deleteSelectedHotspot() {
+  if (!selectedHotspot) return;
+
+  deleteHotspot(selectedHotspot.regionId, selectedHotspot.hotspotId);
+  selectedHotspot = null;
+}
+
+function deleteHotspot(regionId, hotspotId) {
+  const region = state.regions.find(r => r.id === regionId);
+  if (!region) return;
+
+  region.hotspots = region.hotspots.filter(h => h.id !== hotspotId);
+
+  if (region.hotspots.length === 0) {
+    region.boxEnabled = false;
+    region.hotspotsEnabled = false;
+  } else {
+    syncRegionAnchorToHotspots(region);
+  }
+
+  renderContours();
+  renderLabels();
+  renderHotspotHandles();
+  renderRegionControls();
+}
+
+function syncRegionAnchorToHotspots(region) {
+  const hs = region.hotspots.filter(h => h.enabled);
+  if (!hs.length) return;
+
+  let sw = 0;
+  let lon = 0;
+  let lat = 0;
+
+  for (const h of hs) {
+    const w = Math.max(0.0001, h.weight || 1);
+    sw += w;
+    lon += h.lon * w;
+    lat += h.lat * w;
+  }
+
+  region.anchor = [lon / sw, lat / sw];
+}
+
 function edgePoint(x, y, w, h, ax, ay) {
   const cx = x + w / 2;
   const cy = y + h / 2;
@@ -1211,12 +1658,12 @@ function edgePoint(x, y, w, h, ax, ay) {
 }
 
 function autoPlaceLabels() {
-  const nodes = state.regions.filter(r => r.boxEnabled);
+  const nodes = state.regions.filter(r => r.boxEnabled && r.hotspots.length > 0);
 
   nodes.forEach(d => {
     if (!d.label.locked) {
-      d.label.x = d.label.x ?? d.label.startX ?? 80;
-      d.label.y = d.label.y ?? d.label.startY ?? 120;
+      d.label.x = d.label.x ?? d.label.homeX ?? 80;
+      d.label.y = d.label.y ?? d.label.homeY ?? 120;
     }
   });
 
@@ -1261,6 +1708,7 @@ function autoPlaceLabels() {
   }
 
   renderLabels();
+  renderHotspotHandles();
 }
 
 function openAddModal(event) {
@@ -1270,31 +1718,76 @@ function openAddModal(event) {
   const lonLat = projection.invert([x, y]);
   if (!lonLat) return;
 
-  pendingAdd = {x, y, lon: lonLat[0], lat: lonLat[1]};
+  const selectedRegion = state.regions.find(r => r.id === selectedRegionId);
+  const addToExisting = setting("hotspotEditMode") && selectedRegion;
 
-  document.getElementById("modalCoords").textContent =
+  pendingAdd = {
+    mode: addToExisting ? "existing" : "new",
+    regionId: addToExisting ? selectedRegion.id : null,
+    x,
+    y,
+    lon: lonLat[0],
+    lat: lonLat[1]
+  };
+
+  ui("modalCoords").textContent =
     `Clicked lon ${fmt(lonLat[0])}, lat ${fmt(lonLat[1])}.`;
 
-  document.getElementById("modalBackdrop").style.display = "flex";
+  if (addToExisting) {
+    ui("modalTitle").textContent = `Add hotspot to ${selectedRegion.name}`;
+    ui("newRegionNameRow").style.display = "none";
+    ui("newVirusesRow").style.display = "none";
+  } else {
+    ui("modalTitle").textContent = "Add hotspot and label";
+    ui("newRegionNameRow").style.display = "";
+    ui("newVirusesRow").style.display = "";
+  }
+
+  ui("modalBackdrop").style.display = "flex";
 }
 
 function closeAddModal() {
   pendingAdd = null;
-  document.getElementById("modalBackdrop").style.display = "none";
+  ui("modalBackdrop").style.display = "none";
 }
 
 function addHotspotFromModal() {
   if (!pendingAdd) return;
 
-  const name = document.getElementById("newRegionName").value.trim() || "New watchpoint";
-  const virusLines = document.getElementById("newViruses").value
+  const rxKm = +ui("newRxKm").value || 800;
+  const ryKm = +ui("newRyKm").value || 500;
+  const weight = +ui("newWeight").value || 1;
+
+  if (pendingAdd.mode === "existing") {
+    const region = state.regions.find(r => r.id === pendingAdd.regionId);
+    if (!region) return;
+
+    region.hotspots.push({
+      id: uniqueHotspotId(region),
+      lon: pendingAdd.lon,
+      lat: pendingAdd.lat,
+      rxKm,
+      ryKm,
+      weight,
+      enabled: true
+    });
+
+    region.boxEnabled = true;
+    region.hotspotsEnabled = true;
+
+    if (setting("syncAnchorOnHotspotDrag")) syncRegionAnchorToHotspots(region);
+
+    closeAddModal();
+    renderRegionControls();
+    redraw({base: false, contours: true, labels: true, handles: true});
+    return;
+  }
+
+  const name = ui("newRegionName").value.trim() || "New watchpoint";
+  const virusLines = ui("newViruses").value
     .split(/\n+/)
     .map(x => x.trim())
     .filter(Boolean);
-
-  const rxKm = +document.getElementById("newRxKm").value || 800;
-  const ryKm = +document.getElementById("newRyKm").value || 500;
-  const weight = +document.getElementById("newWeight").value || 1;
 
   const nextId = Math.max(0, ...state.regions.map(r => +r.id || 0)) + 1;
 
@@ -1325,23 +1818,77 @@ function addHotspotFromModal() {
   region.label.homeY = region.label.y;
 
   state.regions.push(region);
+  selectedRegionId = nextId;
 
   closeAddModal();
   renderRegionControls();
-  redraw({base: false, contours: true, labels: true});
+  redraw({base: false, contours: true, labels: true, handles: true});
+}
+
+function uniqueHotspotId(region) {
+  const used = new Set(region.hotspots.map(h => h.id));
+  let i = 1;
+  while (used.has(`${region.id}h${i}`)) i++;
+  return `${region.id}h${i}`;
 }
 
 function serializeState() {
   return JSON.stringify(state, null, 2);
 }
 
-function loadStateObject(obj) {
-  if (!obj || !obj.settings || !Array.isArray(obj.regions)) {
-    alert("Invalid state JSON.");
-    return;
+function normalizeState(obj) {
+  const next = structuredClone(defaultState);
+
+  if (!obj || typeof obj !== "object") return next;
+
+  next.version = obj.version ?? next.version;
+  next.settings = {...next.settings, ...(obj.settings || {})};
+
+  if (Array.isArray(obj.regions)) {
+    next.regions = obj.regions.map((r, idx) => {
+      const id = r.id ?? idx + 1;
+      const label = r.label || {};
+      const viruses = Array.isArray(r.viruses) ? r.viruses : [];
+      const hotspots = Array.isArray(r.hotspots) ? r.hotspots : [];
+
+      return {
+        id,
+        name: r.name || `Region ${id}`,
+        boxEnabled: r.boxEnabled !== false,
+        hotspotsEnabled: r.hotspotsEnabled !== false,
+        anchor: Array.isArray(r.anchor) ? r.anchor : [0, 0],
+        label: {
+          x: Number.isFinite(+label.x) ? +label.x : 80,
+          y: Number.isFinite(+label.y) ? +label.y : 120,
+          locked: !!label.locked,
+          homeX: Number.isFinite(+label.homeX) ? +label.homeX : undefined,
+          homeY: Number.isFinite(+label.homeY) ? +label.homeY : undefined
+        },
+        viruses: viruses.map(v => {
+          if (typeof v === "string") return {name: v, enabled: true};
+          return {name: v.name || "Virus", enabled: v.enabled !== false};
+        }),
+        hotspots: hotspots.map((h, hIdx) => ({
+          id: h.id ?? `${id}${String.fromCharCode(97 + hIdx)}`,
+          lon: Number.isFinite(+h.lon) ? +h.lon : 0,
+          lat: Number.isFinite(+h.lat) ? +h.lat : 0,
+          rxKm: Number.isFinite(+h.rxKm) ? +h.rxKm : 800,
+          ryKm: Number.isFinite(+h.ryKm) ? +h.ryKm : 500,
+          weight: Number.isFinite(+h.weight) ? +h.weight : 1,
+          enabled: h.enabled !== false
+        }))
+      };
+    });
   }
 
-  state = obj;
+  return next;
+}
+
+function loadStateObject(obj) {
+  state = normalizeState(obj);
+  selectedRegionId = null;
+  selectedHotspot = null;
+  initializeHomes();
   syncSettingInputs();
   renderRegionControls();
   redraw();
@@ -1353,6 +1900,14 @@ function downloadJson() {
 }
 
 function downloadSvg() {
+  const oldEditMode = setting("hotspotEditMode");
+
+  if (oldEditMode) {
+    state.settings.hotspotEditMode = false;
+    renderLabels();
+    renderHotspotHandles();
+  }
+
   const clone = svg.node().cloneNode(true);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("width", W);
@@ -1364,6 +1919,12 @@ function downloadSvg() {
 
   const blob = new Blob([new XMLSerializer().serializeToString(clone)], {type: "image/svg+xml"});
   downloadBlob(blob, "virus-watchpoint-map.svg");
+
+  if (oldEditMode) {
+    state.settings.hotspotEditMode = true;
+    renderLabels();
+    renderHotspotHandles();
+  }
 }
 
 function downloadBlob(blob, filename) {
@@ -1375,28 +1936,40 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function redraw({contours = true, base = true, labels = true} = {}) {
+function redraw({contours = true, base = true, labels = true, handles = true} = {}) {
   syncSettingInputs();
   if (base) renderBase();
   if (contours) renderContours();
   renderTitle();
   if (labels) renderLabels();
+  if (handles) renderHotspotHandles();
 }
 
 function setupEvents() {
   bindSettingInputs();
 
   svg.on("contextmenu", openAddModal);
+  svg.on("click", event => {
+    if (!setting("hotspotEditMode")) return;
+    if (event.target.closest && event.target.closest(".label, .hotspot-handle")) return;
+    selectedHotspot = null;
+    renderHotspotHandles();
+  });
 
-  document.getElementById("addHotspotConfirm").addEventListener("click", addHotspotFromModal);
-  document.getElementById("addHotspotCancel").addEventListener("click", closeAddModal);
-  document.getElementById("modalBackdrop").addEventListener("click", event => {
+  ui("panelToggle").addEventListener("click", () => {
+    state.settings.panelCollapsed = !state.settings.panelCollapsed;
+    syncSettingInputs();
+  });
+
+  ui("addHotspotConfirm").addEventListener("click", addHotspotFromModal);
+  ui("addHotspotCancel").addEventListener("click", closeAddModal);
+  ui("modalBackdrop").addEventListener("click", event => {
     if (event.target.id === "modalBackdrop") closeAddModal();
   });
 
-  document.getElementById("autoPlace").addEventListener("click", autoPlaceLabels);
+  ui("autoPlace").addEventListener("click", autoPlaceLabels);
 
-  document.getElementById("resetLabels").addEventListener("click", () => {
+  ui("resetLabels").addEventListener("click", () => {
     state.regions.forEach(r => {
       const dflt = defaultState.regions.find(x => x.id === r.id);
       if (dflt) {
@@ -1406,34 +1979,35 @@ function setupEvents() {
       r.label.locked = false;
     });
     renderLabels();
+    renderHotspotHandles();
   });
 
-  document.getElementById("unlockAll").addEventListener("click", () => {
+  ui("unlockAll").addEventListener("click", () => {
     state.regions.forEach(r => r.label.locked = false);
     renderLabels();
   });
 
-  document.getElementById("downloadSvg").addEventListener("click", downloadSvg);
-  document.getElementById("downloadJson").addEventListener("click", downloadJson);
+  ui("downloadSvg").addEventListener("click", downloadSvg);
+  ui("downloadJson").addEventListener("click", downloadJson);
 
-  document.getElementById("copyJson").addEventListener("click", async () => {
+  ui("copyJson").addEventListener("click", async () => {
     const json = serializeState();
-    document.getElementById("stateBox").value = json;
+    ui("stateBox").value = json;
     try {
       await navigator.clipboard.writeText(json);
     } catch (_) {}
   });
 
-  document.getElementById("loadPastedJson").addEventListener("click", () => {
+  ui("loadPastedJson").addEventListener("click", () => {
     try {
-      loadStateObject(JSON.parse(document.getElementById("stateBox").value));
+      loadStateObject(JSON.parse(ui("stateBox").value));
     } catch (err) {
       alert("Could not parse JSON.");
       console.error(err);
     }
   });
 
-  document.getElementById("loadJsonFile").addEventListener("change", async event => {
+  ui("loadJsonFile").addEventListener("change", async event => {
     const file = event.target.files[0];
     if (!file) return;
 
@@ -1446,12 +2020,24 @@ function setupEvents() {
     }
   });
 
-  document.getElementById("resetEverything").addEventListener("click", () => {
+  ui("resetEverything").addEventListener("click", () => {
     state = structuredClone(defaultState);
+    selectedRegionId = null;
+    selectedHotspot = null;
     initializeHomes();
     syncSettingInputs();
     renderRegionControls();
     redraw();
+  });
+
+  document.addEventListener("keydown", event => {
+    if (!setting("hotspotEditMode")) return;
+    if (isTextEditingTarget(event.target)) return;
+
+    if ((event.key === "Backspace" || event.key === "Delete") && selectedHotspot) {
+      event.preventDefault();
+      deleteSelectedHotspot();
+    }
   });
 }
 
@@ -1460,6 +2046,12 @@ function initializeHomes() {
     if (r.label.homeX == null) r.label.homeX = r.label.x;
     if (r.label.homeY == null) r.label.homeY = r.label.y;
   });
+}
+
+function isTextEditingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName ? el.tagName.toLowerCase() : "";
+  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
 }
 
 function clamp(x, lo, hi) {
@@ -1472,6 +2064,11 @@ function median3(a, b, c) {
 
 function fmt(x) {
   return Number(x).toFixed(2);
+}
+
+function textWidthApprox(text, size, weight) {
+  const factor = weight >= 700 ? 0.62 : 0.56;
+  return Math.max(20, String(text).length * size * factor);
 }
 
 async function init() {
