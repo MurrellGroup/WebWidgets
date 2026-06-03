@@ -252,6 +252,44 @@
     background: rgba(255,255,255,0.72);
   }
 
+  .label-html .label-add-virus {
+    display: block;
+    margin-top: 4px;
+    border: 1px dashed rgba(0,0,0,0.22);
+    background: rgba(255,255,255,0.45);
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #444;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .label-html .label-add-virus:hover {
+    background: rgba(255,255,255,0.85);
+    border-color: rgba(0,0,0,0.35);
+  }
+
+  .label-delete {
+    cursor: pointer;
+  }
+
+  .label-delete circle {
+    transition: fill 0.12s ease;
+  }
+
+  .label-delete:hover circle {
+    fill: rgba(159, 29, 29, 0.22);
+  }
+
+  .label-delete text {
+    pointer-events: none;
+    user-select: none;
+    font-weight: 800;
+    fill: #9f1d1d;
+  }
+
   .hotspot-handle {
     cursor: grab;
   }
@@ -365,10 +403,11 @@
         <div class="small">
           In centroid edit mode, drag centroids to move kernels. Mouse-wheel over a centroid changes its intensity.
           Shift = faster. Alt/Option = finer. Select a hotspot and press Backspace/Delete to remove it.
+          Click the map to deselect a region; click again to add a new region. Right-click also opens the add dialog.
         </div>
       </details>
 
-      <details open>
+      <details>
         <summary>Regions, boxes, viruses</summary>
         <div class="small">
           Box toggles affect annotations. Virus toggles affect each box’s text. Hotspot toggles affect contours.
@@ -871,12 +910,30 @@ function bindSettingInputs() {
 
       if (contourKeys.has(key)) redraw({contours: true, base: false, labels: false, handles: true});
       else if (baseKeys.has(key)) redraw({contours: false, base: true, labels: false, handles: true});
-      else if (handleKeys.has(key)) redraw({contours: false, base: false, labels: true, handles: true});
-      else redraw({contours: false, base: false, labels: true, handles: true});
+      else if (handleKeys.has(key)) {
+        redraw({contours: false, base: false, labels: true, handles: true});
+        if (key === "hotspotEditMode") renderRegionControls();
+      } else redraw({contours: false, base: false, labels: true, handles: true});
 
       syncSettingInputs();
     });
   });
+}
+
+function deleteRegion(regionId) {
+  state.regions = state.regions.filter(r => r.id !== regionId);
+  if (selectedRegionId === regionId) selectedRegionId = null;
+  if (selectedHotspot?.regionId === regionId) selectedHotspot = null;
+  redraw({base: false, contours: true, labels: true, handles: true});
+  renderRegionControls();
+}
+
+function addVirusToRegion(region) {
+  region.viruses.push({name: "New virus", enabled: true});
+  selectedRegionId = region.id;
+  selectedHotspot = null;
+  renderRegionControls();
+  renderLabels();
 }
 
 function renderRegionControls() {
@@ -905,13 +962,7 @@ function renderRegionControls() {
   head.append("button")
     .attr("class", "danger")
     .text("delete")
-    .on("click", (event, d) => {
-      state.regions = state.regions.filter(r => r.id !== d.id);
-      if (selectedRegionId === d.id) selectedRegionId = null;
-      if (selectedHotspot?.regionId === d.id) selectedHotspot = null;
-      redraw({base: false, contours: true, labels: true, handles: true});
-      renderRegionControls();
-    });
+    .on("click", (event, d) => deleteRegion(d.id));
 
   const toggles = cards.append("div")
     .attr("class", "checks")
@@ -963,6 +1014,14 @@ function renderRegionControls() {
 
       line.append("span").text(d.virus.name);
     });
+
+  if (setting("hotspotEditMode")) {
+    virusList.append("button")
+      .attr("type", "button")
+      .style("margin", "6px 0 0 22px")
+      .text("+ Add virus")
+      .on("click", (event, d) => addVirusToRegion(d));
+  }
 
   cards.append("div")
     .attr("class", "tiny")
@@ -1338,7 +1397,8 @@ function renderEditableLabel(g, d) {
     ...activeViruses.map(v => textWidthApprox("• " + v.name, fontSize, 500))
   );
 
-  const minH = pad * 2 + titleSize + activeViruses.length * lineGap + 8;
+  const addVirusBtnH = 24;
+  const minH = pad * 2 + titleSize + activeViruses.length * lineGap + addVirusBtnH + 8;
   d.label.w = Math.max(130, textX + maxText + pad * 1.8);
   d.label.h = showNumbers ? Math.max(pad * 2 + badgeR * 2, minH) : minH;
 
@@ -1354,6 +1414,27 @@ function renderEditableLabel(g, d) {
     .attr("stroke", d.id === selectedRegionId ? "rgba(0,0,0,0.55)" : "none");
 
   appendLabelBadge(g, d, pad, titleSize);
+
+  const delX = d.label.w - pad * 0.35;
+  const delY = pad * 0.85;
+  const delBtn = g.append("g")
+    .attr("class", "label-delete")
+    .attr("transform", `translate(${delX},${delY})`)
+    .on("mousedown", event => event.stopPropagation())
+    .on("click", event => {
+      event.stopPropagation();
+      deleteRegion(d.id);
+    });
+
+  delBtn.append("circle")
+    .attr("r", 10)
+    .attr("fill", "rgba(0,0,0,0.10)");
+
+  delBtn.append("text")
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "central")
+    .attr("font-size", 15)
+    .text("×");
 
   const fo = g.append("foreignObject")
     .attr("x", textX)
@@ -1407,6 +1488,16 @@ function renderEditableLabel(g, d) {
         renderLabels();
       });
   });
+
+  div.append("xhtml:button")
+    .attr("type", "button")
+    .attr("class", "label-add-virus")
+    .text("+ Add virus")
+    .on("mousedown", event => event.stopPropagation())
+    .on("click", event => {
+      event.stopPropagation();
+      addVirusToRegion(d);
+    });
 }
 
 function updateLeaders() {
@@ -1948,9 +2039,19 @@ function setupEvents() {
   svg.on("contextmenu", openAddModal);
   svg.on("click", event => {
     if (!setting("hotspotEditMode")) return;
-    if (event.target.closest && event.target.closest(".label, .hotspot-handle")) return;
+    if (event.target.closest?.(".label, .hotspot-handle, .label-delete")) return;
+
     selectedHotspot = null;
-    renderHotspotHandles();
+
+    if (selectedRegionId != null) {
+      selectedRegionId = null;
+      renderLabels();
+      renderHotspotHandles();
+      renderRegionControls();
+      return;
+    }
+
+    openAddModal(event);
   });
 
   ui("panelToggle").addEventListener("click", () => {
