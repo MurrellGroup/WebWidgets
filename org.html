@@ -1,0 +1,3312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Organizational Network Builder</title>
+  <style>
+    :root {
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d8dee9;
+      --soft: #f3f6fb;
+      --accent: #1f5eff;
+      --accent-ink: #ffffff;
+      --danger: #b42318;
+      --shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef2f8;
+      overflow: hidden;
+    }
+
+    #app {
+      height: 100vh;
+      width: 100vw;
+      display: grid;
+      grid-template-columns: minmax(330px, 390px) 1fr;
+    }
+
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      overflow-y: auto;
+      padding: 16px 16px 24px;
+      box-shadow: var(--shadow);
+      z-index: 2;
+    }
+
+    main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0 0 4px;
+      letter-spacing: -0.02em;
+    }
+
+    h2, h3 {
+      margin: 10px 0 8px;
+      font-size: 13px;
+      letter-spacing: 0.01em;
+    }
+
+    p {
+      margin: 4px 0 10px;
+      line-height: 1.4;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      margin: 12px 0;
+      overflow: hidden;
+    }
+
+    summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 11px 12px;
+      font-weight: 700;
+      font-size: 13px;
+      background: linear-gradient(#fbfcff, #f5f7fb);
+      border-bottom: 1px solid var(--line);
+      user-select: none;
+    }
+
+    summary::-webkit-details-marker { display: none; }
+
+    details:not([open]) summary { border-bottom: none; }
+
+    .section-body { padding: 12px; }
+
+    label {
+      display: grid;
+      gap: 5px;
+      margin: 8px 0;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    label.inline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    input, select, textarea, button {
+      font: inherit;
+    }
+
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 8px 9px;
+      background: #fff;
+      color: var(--ink);
+      outline: none;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 64px;
+    }
+
+    input[type="color"] {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      padding: 4px;
+    }
+
+    input[type="range"] { width: 100%; }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button:hover { border-color: #aab4c5; }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-ink);
+    }
+
+    button.danger {
+      color: var(--danger);
+      border-color: #f2b8b5;
+      background: #fff7f7;
+    }
+
+    button.mode-active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(31, 94, 255, 0.12) inset;
+      color: var(--accent);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 8px 0;
+    }
+
+    .button-row button { flex: 1 1 auto; }
+
+    .field-value {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .help {
+      border-left: 3px solid #cad5e9;
+      padding: 8px 10px;
+      background: #f7f9fc;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    #topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(8px);
+      z-index: 1;
+      min-height: 42px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #status {
+      color: var(--ink);
+      font-weight: 750;
+    }
+
+    #networkSvg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+      cursor: default;
+    }
+
+    #networkSvg.panning { cursor: grabbing; }
+    #networkSvg.dragging { cursor: move; }
+    #networkSvg.connecting { cursor: crosshair; }
+
+    .node { cursor: grab; }
+    .node:active { cursor: grabbing; }
+    .node text {
+      pointer-events: none;
+      user-select: none;
+      font-weight: 750;
+    }
+    .edge-path {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      cursor: pointer;
+    }
+
+    .edge-hit {
+      fill: none;
+      stroke: transparent;
+      pointer-events: stroke;
+      cursor: pointer;
+    }
+
+    .bezier-guide {
+      fill: none;
+      stroke: #8aa0c7;
+      stroke-width: 1.5;
+      stroke-dasharray: 5 4;
+      opacity: 0.75;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+
+    .bezier-handle {
+      fill: #ffffff;
+      stroke: var(--accent);
+      stroke-width: 2.5;
+      cursor: grab;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .bezier-handle:active { cursor: grabbing; }
+
+    .edge-label text {
+      pointer-events: none;
+      font-weight: 700;
+      fill: #293449;
+    }
+
+    .edge-label rect {
+      fill: rgba(255, 255, 255, 0.86);
+      stroke: rgba(120, 134, 160, 0.35);
+      vector-effect: non-scaling-stroke;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      background: var(--soft);
+      border: 1px dashed var(--line);
+      padding: 12px;
+      border-radius: 10px;
+      line-height: 1.4;
+      font-size: 12px;
+    }
+
+    #jsonBox {
+      min-height: 180px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .kbd {
+      border: 1px solid #c8d1e1;
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      padding: 1px 5px;
+      color: #344054;
+      background: #fff;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside>
+      <h1>Organizational Network Builder</h1>
+      <p class="muted">Hub-and-spokes editing with arbitrary hubs, manual layout, force layout, frozen nodes, and exact JSON save/load.</p>
+
+      <details open>
+        <summary>Build</summary>
+        <div class="section-body">
+          <div class="button-row">
+            <button id="modeSelect" class="mode-active" type="button">Select / move</button>
+            <button id="modeAdd" type="button">Add by click</button>
+            <button id="modeConnect" type="button">Connect</button>
+          </div>
+          <div class="button-row">
+            <button id="addHub" type="button">New hub</button>
+            <button id="addSpoke" type="button">New spoke</button>
+          </div>
+          <div class="button-row">
+            <button id="duplicateNode" type="button">Duplicate node</button>
+            <button id="deleteSelected" class="danger" type="button">Delete selected</button>
+          </div>
+          <p class="help">Click to select. <span class="kbd">Shift</span>+click to add or remove from the selection. Double-click a label to edit it. In Connect mode (<span class="kbd">C</span>), click any source node, then any target — e.g. a spoke to a different hub. Drag the background to pan; use the wheel to zoom.</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Force layout</summary>
+        <div class="section-body">
+          <div class="button-row">
+            <button id="toggleSim" class="primary" type="button">Start force layout</button>
+            <button id="stepSim" type="button">Step</button>
+            <button id="settleSim" type="button">Settle</button>
+          </div>
+          <div class="button-row">
+            <button id="freezeSelected" type="button">Freeze selected</button>
+            <button id="freeSelected" type="button">Free selected</button>
+          </div>
+          <div class="button-row">
+            <button id="freezeAll" type="button">Freeze all</button>
+            <button id="freeAll" type="button">Free all</button>
+          </div>
+          <label class="inline"><input id="freezeAfterDrag" type="checkbox">Freeze node after manual move</label>
+          <label>
+            <span class="field-value"><span>Repulsion</span><span id="repulsionOut"></span></span>
+            <input id="repulsion" type="range" min="500" max="25000" step="250">
+          </label>
+          <label>
+            <span class="field-value"><span>Default link distance</span><span id="linkDistanceOut"></span></span>
+            <input id="linkDistance" type="range" min="0" max="520" step="5">
+          </label>
+          <p class="help">Controls target center-to-center length for every connection that does not have <strong>Override default link distance</strong> checked. Frozen nodes will not move; links with two frozen endpoints cannot change length.</p>
+          <label>
+            <span class="field-value"><span>Link stiffness</span><span id="linkStrengthOut"></span></span>
+            <input id="linkStrength" type="range" min="0.001" max="0.12" step="0.001">
+          </label>
+          <label>
+            <span class="field-value"><span>Center pull</span><span id="centerStrengthOut"></span></span>
+            <input id="centerStrength" type="range" min="0" max="0.03" step="0.001">
+          </label>
+          <label>
+            <span class="field-value"><span>Damping</span><span id="dampingOut"></span></span>
+            <input id="damping" type="range" min="0.50" max="0.98" step="0.01">
+          </label>
+          <label>
+            <span class="field-value"><span>Collision padding</span><span id="collisionPaddingOut"></span></span>
+            <input id="collisionPadding" type="range" min="0" max="80" step="1">
+          </label>
+          <label>
+            <span class="field-value"><span>Edge avoidance</span><span id="edgeAvoidanceOut"></span></span>
+            <input id="edgeAvoidance" type="range" min="0" max="8000" step="100">
+          </label>
+          <label>
+            <span class="field-value"><span>Avoidance distance</span><span id="edgeAvoidanceDistanceOut"></span></span>
+            <input id="edgeAvoidanceDistance" type="range" min="20" max="200" step="5">
+          </label>
+          <p class="help">Edge avoidance pushes nodes away from connection lines they are not part of. This is unrelated to label text inside nodes.</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Edit</summary>
+        <div class="section-body">
+          <p id="globalHint" class="help" hidden>Nothing selected — changes apply to <strong>every node</strong> and <strong>every connection</strong>, and become the default for new items. Click one item to edit it individually, or <span class="kbd">Shift</span>+click to edit several at once.</p>
+
+          <div id="nodeEditor" hidden>
+            <h3 id="nodeEditorHeading">Node</h3>
+            <div id="nodeSingleOnly">
+              <label>Label<textarea id="nodeLabel" rows="2"></textarea></label>
+            </div>
+            <div class="row">
+              <label>Shape
+                <select id="nodeShape">
+                  <option value="circle">Circle</option>
+                  <option value="ellipse">Ellipse</option>
+                  <option value="rect">Rectangle</option>
+                  <option value="rounded">Rounded rectangle</option>
+                  <option value="pill">Pill</option>
+                  <option value="diamond">Diamond</option>
+                  <option value="hexagon">Hexagon</option>
+                  <option value="parallelogram">Parallelogram</option>
+                </select>
+              </label>
+              <div id="nodeFlagsOnly">
+                <label class="inline"><input id="nodeHub" type="checkbox">Hub</label>
+                <label class="inline"><input id="nodeFixed" type="checkbox">Frozen</label>
+              </div>
+            </div>
+            <div class="row">
+              <label>Width<input id="nodeWidth" type="number" min="20" step="1"></label>
+              <label>Height<input id="nodeHeight" type="number" min="20" step="1"></label>
+            </div>
+            <div class="row">
+              <label>Fill<input id="nodeFill" type="color"></label>
+              <label>Text<input id="nodeTextColor" type="color"></label>
+            </div>
+            <div class="row">
+              <label>Boundary color<input id="nodeBorderColor" type="color"></label>
+              <label>Boundary width<input id="nodeBorderWidth" type="number" min="0" max="40" step="1"></label>
+            </div>
+            <div class="row">
+              <label>Boundary style
+                <select id="nodeBorderStyle">
+                  <option value="solid">Solid</option>
+                  <option value="dashed">Dashed</option>
+                  <option value="dotted">Dotted</option>
+                  <option value="dashdot">Dash-dot</option>
+                </select>
+              </label>
+              <label>Corner radius<input id="nodeCornerRadius" type="number" min="0" max="80" step="1"></label>
+            </div>
+            <h3>Label layout</h3>
+            <p class="help">Label inset is the main control for how close text can get to the node boundary. Larger inset wraps earlier and keeps more clear space at the edges.</p>
+            <div class="row">
+              <label>Font size<input id="nodeFontSize" type="number" min="8" max="48" step="1"></label>
+              <label>Label inset (px)<input id="nodeTextPadding" type="number" min="0" max="80" step="1"></label>
+            </div>
+            <div class="row">
+              <label>Max lines<input id="nodeMaxLabelLines" type="number" min="1" max="8" step="1"></label>
+              <label>Line spacing<input id="nodeTextLineHeight" type="number" min="1" max="2" step="0.05"></label>
+            </div>
+            <div class="row">
+              <label>Opacity<input id="nodeOpacity" type="number" min="0" max="1" step="0.05"></label>
+            </div>
+            <label class="inline"><input id="nodeShadow" type="checkbox">Drop shadow</label>
+            <p class="help">Soft shadow under the node shape. Uncheck to disable; applies to SVG export too. With nothing selected, toggling this updates <strong>all nodes</strong>.</p>
+          </div>
+
+          <div id="edgeEditor" hidden>
+            <h3 id="edgeEditorHeading">Connection</h3>
+            <div id="edgeSingleOnly">
+              <label>Label<input id="edgeLabel" type="text"></label>
+            </div>
+            <div class="row">
+              <label>Path type
+                <select id="edgeType">
+                  <option value="straight">Straight</option>
+                  <option value="curved">Curved</option>
+                  <option value="bezier">Bezier (auto-route)</option>
+                  <option value="orthogonal">Orthogonal</option>
+                </select>
+              </label>
+              <label>Arrows
+                <select id="edgeArrow">
+                  <option value="none">None</option>
+                  <option value="target">Target</option>
+                  <option value="source">Source</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>Line color<input id="edgeColor" type="color"></label>
+              <label>Line width<input id="edgeWidth" type="number" min="1" max="30" step="1"></label>
+            </div>
+            <div class="row">
+              <label>Line style
+                <select id="edgeStyle">
+                  <option value="solid">Solid</option>
+                  <option value="dashed">Dashed</option>
+                  <option value="dotted">Dotted</option>
+                  <option value="dashdot">Dash-dot</option>
+                </select>
+              </label>
+              <label>Force distance<input id="edgeDistance" type="number" min="0" max="1000" step="5"></label>
+            </div>
+            <div id="edgeDistanceOnly">
+              <label class="inline"><input id="edgeCustomDistance" type="checkbox">Override default link distance</label>
+            </div>
+            <div class="row">
+              <label>Curve bend<input id="edgeCurve" type="number" min="-1" max="1" step="0.05"></label>
+              <label>Opacity<input id="edgeOpacity" type="number" min="0" max="1" step="0.05"></label>
+            </div>
+            <div id="edgeBezierControls" hidden>
+              <p class="help">Bezier links are anchored at node centers but draw from shape edge to shape edge (arrows sit on the boundary). Drag the blue control points, or reset to recompute the route.</p>
+              <label class="inline"><input id="edgeAutoAvoid" type="checkbox" checked>Auto-avoid nodes</label>
+              <label>
+                <span class="field-value"><span>Route clearance</span><span id="edgeAvoidPaddingOut"></span></span>
+                <input id="edgeAvoidPadding" type="range" min="8" max="80" step="2">
+              </label>
+              <label class="inline"><input id="edgeCpManual" type="checkbox">Manual control points</label>
+              <div class="button-row">
+                <button id="resetBezierRoute" type="button">Reset bezier route</button>
+              </div>
+            </div>
+            <div class="row">
+              <label>Arrow size<input id="edgeArrowSize" type="number" min="0" max="4" step="0.1"></label>
+              <label>Arrow style
+                <select id="edgeArrowStyle">
+                  <option value="filled">Filled</option>
+                  <option value="open">Open</option>
+                  <option value="slim">Slim</option>
+                  <option value="wide">Wide</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Defaults for new items</summary>
+        <div class="section-body">
+          <h3>New node</h3>
+          <div class="row">
+            <label>Shape
+              <select id="defaultNodeShape">
+                <option value="circle">Circle</option>
+                <option value="ellipse">Ellipse</option>
+                <option value="rect">Rectangle</option>
+                <option value="rounded">Rounded rectangle</option>
+                <option value="pill">Pill</option>
+                <option value="diamond">Diamond</option>
+                <option value="hexagon">Hexagon</option>
+                <option value="parallelogram">Parallelogram</option>
+              </select>
+            </label>
+            <label>Boundary
+              <select id="defaultNodeBorderStyle">
+                <option value="solid">Solid</option>
+                <option value="dashed">Dashed</option>
+                <option value="dotted">Dotted</option>
+                <option value="dashdot">Dash-dot</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>Fill<input id="defaultNodeFill" type="color"></label>
+            <label>Text<input id="defaultNodeTextColor" type="color"></label>
+          </div>
+          <div class="row">
+            <label>Boundary color<input id="defaultNodeBorderColor" type="color"></label>
+            <label>Boundary width<input id="defaultNodeBorderWidth" type="number" min="0" max="40" step="1"></label>
+          </div>
+          <div class="row">
+            <label>Font size<input id="defaultNodeFontSize" type="number" min="8" max="48" step="1"></label>
+            <label>Label inset (px)<input id="defaultNodeTextPadding" type="number" min="0" max="80" step="1"></label>
+          </div>
+          <div class="row">
+            <label>Max lines<input id="defaultNodeMaxLabelLines" type="number" min="1" max="8" step="1"></label>
+            <label>Line spacing<input id="defaultNodeTextLineHeight" type="number" min="1" max="2" step="0.05"></label>
+          </div>
+          <label class="inline"><input id="defaultNodeShadow" type="checkbox">Drop shadow on new nodes</label>
+          <h3>New connection</h3>
+          <div class="row">
+            <label>Path type
+              <select id="defaultEdgeType">
+                <option value="straight">Straight</option>
+                <option value="curved">Curved</option>
+                <option value="bezier">Bezier (auto-route)</option>
+                <option value="orthogonal">Orthogonal</option>
+              </select>
+            </label>
+            <label>Line style
+              <select id="defaultEdgeStyle">
+                <option value="solid">Solid</option>
+                <option value="dashed">Dashed</option>
+                <option value="dotted">Dotted</option>
+                <option value="dashdot">Dash-dot</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>Line color<input id="defaultEdgeColor" type="color"></label>
+            <label>Line width<input id="defaultEdgeWidth" type="number" min="1" max="30" step="1"></label>
+          </div>
+          <div class="row">
+            <label>Arrows
+              <select id="defaultEdgeArrow">
+                <option value="none">None</option>
+                <option value="target">Target</option>
+                <option value="source">Source</option>
+                <option value="both">Both</option>
+              </select>
+            </label>
+            <label>Arrow size<input id="defaultEdgeArrowSize" type="number" min="0" max="4" step="0.1"></label>
+          </div>
+          <label>Arrow style
+            <select id="defaultEdgeArrowStyle">
+              <option value="filled">Filled</option>
+              <option value="open">Open</option>
+              <option value="slim">Slim</option>
+              <option value="wide">Wide</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <details>
+        <summary>Canvas and view</summary>
+        <div class="section-body">
+          <div class="row">
+            <label>Background<input id="canvasBackground" type="color"></label>
+            <label>Grid color<input id="gridColor" type="color"></label>
+          </div>
+          <div class="row">
+            <label>Grid size<input id="gridSize" type="number" min="8" max="240" step="1"></label>
+            <label>Grid opacity<input id="gridOpacity" type="number" min="0" max="1" step="0.05"></label>
+          </div>
+          <label class="inline"><input id="showGrid" type="checkbox">Show grid</label>
+          <label class="inline"><input id="snapToGrid" type="checkbox">Snap moved/created nodes to grid</label>
+          <div class="button-row">
+            <button id="fitView" type="button">Fit view</button>
+            <button id="resetView" type="button">Reset view</button>
+          </div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Export SVG</summary>
+        <div class="section-body">
+          <label class="inline"><input id="exportIncludeGrid" type="checkbox">Include grid</label>
+          <label class="inline"><input id="exportFitContent" type="checkbox" checked>Fit to content</label>
+          <label class="inline"><input id="exportTransparent" type="checkbox">Transparent background</label>
+          <div class="button-row">
+            <button id="downloadSvg" class="primary" type="button">Download SVG</button>
+            <button id="copySvg" type="button">Copy SVG</button>
+          </div>
+          <p class="help">Exports the current layout without selection halos or interaction overlays. Use fit-to-content for a tight crop suitable for slides and documents.</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Save and load JSON</summary>
+        <div class="section-body">
+          <div class="button-row">
+            <button id="refreshJson" type="button">Refresh JSON</button>
+            <button id="copyJson" type="button">Copy JSON</button>
+            <button id="downloadJson" class="primary" type="button">Download</button>
+          </div>
+          <div class="button-row">
+            <button id="importJson" type="button">Import from box</button>
+            <label style="margin:0; flex: 1 1 140px;">
+              <span class="muted">Import file</span>
+              <input id="jsonFile" type="file" accept="application/json,.json">
+            </label>
+          </div>
+          <textarea id="jsonBox" spellcheck="false" aria-label="Network JSON"></textarea>
+        </div>
+      </details>
+    </aside>
+
+    <main>
+      <div id="topbar">
+        <span id="status"></span>
+        <span><span class="kbd">C</span> connect · <span class="kbd">N</span> add · <span class="kbd">H</span> hub · <span class="kbd">F</span> freeze · <span class="kbd">Space</span> force · <span class="kbd">Del</span> delete</span>
+      </div>
+      <svg id="networkSvg" aria-label="Interactive organizational network">
+        <defs>
+          <filter id="nodeDropShadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.22"></feDropShadow>
+          </filter>
+          <pattern id="gridPattern" patternUnits="userSpaceOnUse" width="50" height="50">
+            <path id="gridPath" d="M 50 0 L 0 0 0 50" fill="none" stroke="#d7deea" stroke-width="1"></path>
+          </pattern>
+        </defs>
+        <g id="viewport">
+          <rect id="gridRect" x="-20000" y="-20000" width="40000" height="40000" fill="url(#gridPattern)" pointer-events="none"></rect>
+          <g id="edgesLayer"></g>
+          <g id="edgeLabelsLayer"></g>
+          <g id="nodesLayer"></g>
+          <g id="edgeHandlesLayer"></g>
+        </g>
+      </svg>
+    </main>
+  </div>
+
+  <script>
+    'use strict';
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const $ = (id) => document.getElementById(id);
+
+    const svg = $('networkSvg');
+    const svgDefs = svg.querySelector('defs');
+    const viewport = $('viewport');
+    const gridRect = $('gridRect');
+    const gridPattern = $('gridPattern');
+    const gridPath = $('gridPath');
+    const edgesLayer = $('edgesLayer');
+    const edgeLabelsLayer = $('edgeLabelsLayer');
+    const nodesLayer = $('nodesLayer');
+    const edgeHandlesLayer = $('edgeHandlesLayer');
+
+    let state = makeDefaultState();
+    let mode = 'select';
+    let selected = { nodes: [], edges: [] };
+    let connectingFrom = null;
+    let drag = null;
+    let pan = null;
+    let raf = null;
+    let suppressClick = false;
+
+    const VALID_SHAPES = new Set(['circle', 'ellipse', 'rect', 'rounded', 'pill', 'diamond', 'hexagon', 'parallelogram']);
+
+    function normalizeShape(value, fallback = 'circle') {
+      const shape = String(value || '');
+      return VALID_SHAPES.has(shape) ? shape : fallback;
+    }
+
+    function makeDefaultState() {
+      const hubSize = 132;
+      const spokeSize = 72;
+      const hubBase = {
+        shape: 'circle', width: hubSize, height: hubSize, textColor: '#ffffff',
+        borderWidth: 4, borderStyle: 'solid', cornerRadius: 0, fontSize: 15,
+        textPadding: 16, maxLabelLines: 4, textLineHeight: 1.15, textCharWidth: 0.52,
+        opacity: 1, shadow: true, hub: true, fixed: true, vx: 0, vy: 0
+      };
+      const spokeBase = {
+        shape: 'circle', width: spokeSize, height: spokeSize, textColor: '#1f2937',
+        borderWidth: 2, borderStyle: 'solid', cornerRadius: 0, fontSize: 12,
+        textPadding: 10, maxLabelLines: 3, textLineHeight: 1.12, textCharWidth: 0.52,
+        opacity: 1, shadow: false, hub: false, fixed: false, vx: 0, vy: 0
+      };
+
+      return {
+        app: 'organizational-network-builder',
+        version: 2,
+        viewport: { x: 0, y: 0, scale: 1 },
+        canvas: {
+          background: '#f6f8fc',
+          grid: true,
+          gridSize: 50,
+          gridColor: '#d7deea',
+          gridOpacity: 0.85,
+          snap: false,
+          snapSize: 25,
+          centerX: 0,
+          centerY: 0
+        },
+        sim: {
+          running: false,
+          repulsion: 8500,
+          linkDistance: 190,
+          linkStrength: 0.026,
+          centerStrength: 0.003,
+          damping: 0.86,
+          collisionPadding: 18,
+          edgeAvoidance: 2200,
+          edgeAvoidanceDistance: 90
+        },
+        defaults: {
+          node: {
+            label: 'Node',
+            hub: false,
+            shape: 'circle',
+            width: 82,
+            height: 82,
+            fill: '#e8efff',
+            textColor: '#1f2937',
+            borderColor: '#6b8df5',
+            borderWidth: 2,
+            borderStyle: 'solid',
+            cornerRadius: 0,
+            fontSize: 13,
+            textPadding: 12,
+            maxLabelLines: 4,
+            textLineHeight: 1.15,
+            textCharWidth: 0.52,
+            opacity: 1,
+            shadow: false,
+            fixed: false
+          },
+          edge: {
+            label: '',
+            color: '#526071',
+            width: 2,
+            style: 'solid',
+            type: 'straight',
+            arrow: 'target',
+            arrowSize: 1,
+            arrowStyle: 'filled',
+            opacity: 1,
+            distance: 190,
+            customDistance: false,
+            curve: 0.18,
+            autoAvoid: true,
+            avoidPadding: 28,
+            cpManual: false,
+            cp1: null,
+            cp2: null
+          }
+        },
+        nextNodeId: 13,
+        nextEdgeId: 13,
+        nodes: [
+          { ...hubBase, id: 'n1', label: 'Hub A', x: 0, y: -220, fill: '#1f5eff', borderColor: '#0b2f8a' },
+          { ...hubBase, id: 'n2', label: 'Hub B', x: 300, y: 160, fill: '#0f9f6e', borderColor: '#047857' },
+          { ...hubBase, id: 'n3', label: 'Hub C', x: -300, y: 160, fill: '#d97706', borderColor: '#92400e' },
+
+          { ...spokeBase, id: 'n4', label: 'A1', x: -160, y: -380, fill: '#dbe8ff', borderColor: '#7aa2ff' },
+          { ...spokeBase, id: 'n5', label: 'A2', x: 0, y: -430, fill: '#dbe8ff', borderColor: '#7aa2ff' },
+          { ...spokeBase, id: 'n6', label: 'A3', x: 160, y: -380, fill: '#dbe8ff', borderColor: '#7aa2ff' },
+
+          { ...spokeBase, id: 'n7', label: 'B1', x: 470, y: 20, fill: '#d9f7ec', borderColor: '#46c996' },
+          { ...spokeBase, id: 'n8', label: 'B2', x: 520, y: 180, fill: '#d9f7ec', borderColor: '#46c996' },
+          { ...spokeBase, id: 'n9', label: 'B3', x: 420, y: 320, fill: '#d9f7ec', borderColor: '#46c996' },
+
+          { ...spokeBase, id: 'n10', label: 'C1', x: -470, y: 20, fill: '#ffedd5', borderColor: '#f59e0b' },
+          { ...spokeBase, id: 'n11', label: 'C2', x: -520, y: 180, fill: '#ffedd5', borderColor: '#f59e0b' },
+          { ...spokeBase, id: 'n12', label: 'C3', x: -420, y: 320, fill: '#ffedd5', borderColor: '#f59e0b' }
+        ],
+        edges: [
+          { id: 'e1', source: 'n1', target: 'n2', label: '', color: '#394557', width: 2.5, style: 'solid', type: 'straight', arrow: 'both', opacity: 1, curve: 0.08 },
+          { id: 'e2', source: 'n2', target: 'n3', label: '', color: '#394557', width: 2.5, style: 'solid', type: 'straight', arrow: 'both', opacity: 1, curve: 0.08 },
+          { id: 'e3', source: 'n3', target: 'n1', label: '', color: '#394557', width: 2.5, style: 'solid', type: 'straight', arrow: 'both', opacity: 1, curve: 0.08 },
+
+          { id: 'e4', source: 'n1', target: 'n4', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, customDistance: false, curve: 0.22, autoAvoid: true },
+          { id: 'e5', source: 'n1', target: 'n5', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true },
+          { id: 'e6', source: 'n1', target: 'n6', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true },
+
+          { id: 'e7', source: 'n2', target: 'n7', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true },
+          { id: 'e8', source: 'n2', target: 'n8', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true },
+          { id: 'e9', source: 'n2', target: 'n9', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true },
+
+          { id: 'e10', source: 'n3', target: 'n10', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true },
+          { id: 'e11', source: 'n3', target: 'n11', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true },
+          { id: 'e12', source: 'n3', target: 'n12', label: '', color: '#526071', width: 2, style: 'solid', type: 'bezier', arrow: 'target', opacity: 1, curve: 0.22, autoAvoid: true }
+        ]
+      };
+    }
+
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function finiteNumber(value, fallback) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function createSvgElement(tag, attrs = {}) {
+      const el = document.createElementNS(NS, tag);
+      for (const [key, value] of Object.entries(attrs)) {
+        if (value !== null && value !== undefined) el.setAttribute(key, String(value));
+      }
+      return el;
+    }
+
+    function clearElement(el) {
+      while (el.firstChild) el.removeChild(el.firstChild);
+    }
+
+    function nodeById(id) {
+      return state.nodes.find((node) => node.id === id) || null;
+    }
+
+    function edgeById(id) {
+      return state.edges.find((edge) => edge.id === id) || null;
+    }
+
+    function defaultLinkDistance() {
+      return finiteNumber(state.sim.linkDistance, finiteNumber(state.defaults.edge.distance, 190));
+    }
+
+    function usesCustomLinkDistance(edge) {
+      return edge.customDistance === true;
+    }
+
+    function edgeForceDistance(edge) {
+      const globalDefault = defaultLinkDistance();
+      if (usesCustomLinkDistance(edge)) {
+        return Math.max(0, finiteNumber(edge.distance, globalDefault));
+      }
+      return Math.max(0, globalDefault);
+    }
+
+    function nodeLinkRadius(node) {
+      return Math.max(finiteNumber(node.width, 120), finiteNumber(node.height, 70)) / 2;
+    }
+
+    function linkDesiredCenterDistance(source, target, edge) {
+      const targetGap = edgeForceDistance(edge);
+      const touchDistance = nodeLinkRadius(source) + nodeLinkRadius(target);
+      return Math.max(targetGap, touchDistance);
+    }
+
+    function syncEdgesToGlobalLinkDistance() {
+      const global = defaultLinkDistance();
+      for (const edge of state.edges) {
+        if (!usesCustomLinkDistance(edge)) {
+          edge.customDistance = false;
+          edge.distance = global;
+        }
+      }
+    }
+
+    function normalizeEdgeLinkSettings() {
+      const global = defaultLinkDistance();
+      for (const edge of state.edges) {
+        edge.customDistance = usesCustomLinkDistance(edge);
+        if (!edge.customDistance) {
+          edge.distance = global;
+        } else {
+          edge.distance = Math.max(0, finiteNumber(edge.distance, global));
+        }
+      }
+    }
+
+    function emptySelection() {
+      return { nodes: [], edges: [] };
+    }
+
+    function normalizeSelection(input) {
+      if (!input || typeof input !== 'object') return emptySelection();
+      if (input.type && input.id) {
+        return input.type === 'node'
+          ? { nodes: [String(input.id)], edges: [] }
+          : input.type === 'edge'
+            ? { nodes: [], edges: [String(input.id)] }
+            : emptySelection();
+      }
+      const nodes = Array.isArray(input.nodes) ? [...new Set(input.nodes.map(String))] : [];
+      const edges = Array.isArray(input.edges) ? [...new Set(input.edges.map(String))] : [];
+      return { nodes, edges };
+    }
+
+    function sanitizeSelection(input) {
+      const next = normalizeSelection(input);
+      next.nodes = next.nodes.filter((id) => nodeById(id));
+      next.edges = next.edges.filter((id) => edgeById(id));
+      return next;
+    }
+
+    function isNodeSelected(id) {
+      return selected.nodes.includes(id);
+    }
+
+    function isEdgeSelected(id) {
+      return selected.edges.includes(id);
+    }
+
+    function selectedNodes() {
+      return selected.nodes.map((id) => nodeById(id)).filter(Boolean);
+    }
+
+    function selectedEdges() {
+      return selected.edges.map((id) => edgeById(id)).filter(Boolean);
+    }
+
+    function selectionCount() {
+      return selected.nodes.length + selected.edges.length;
+    }
+
+    function selectedNode() {
+      return selected.nodes.length === 1 && selected.edges.length === 0
+        ? nodeById(selected.nodes[0])
+        : null;
+    }
+
+    function selectedEdge() {
+      return selected.edges.length === 1 && selected.nodes.length === 0
+        ? edgeById(selected.edges[0])
+        : null;
+    }
+
+    function dashArray(style, width = 2) {
+      const w = Math.max(1, Number(width) || 1);
+      if (style === 'dashed') return `${4 * w} ${3 * w}`;
+      if (style === 'dotted') return `${0.2 * w} ${2.4 * w}`;
+      if (style === 'dashdot') return `${5 * w} ${2.5 * w} ${0.4 * w} ${2.5 * w}`;
+      return '';
+    }
+
+    const VALID_ARROW_STYLES = new Set(['filled', 'open', 'slim', 'wide']);
+
+    function normalizeArrowStyle(value, fallback = 'filled') {
+      const style = String(value || '');
+      return VALID_ARROW_STYLES.has(style) ? style : fallback;
+    }
+
+    function resolveEdgeArrow(edge) {
+      const size = clamp(finiteNumber(edge.arrowSize, finiteNumber(state.defaults.edge.arrowSize, 1)), 0, 4);
+      const style = normalizeArrowStyle(edge.arrowStyle, normalizeArrowStyle(state.defaults.edge.arrowStyle, 'filled'));
+      return { size, style };
+    }
+
+    function arrowMarkerId(style, size) {
+      const key = size.toFixed(1).replace('.', '-');
+      return `arrow-${style}-${key}`;
+    }
+
+    function arrowMarkerPath(style, scale) {
+      const s = scale;
+      if (style === 'open') {
+        return { d: `M0,0 L${9 * s},${3 * s} L0,${6 * s}`, fill: 'none', stroke: 'context-stroke' };
+      }
+      if (style === 'slim') {
+        return { d: `M0,${1 * s} L${9 * s},${3 * s} L0,${5 * s} Z`, fill: 'context-stroke', stroke: 'context-stroke' };
+      }
+      if (style === 'wide') {
+        return { d: `M0,${-1 * s} L${10 * s},${3 * s} L0,${7 * s} Z`, fill: 'context-stroke', stroke: 'context-stroke' };
+      }
+      return { d: `M0,0 L${9 * s},${3 * s} L0,${6 * s} Z`, fill: 'context-stroke', stroke: 'context-stroke' };
+    }
+
+    function ensureArrowMarker(style, size) {
+      if (size <= 0) return null;
+      const id = arrowMarkerId(style, size);
+      if (svgDefs.querySelector(`#${id}`)) return id;
+      const scale = size;
+      const spec = arrowMarkerPath(style, scale);
+      const marker = createSvgElement('marker', {
+        id,
+        markerWidth: 10 * scale,
+        markerHeight: 10 * scale,
+        refX: 9 * scale,
+        refY: 3 * scale,
+        orient: 'auto-start-reverse',
+        markerUnits: 'userSpaceOnUse'
+      });
+      const path = createSvgElement('path', { d: spec.d, fill: spec.fill, stroke: spec.stroke });
+      marker.appendChild(path);
+      svgDefs.appendChild(marker);
+      return id;
+    }
+
+    function syncArrowMarkers() {
+      svgDefs.querySelectorAll('marker[id^="arrow-"]').forEach((marker) => marker.remove());
+      const seen = new Set();
+      for (const edge of state.edges) {
+        if (!edge.arrow || edge.arrow === 'none') continue;
+        const { size, style } = resolveEdgeArrow(edge);
+        const key = `${style}:${size.toFixed(1)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        ensureArrowMarker(style, size);
+      }
+      const fallback = resolveEdgeArrow(state.defaults.edge);
+      ensureArrowMarker(fallback.style, fallback.size);
+    }
+
+    function pointToSegmentDistance(px, py, ax, ay, bx, by) {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 0.01) {
+        const dist = Math.hypot(px - ax, py - ay);
+        return { dist, cx: ax, cy: ay };
+      }
+      let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+      t = clamp(t, 0, 1);
+      const cx = ax + t * dx;
+      const cy = ay + t * dy;
+      return { dist: Math.hypot(px - cx, py - cy), cx, cy };
+    }
+
+    function screenPoint(event) {
+      const rect = svg.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+
+    function screenToWorld(event) {
+      const p = screenPoint(event);
+      return {
+        x: (p.x - state.viewport.x) / state.viewport.scale,
+        y: (p.y - state.viewport.y) / state.viewport.scale
+      };
+    }
+
+    function viewCenterWorld() {
+      const rect = svg.getBoundingClientRect();
+      return {
+        x: (rect.width / 2 - state.viewport.x) / state.viewport.scale,
+        y: (rect.height / 2 - state.viewport.y) / state.viewport.scale
+      };
+    }
+
+    function snapValue(value) {
+      if (!state.canvas.snap) return value;
+      const step = Math.max(1, finiteNumber(state.canvas.snapSize, finiteNumber(state.canvas.gridSize, 25)));
+      return Math.round(value / step) * step;
+    }
+
+    function snapPoint(point) {
+      return { x: snapValue(point.x), y: snapValue(point.y) };
+    }
+
+    function shapeRadius(node, toward) {
+      const dx = toward.x - node.x;
+      const dy = toward.y - node.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const ux = Math.abs(dx / d);
+      const uy = Math.abs(dy / d);
+      const rx = Math.max(5, finiteNumber(node.width, 120) / 2);
+      const ry = Math.max(5, finiteNumber(node.height, 70) / 2);
+
+      const shape = normalizeShape(node.shape, 'circle');
+      if (shape === 'circle') return Math.min(rx, ry);
+      if (shape === 'ellipse' || shape === 'pill') {
+        return 1 / Math.sqrt((ux * ux) / (rx * rx) + (uy * uy) / (ry * ry));
+      }
+      if (shape === 'diamond') {
+        return 1 / ((ux / rx) + (uy / ry));
+      }
+      return Math.min(rx / Math.max(ux, 0.001), ry / Math.max(uy, 0.001));
+    }
+
+    function boundaryPoint(node, toward) {
+      const dx = toward.x - node.x;
+      const dy = toward.y - node.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const r = shapeRadius(node, toward) + 2;
+      return { x: node.x + (dx / d) * r, y: node.y + (dy / d) * r };
+    }
+
+    function nodeCenter(node) {
+      return { x: finiteNumber(node.x, 0), y: finiteNumber(node.y, 0) };
+    }
+
+    function isOutsideNode(node, point) {
+      const dist = Math.hypot(point.x - node.x, point.y - node.y);
+      const r = shapeRadius(node, point) + 2;
+      return dist >= r - 0.25;
+    }
+
+    function splitCubicAt(p0, p1, p2, p3, t) {
+      const mix = (a, b, amount) => ({
+        x: a.x + (b.x - a.x) * amount,
+        y: a.y + (b.y - a.y) * amount
+      });
+      const p01 = mix(p0, p1, t);
+      const p12 = mix(p1, p2, t);
+      const p23 = mix(p2, p3, t);
+      const p012 = mix(p01, p12, t);
+      const p123 = mix(p12, p23, t);
+      const p0123 = mix(p012, p123, t);
+      return {
+        left: { p0, p1: p01, p2: p012, p3: p0123 },
+        right: { p0: p0123, p1: p123, p2: p23, p3 }
+      };
+    }
+
+    function cubicSubcurve(p0, p1, p2, p3, t0, t1) {
+      let curve = { p0, p1, p2, p3 };
+      if (t0 > 0.0001) {
+        curve = splitCubicAt(curve.p0, curve.p1, curve.p2, curve.p3, t0).right;
+      }
+      if (t1 < 0.9999) {
+        const span = 1 - Math.max(t0, 0);
+        const rel = span > 0.0001 ? (t1 - Math.max(t0, 0)) / span : 1;
+        curve = splitCubicAt(curve.p0, curve.p1, curve.p2, curve.p3, clamp(rel, 0, 1)).left;
+      }
+      return curve;
+    }
+
+    function findBezierSourceExitT(node, p0, p1, p2, p3) {
+      if (isOutsideNode(node, p0)) return 0;
+      for (let i = 1; i <= 32; i += 1) {
+        const t = i / 32;
+        if (!isOutsideNode(node, cubicPoint(t, p0, p1, p2, p3))) continue;
+        let lo = (i - 1) / 32;
+        let hi = t;
+        for (let j = 0; j < 16; j += 1) {
+          const mid = (lo + hi) / 2;
+          if (isOutsideNode(node, cubicPoint(mid, p0, p1, p2, p3))) hi = mid;
+          else lo = mid;
+        }
+        return hi;
+      }
+      return 1;
+    }
+
+    function findBezierTargetEntryT(node, p0, p1, p2, p3) {
+      if (isOutsideNode(node, p3)) return 1;
+      let lastOutside = 0;
+      for (let i = 0; i <= 32; i += 1) {
+        const t = i / 32;
+        if (isOutsideNode(node, cubicPoint(t, p0, p1, p2, p3))) lastOutside = t;
+      }
+      if (lastOutside <= 0) return 0;
+      let lo = Math.max(0, lastOutside - 1 / 32);
+      let hi = Math.min(1, lastOutside + 1 / 32);
+      for (let j = 0; j < 16; j += 1) {
+        const mid = (lo + hi) / 2;
+        if (isOutsideNode(node, cubicPoint(mid, p0, p1, p2, p3))) lo = mid;
+        else hi = mid;
+      }
+      return lo;
+    }
+
+    function resolveBezierGeometry(edge, source, target) {
+      const centerStart = nodeCenter(source);
+      const centerEnd = nodeCenter(target);
+      const { cp1, cp2 } = resolveBezierControls(edge, centerStart, centerEnd);
+      syncEdgeControlPoints(edge, { cp1, cp2 });
+
+      const t0 = findBezierSourceExitT(source, centerStart, cp1, cp2, centerEnd);
+      const t1 = findBezierTargetEntryT(target, centerStart, cp1, cp2, centerEnd);
+      const labelT = clamp((t0 + t1) * 0.5, t0, t1);
+      const label = cubicPoint(labelT, centerStart, cp1, cp2, centerEnd);
+
+      if (t0 >= t1 - 0.0005) {
+        const start = boundaryPoint(source, target);
+        const end = boundaryPoint(target, source);
+        return {
+          kind: 'bezier',
+          d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
+          label,
+          start,
+          end,
+          centerStart,
+          centerEnd,
+          cp1,
+          cp2
+        };
+      }
+
+      const visible = cubicSubcurve(centerStart, cp1, cp2, centerEnd, t0, t1);
+      return {
+        kind: 'bezier',
+        d: `M ${visible.p0.x} ${visible.p0.y} C ${visible.p1.x} ${visible.p1.y} ${visible.p2.x} ${visible.p2.y} ${visible.p3.x} ${visible.p3.y}`,
+        label,
+        start: visible.p0,
+        end: visible.p3,
+        centerStart,
+        centerEnd,
+        cp1,
+        cp2
+      };
+    }
+
+    function cubicPoint(t, p0, p1, p2, p3) {
+      const u = 1 - t;
+      const uu = u * u;
+      const tt = t * t;
+      return {
+        x: uu * u * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + tt * t * p3.x,
+        y: uu * u * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + tt * t * p3.y
+      };
+    }
+
+    function sampleCubicBezier(p0, p1, p2, p3, steps = 16) {
+      const points = [];
+      for (let i = 0; i <= steps; i += 1) {
+        points.push(cubicPoint(i / steps, p0, p1, p2, p3));
+      }
+      return points;
+    }
+
+    function defaultBezierControls(start, end, curve, len) {
+      const length = len || Math.hypot(end.x - start.x, end.y - start.y) || 1;
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const ux = dx / length;
+      const uy = dy / length;
+      const px = -uy;
+      const py = ux;
+      const bend = finiteNumber(curve, 0.18) * length;
+      return {
+        cp1: {
+          x: start.x + ux * length * 0.33 + px * bend,
+          y: start.y + uy * length * 0.33 + py * bend
+        },
+        cp2: {
+          x: end.x - ux * length * 0.33 + px * bend * 0.7,
+          y: end.y - uy * length * 0.33 + py * bend * 0.7
+        }
+      };
+    }
+
+    function adjustBezierForNodes(start, end, cp1, cp2, edge) {
+      const padding = finiteNumber(edge.avoidPadding, 28);
+      let nextCp1 = { ...cp1 };
+      let nextCp2 = { ...cp2 };
+
+      for (let iter = 0; iter < 14; iter += 1) {
+        let moved = false;
+        const samples = sampleCubicBezier(start, nextCp1, nextCp2, end, 18);
+        for (const node of state.nodes) {
+          if (node.id === edge.source || node.id === edge.target) continue;
+          const clearance = nodeLinkRadius(node) + padding;
+          for (const sample of samples) {
+            const dx = sample.x - node.x;
+            const dy = sample.y - node.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist >= clearance || dist < 0.01) continue;
+            const push = (clearance - dist) / dist * 0.55;
+            const fx = dx * push;
+            const fy = dy * push;
+            nextCp1.x += fx * 0.6;
+            nextCp1.y += fy * 0.6;
+            nextCp2.x += fx * 0.4;
+            nextCp2.y += fy * 0.4;
+            moved = true;
+          }
+        }
+        if (!moved) break;
+      }
+
+      return { cp1: nextCp1, cp2: nextCp2 };
+    }
+
+    function resolveBezierControls(edge, start, end) {
+      const len = Math.hypot(end.x - start.x, end.y - start.y) || 1;
+      if (edge.cpManual && edge.cp1 && edge.cp2) {
+        return {
+          cp1: { x: finiteNumber(edge.cp1.x, start.x), y: finiteNumber(edge.cp1.y, start.y) },
+          cp2: { x: finiteNumber(edge.cp2.x, end.x), y: finiteNumber(edge.cp2.y, end.y) }
+        };
+      }
+      let controls = defaultBezierControls(start, end, edge.curve, len);
+      if (edge.autoAvoid !== false) {
+        controls = adjustBezierForNodes(start, end, controls.cp1, controls.cp2, edge);
+      }
+      return controls;
+    }
+
+    function syncEdgeControlPoints(edge, controls) {
+      if (!edge.cpManual) {
+        edge.cp1 = { ...controls.cp1 };
+        edge.cp2 = { ...controls.cp2 };
+      }
+    }
+
+    function edgePathSamples(edge) {
+      const source = nodeById(edge.source);
+      const target = nodeById(edge.target);
+      if (!source || !target) return [];
+
+      const start = boundaryPoint(source, target);
+      const end = boundaryPoint(target, source);
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const len = Math.hypot(dx, dy) || 1;
+
+      if (edge.type === 'bezier') {
+        const centerStart = nodeCenter(source);
+        const centerEnd = nodeCenter(target);
+        const { cp1, cp2 } = resolveBezierControls(edge, centerStart, centerEnd);
+        const t0 = findBezierSourceExitT(source, centerStart, cp1, cp2, centerEnd);
+        const t1 = findBezierTargetEntryT(target, centerStart, cp1, cp2, centerEnd);
+        if (t0 >= t1 - 0.0005) {
+          return [boundaryPoint(source, target), boundaryPoint(target, source)];
+        }
+        const visible = cubicSubcurve(centerStart, cp1, cp2, centerEnd, t0, t1);
+        return sampleCubicBezier(visible.p0, visible.p1, visible.p2, visible.p3, 14);
+      }
+
+      if (edge.type === 'curved') {
+        const bend = finiteNumber(edge.curve, 0.22) * len;
+        const quad = {
+          x: (start.x + end.x) / 2 - (dy / len) * bend,
+          y: (start.y + end.y) / 2 + (dx / len) * bend
+        };
+        const points = [];
+        for (let i = 0; i <= 12; i += 1) {
+          const t = i / 12;
+          const u = 1 - t;
+          points.push({
+            x: u * u * start.x + 2 * u * t * quad.x + t * t * end.x,
+            y: u * u * start.y + 2 * u * t * quad.y + t * t * end.y
+          });
+        }
+        return points;
+      }
+
+      if (edge.type === 'orthogonal') {
+        const midX = (start.x + end.x) / 2;
+        return [
+          start,
+          { x: midX, y: start.y },
+          { x: midX, y: end.y },
+          end
+        ];
+      }
+
+      return [start, end];
+    }
+
+    function nearestSampleToPoint(samples, px, py) {
+      let best = { dist: Infinity, x: px, y: py };
+      for (let i = 0; i < samples.length - 1; i += 1) {
+        const a = samples[i];
+        const b = samples[i + 1];
+        const hit = pointToSegmentDistance(px, py, a.x, a.y, b.x, b.y);
+        if (hit.dist < best.dist) best = hit;
+      }
+      return best;
+    }
+
+    function edgeGeometry(edge) {
+      const source = nodeById(edge.source);
+      const target = nodeById(edge.target);
+      if (!source || !target) return null;
+
+      const start = boundaryPoint(source, target);
+      const end = boundaryPoint(target, source);
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const len = Math.hypot(dx, dy) || 1;
+
+      if (edge.type === 'bezier') {
+        return resolveBezierGeometry(edge, source, target);
+      }
+
+      if (edge.type === 'curved') {
+        const bend = finiteNumber(edge.curve, 0.22) * len;
+        const quad = {
+          x: (start.x + end.x) / 2 - (dy / len) * bend,
+          y: (start.y + end.y) / 2 + (dx / len) * bend
+        };
+        return {
+          kind: 'curved',
+          d: `M ${start.x} ${start.y} Q ${quad.x} ${quad.y} ${end.x} ${end.y}`,
+          label: {
+            x: 0.25 * start.x + 0.5 * quad.x + 0.25 * end.x,
+            y: 0.25 * start.y + 0.5 * quad.y + 0.25 * end.y
+          },
+          start,
+          end,
+          quad
+        };
+      }
+
+      if (edge.type === 'orthogonal') {
+        const midX = (start.x + end.x) / 2;
+        return {
+          kind: 'orthogonal',
+          d: `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`,
+          label: { x: midX, y: (start.y + end.y) / 2 },
+          start,
+          end
+        };
+      }
+
+      return {
+        kind: 'straight',
+        d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
+        label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+        start,
+        end
+      };
+    }
+
+    function polygonPoints(points) {
+      return points.map(([x, y]) => `${x},${y}`).join(' ');
+    }
+
+    function createNodeShape(node) {
+      const w = Math.max(20, finiteNumber(node.width, 120));
+      const h = Math.max(20, finiteNumber(node.height, 70));
+      const rx = Math.min(finiteNumber(node.cornerRadius, 16), w / 2, h / 2);
+      const shape = normalizeShape(node.shape, 'circle');
+
+      if (shape === 'circle') {
+        return createSvgElement('circle', { cx: 0, cy: 0, r: Math.min(w, h) / 2 });
+      }
+      if (shape === 'ellipse') {
+        return createSvgElement('ellipse', { cx: 0, cy: 0, rx: w / 2, ry: h / 2 });
+      }
+      if (shape === 'rect') {
+        return createSvgElement('rect', { x: -w / 2, y: -h / 2, width: w, height: h, rx: 0, ry: 0 });
+      }
+      if (shape === 'pill') {
+        return createSvgElement('rect', { x: -w / 2, y: -h / 2, width: w, height: h, rx: h / 2, ry: h / 2 });
+      }
+      if (shape === 'diamond') {
+        return createSvgElement('polygon', { points: polygonPoints([[0, -h / 2], [w / 2, 0], [0, h / 2], [-w / 2, 0]]) });
+      }
+      if (shape === 'hexagon') {
+        return createSvgElement('polygon', { points: polygonPoints([[-w * 0.25, -h / 2], [w * 0.25, -h / 2], [w / 2, 0], [w * 0.25, h / 2], [-w * 0.25, h / 2], [-w / 2, 0]]) });
+      }
+      if (shape === 'parallelogram') {
+        const skew = Math.min(w * 0.18, 36);
+        return createSvgElement('polygon', { points: polygonPoints([[-w / 2 + skew, -h / 2], [w / 2, -h / 2], [w / 2 - skew, h / 2], [-w / 2, h / 2]]) });
+      }
+      return createSvgElement('rect', { x: -w / 2, y: -h / 2, width: w, height: h, rx, ry: rx });
+    }
+
+
+    function applyNodeStroke(shape, node) {
+      shape.setAttribute('fill', node.fill || '#4f8cff');
+      shape.setAttribute('stroke', node.borderColor || '#1e429f');
+      shape.setAttribute('stroke-width', finiteNumber(node.borderWidth, 3));
+      shape.setAttribute('stroke-dasharray', dashArray(node.borderStyle, node.borderWidth));
+      shape.setAttribute('stroke-linecap', node.borderStyle === 'dotted' ? 'round' : 'butt');
+      shape.setAttribute('vector-effect', 'non-scaling-stroke');
+    }
+
+    function resolveNodeText(node) {
+      const defaults = state.defaults.node;
+      return {
+        fontSize: Math.max(8, finiteNumber(node.fontSize, finiteNumber(defaults.fontSize, 13))),
+        textPadding: Math.max(0, finiteNumber(node.textPadding, finiteNumber(defaults.textPadding, 12))),
+        textLineHeight: clamp(finiteNumber(node.textLineHeight, finiteNumber(defaults.textLineHeight, 1.15)), 1, 2),
+        textCharWidth: clamp(finiteNumber(node.textCharWidth, finiteNumber(defaults.textCharWidth, 0.52)), 0.35, 0.75),
+        maxLabelLines: Math.max(1, Math.min(8, finiteNumber(node.maxLabelLines, finiteNumber(defaults.maxLabelLines, 4))))
+      };
+    }
+
+    function labelTextBox(node) {
+      const w = finiteNumber(node.width, 120);
+      const h = finiteNumber(node.height, 70);
+      const { textPadding: pad, fontSize } = resolveNodeText(node);
+      const borderInset = finiteNumber(node.borderWidth, 2);
+      const glyphPad = Math.max(2, fontSize * 0.15);
+      const shape = normalizeShape(node.shape, 'circle');
+      let innerW = w;
+      let innerH = h;
+
+      if (shape === 'circle') {
+        const d = Math.min(w, h);
+        innerW = innerH = d * 0.82;
+      } else if (shape === 'ellipse') {
+        innerW = w * 0.82;
+        innerH = h * 0.82;
+      } else if (shape === 'diamond') {
+        innerW = w * 0.62;
+        innerH = h * 0.62;
+      } else if (shape === 'hexagon') {
+        innerW = w * 0.74;
+        innerH = h * 0.86;
+      } else if (shape === 'parallelogram') {
+        innerW = w * 0.8;
+        innerH = h * 0.9;
+      } else if (shape === 'pill') {
+        innerW = w * 0.9;
+        innerH = h * 0.8;
+      }
+
+      const inset = pad + borderInset + glyphPad;
+      return {
+        boxW: Math.max(8, innerW - inset * 2),
+        boxH: Math.max(8, innerH - inset * 2)
+      };
+    }
+
+    function wrapLabel(label, maxChars, maxLines = 5) {
+      const raw = String(label ?? '');
+      if (!raw.trim()) return [' '];
+
+      const lines = [];
+      const pushLine = (value) => {
+        lines.push(value || ' ');
+        return lines.length >= maxLines;
+      };
+
+      const wrapParagraph = (paragraph) => {
+        const text = paragraph.trim();
+        if (!text) {
+          return pushLine(' ');
+        }
+
+        const words = text.split(/\s+/);
+        let line = '';
+
+        for (const word of words) {
+          let chunk = word;
+          while (chunk.length > maxChars) {
+            if (line && pushLine(line)) return true;
+            line = '';
+            if (pushLine(chunk.slice(0, maxChars))) return true;
+            chunk = chunk.slice(maxChars);
+          }
+
+          const candidate = line ? `${line} ${chunk}` : chunk;
+          if (candidate.length <= maxChars || !line) {
+            line = candidate;
+          } else {
+            if (pushLine(line)) return true;
+            line = chunk;
+          }
+          if (lines.length >= maxLines) return true;
+        }
+
+        if (line) return pushLine(line);
+        return false;
+      };
+
+      const paragraphs = raw.split(/\r?\n/);
+      for (const paragraph of paragraphs) {
+        if (wrapParagraph(paragraph)) return lines.slice(0, maxLines);
+      }
+
+      return lines.slice(0, maxLines);
+    }
+
+    function nodeLabelLayout(node) {
+      const text = resolveNodeText(node);
+      const { boxW, boxH } = labelTextBox(node);
+      const charWidth = text.fontSize * text.textCharWidth;
+      const lineHeight = text.fontSize * text.textLineHeight;
+      const maxChars = Math.max(1, Math.floor(boxW / charWidth));
+      const maxLinesByHeight = Math.max(1, Math.floor((boxH * 0.9) / lineHeight));
+      const lineCap = Math.min(text.maxLabelLines, maxLinesByHeight);
+      const lines = wrapLabel(node.label, maxChars, lineCap);
+      const blockHeight = lines.length * lineHeight;
+      const startY = -((lines.length - 1) * lineHeight) / 2;
+
+      return { ...text, lines, lineHeight, startY, boxW, boxH, blockHeight };
+    }
+
+    function buildNodeLabelGroup(node) {
+      const layout = nodeLabelLayout(node);
+      const text = createSvgElement('text', {
+        x: 0,
+        y: 0,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'middle',
+        'font-size': layout.fontSize,
+        'font-weight': 750,
+        fill: node.textColor || '#ffffff'
+      });
+
+      layout.lines.forEach((line, index) => {
+        const tspan = createSvgElement('tspan', {
+          x: 0,
+          y: layout.startY + index * layout.lineHeight,
+          'dominant-baseline': 'middle'
+        });
+        tspan.textContent = line;
+        text.appendChild(tspan);
+      });
+
+      return text;
+    }
+
+    function renderEdges() {
+      clearElement(edgesLayer);
+      for (const edge of state.edges) {
+        const geom = edgeGeometry(edge);
+        if (!geom) continue;
+
+        const group = createSvgElement('g', { class: 'edge' });
+        group.dataset.edgeId = edge.id;
+
+        if (isEdgeSelected(edge.id)) {
+          const halo = createSvgElement('path', {
+            d: geom.d,
+            fill: 'none',
+            stroke: '#111827',
+            'stroke-width': finiteNumber(edge.width, 2) + 8,
+            opacity: 0.16,
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            'vector-effect': 'non-scaling-stroke'
+          });
+          group.appendChild(halo);
+        }
+
+        const path = createSvgElement('path', {
+          d: geom.d,
+          class: 'edge-path',
+          stroke: edge.color || '#526071',
+          'stroke-width': finiteNumber(edge.width, 2),
+          'stroke-dasharray': dashArray(edge.style, edge.width),
+          opacity: finiteNumber(edge.opacity, 1),
+          'vector-effect': 'non-scaling-stroke'
+        });
+        path.setAttribute('stroke-linecap', edge.style === 'dotted' ? 'round' : 'round');
+        const { size: arrowSize, style: arrowStyle } = resolveEdgeArrow(edge);
+        const markerId = ensureArrowMarker(arrowStyle, arrowSize);
+        if (markerId && (edge.arrow === 'target' || edge.arrow === 'both')) path.setAttribute('marker-end', `url(#${markerId})`);
+        if (markerId && (edge.arrow === 'source' || edge.arrow === 'both')) path.setAttribute('marker-start', `url(#${markerId})`);
+
+        const hit = createSvgElement('path', {
+          d: geom.d,
+          class: 'edge-hit',
+          'stroke-width': Math.max(14, finiteNumber(edge.width, 2) + 10),
+          'vector-effect': 'non-scaling-stroke'
+        });
+
+        group.appendChild(path);
+        group.appendChild(hit);
+        group.addEventListener('mousedown', (event) => {
+          handleShiftSelection('edge', edge.id, event);
+        });
+        group.addEventListener('click', (event) => {
+          event.stopPropagation();
+          handleSelectClick('edge', edge.id, event);
+        });
+        group.addEventListener('dblclick', (event) => {
+          event.stopPropagation();
+          const next = prompt('Connection label', edge.label || '');
+          if (next !== null) {
+            edge.label = next;
+            selectItem('edge', edge.id);
+            renderGraphics();
+            syncSelectionPanel();
+          }
+        });
+        edgesLayer.appendChild(group);
+      }
+    }
+
+    function renderEdgeLabels() {
+      clearElement(edgeLabelsLayer);
+      for (const edge of state.edges) {
+        if (!edge.label) continue;
+        const geom = edgeGeometry(edge);
+        if (!geom) continue;
+        const label = String(edge.label);
+        const fontSize = 12;
+        const width = Math.max(28, label.length * fontSize * 0.58 + 16);
+        const height = 24;
+        const group = createSvgElement('g', {
+          class: 'edge-label',
+          transform: `translate(${geom.label.x} ${geom.label.y})`
+        });
+        group.dataset.edgeId = edge.id;
+        const rect = createSvgElement('rect', {
+          x: -width / 2,
+          y: -height / 2,
+          width,
+          height,
+          rx: 10,
+          ry: 10
+        });
+        const text = createSvgElement('text', {
+          x: 0,
+          y: 0,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'middle',
+          'font-size': fontSize
+        });
+        text.textContent = label;
+        group.appendChild(rect);
+        group.appendChild(text);
+        group.addEventListener('mousedown', (event) => {
+          handleShiftSelection('edge', edge.id, event);
+        });
+        group.addEventListener('click', (event) => {
+          event.stopPropagation();
+          handleSelectClick('edge', edge.id, event);
+        });
+        group.addEventListener('dblclick', (event) => {
+          event.stopPropagation();
+          const next = prompt('Connection label', edge.label || '');
+          if (next !== null) {
+            edge.label = next;
+            selectItem('edge', edge.id);
+            renderGraphics();
+            syncSelectionPanel();
+          }
+        });
+        edgeLabelsLayer.appendChild(group);
+      }
+    }
+
+    function renderNodes() {
+      clearElement(nodesLayer);
+      for (const node of state.nodes) {
+        const group = createSvgElement('g', {
+          class: 'node',
+          transform: `translate(${node.x} ${node.y})`,
+          opacity: finiteNumber(node.opacity, 1)
+        });
+        group.dataset.nodeId = node.id;
+
+        if (node.hub) {
+          const hubRing = createNodeShape(node);
+          hubRing.setAttribute('fill', 'none');
+          hubRing.setAttribute('stroke', node.borderColor || '#1e429f');
+          hubRing.setAttribute('stroke-width', finiteNumber(node.borderWidth, 3) + 7);
+          hubRing.setAttribute('opacity', '0.22');
+          hubRing.setAttribute('vector-effect', 'non-scaling-stroke');
+          group.appendChild(hubRing);
+        }
+
+        if (isNodeSelected(node.id)) {
+          const halo = createNodeShape(node);
+          halo.setAttribute('fill', 'none');
+          halo.setAttribute('stroke', '#111827');
+          halo.setAttribute('stroke-width', finiteNumber(node.borderWidth, 3) + 9);
+          halo.setAttribute('opacity', '0.18');
+          halo.setAttribute('vector-effect', 'non-scaling-stroke');
+          group.appendChild(halo);
+        }
+
+        const shape = createNodeShape(node);
+        applyNodeStroke(shape, node);
+        if (node.shadow) shape.setAttribute('filter', 'url(#nodeDropShadow)');
+        group.appendChild(shape);
+
+        group.appendChild(buildNodeLabelGroup(node));
+
+        group.addEventListener('mousedown', (event) => onNodeMouseDown(event, node.id));
+        group.addEventListener('click', (event) => onNodeClick(event, node.id));
+        group.addEventListener('dblclick', (event) => onNodeDoubleClick(event, node.id));
+        nodesLayer.appendChild(group);
+      }
+    }
+
+    function renderGraphics() {
+      syncArrowMarkers();
+      svg.style.background = state.canvas.background || '#f6f8fc';
+      viewport.setAttribute('transform', `translate(${state.viewport.x} ${state.viewport.y}) scale(${state.viewport.scale})`);
+      gridPattern.setAttribute('width', finiteNumber(state.canvas.gridSize, 50));
+      gridPattern.setAttribute('height', finiteNumber(state.canvas.gridSize, 50));
+      gridPath.setAttribute('d', `M ${finiteNumber(state.canvas.gridSize, 50)} 0 L 0 0 0 ${finiteNumber(state.canvas.gridSize, 50)}`);
+      gridPath.setAttribute('stroke', state.canvas.gridColor || '#d7deea');
+      gridRect.setAttribute('opacity', state.canvas.grid ? finiteNumber(state.canvas.gridOpacity, 0.85) : 0);
+
+      renderEdges();
+      renderEdgeLabels();
+      renderNodes();
+      renderEdgeHandles();
+      updateStatus();
+      updateSimButton();
+    }
+
+    function renderEdgeHandles() {
+      clearElement(edgeHandlesLayer);
+      const edges = selectedEdges();
+      if (edges.length !== 1 || edges[0].type !== 'bezier') return;
+
+      const edge = edges[0];
+      const geom = edgeGeometry(edge);
+      if (!geom || geom.kind !== 'bezier') return;
+
+      const { centerStart, centerEnd, cp1, cp2 } = geom;
+      edgeHandlesLayer.appendChild(createSvgElement('line', {
+        class: 'bezier-guide',
+        x1: centerStart.x,
+        y1: centerStart.y,
+        x2: cp1.x,
+        y2: cp1.y
+      }));
+      edgeHandlesLayer.appendChild(createSvgElement('line', {
+        class: 'bezier-guide',
+        x1: centerEnd.x,
+        y1: centerEnd.y,
+        x2: cp2.x,
+        y2: cp2.y
+      }));
+
+      for (const [which, point] of [['cp1', cp1], ['cp2', cp2]]) {
+        const handle = createSvgElement('circle', {
+          class: 'bezier-handle',
+          cx: point.x,
+          cy: point.y,
+          r: 7
+        });
+        handle.dataset.edgeId = edge.id;
+        handle.dataset.which = which;
+        handle.addEventListener('mousedown', (event) => onBezierHandleMouseDown(event, edge.id, which));
+        edgeHandlesLayer.appendChild(handle);
+      }
+    }
+
+    function onBezierHandleMouseDown(event, edgeId, which) {
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      const edge = edgeById(edgeId);
+      if (!edge) return;
+      edge.cpManual = true;
+      const p = screenToWorld(event);
+      drag = {
+        kind: 'bezier-cp',
+        edgeId,
+        which,
+        moved: false,
+        startX: p.x,
+        startY: p.y
+      };
+      svg.classList.add('dragging');
+      syncSelectionPanel();
+    }
+
+    function setMode(nextMode) {
+      mode = nextMode;
+      connectingFrom = null;
+      svg.classList.toggle('connecting', mode === 'connect');
+      $('modeSelect').classList.toggle('mode-active', mode === 'select');
+      $('modeAdd').classList.toggle('mode-active', mode === 'add');
+      $('modeConnect').classList.toggle('mode-active', mode === 'connect');
+      updateStatus();
+    }
+
+    function selectItem(type, id) {
+      if (type === 'node') selected = { nodes: [id], edges: [] };
+      else if (type === 'edge') selected = { nodes: [], edges: [id] };
+      else selected = emptySelection();
+      connectingFrom = null;
+      syncSelectionPanel();
+      renderGraphics();
+    }
+
+    function toggleSelectionItem(type, id) {
+      const key = type === 'node' ? 'nodes' : 'edges';
+      const other = type === 'node' ? 'edges' : 'nodes';
+      if (selected[other].length) selected[other] = [];
+      const idx = selected[key].indexOf(id);
+      if (idx >= 0) selected[key] = selected[key].filter((itemId) => itemId !== id);
+      else selected[key] = [...selected[key], id];
+      connectingFrom = null;
+      syncSelectionPanel();
+      renderGraphics();
+    }
+
+    function handleShiftSelection(type, id, event) {
+      if (event.button !== 0 || mode !== 'select') return false;
+      if (!event.shiftKey) return false;
+      event.stopPropagation();
+      toggleSelectionItem(type, id);
+      suppressClick = true;
+      return true;
+    }
+
+    function handleSelectClick(type, id, event) {
+      if (mode === 'connect' && type === 'node') {
+        handleConnectClick(id);
+        return;
+      }
+      if (event.shiftKey) return;
+      selectItem(type, id);
+    }
+
+    function clearSelection() {
+      selected = emptySelection();
+      connectingFrom = null;
+      syncSelectionPanel();
+      renderGraphics();
+    }
+
+    function selectionStatusText() {
+      const parts = [];
+      if (selected.nodes.length === 1) parts.push(`node ${selected.nodes[0]}`);
+      else if (selected.nodes.length > 1) parts.push(`${selected.nodes.length} nodes`);
+      if (selected.edges.length === 1) parts.push(`edge ${selected.edges[0]}`);
+      else if (selected.edges.length > 1) parts.push(`${selected.edges.length} connections`);
+      return parts.length ? parts.join(' · ') : 'nothing selected';
+    }
+
+    function updateStatus(message = '') {
+      const hubs = state.nodes.filter((node) => node.hub).length;
+      const frozen = state.nodes.filter((node) => node.fixed).length;
+      const simText = state.sim.running ? 'force on' : 'force off';
+      const selectionText = selectionStatusText();
+      const connectText = connectingFrom ? ` · connecting from ${connectingFrom}` : '';
+      const msg = message ? ` · ${message}` : '';
+      $('status').textContent = `${state.nodes.length} nodes · ${state.edges.length} connections · ${hubs} hubs · ${frozen} frozen · ${simText} · ${mode} mode · ${selectionText}${connectText}${msg}`;
+    }
+
+    function updateSimButton() {
+      $('toggleSim').textContent = state.sim.running ? 'Stop force layout' : 'Start force layout';
+      $('toggleSim').classList.toggle('primary', !state.sim.running);
+    }
+
+    function createNode(x, y, overrides = {}) {
+      const id = overrides.id || `n${state.nextNodeId++}`;
+      const point = snapPoint({ x, y });
+      const node = {
+        ...state.defaults.node,
+        id,
+        label: overrides.label ?? `${state.defaults.node.label} ${id.replace(/^n/, '')}`,
+        x: point.x,
+        y: point.y,
+        vx: 0,
+        vy: 0,
+        ...overrides
+      };
+      node.id = id;
+      node.x = point.x;
+      node.y = point.y;
+      node.vx = finiteNumber(node.vx, 0);
+      node.vy = finiteNumber(node.vy, 0);
+      node.fixed = Boolean(node.fixed);
+      node.hub = Boolean(node.hub);
+      node.shape = normalizeShape(node.shape, normalizeShape(state.defaults.node.shape, 'circle'));
+      state.nodes.push(node);
+      return id;
+    }
+
+    function createEdge(sourceId, targetId, overrides = {}) {
+      if (!sourceId || !targetId || sourceId === targetId) return null;
+      if (!nodeById(sourceId) || !nodeById(targetId)) return null;
+      const id = overrides.id || `e${state.nextEdgeId++}`;
+      const edge = {
+        ...state.defaults.edge,
+        id,
+        source: sourceId,
+        target: targetId,
+        ...overrides
+      };
+      edge.id = id;
+      edge.customDistance = edge.customDistance === true;
+      if (!edge.customDistance) {
+        edge.customDistance = false;
+        edge.distance = defaultLinkDistance();
+      } else {
+        edge.distance = Math.max(0, finiteNumber(edge.distance, defaultLinkDistance()));
+      }
+      state.edges.push(edge);
+      return id;
+    }
+
+    function addHub() {
+      const center = snapPoint(viewCenterWorld());
+      const id = createNode(center.x, center.y, {
+        label: `Hub ${state.nextNodeId}`,
+        hub: true,
+        shape: 'circle',
+        width: 132,
+        height: 132,
+        fill: '#1f5eff',
+        textColor: '#ffffff',
+        borderColor: '#0b2f8a',
+        borderWidth: 4,
+        borderStyle: 'solid',
+        cornerRadius: 0,
+        shadow: true,
+        fixed: false
+      });
+      selectItem('node', id);
+      refreshJsonBox(false);
+    }
+
+    function addSpoke() {
+      let hub = selectedNode();
+      if (hub && !hub.hub) hub = null;
+      if (!hub) hub = state.nodes.find((node) => node.hub) || state.nodes[0];
+      if (!hub) {
+        addHub();
+        return;
+      }
+      const degree = state.edges.filter((edge) => edge.source === hub.id).length;
+      const angle = degree * Math.PI * (3 - Math.sqrt(5));
+      const distance = defaultLinkDistance();
+      const id = createNode(hub.x + Math.cos(angle) * distance, hub.y + Math.sin(angle) * distance, {
+        label: `Spoke ${state.nextNodeId}`,
+        hub: false,
+        shape: 'circle',
+        width: 72,
+        height: 72,
+        fixed: false
+      });
+      createEdge(hub.id, id, { label: '', arrow: 'target' });
+      selectItem('node', id);
+      refreshJsonBox(false);
+    }
+
+    function duplicateSelectedNode() {
+      const node = selectedNode();
+      if (!node) return;
+      const clone = JSON.parse(JSON.stringify(node));
+      delete clone.id;
+      clone.label = `${node.label} copy`;
+      clone.fixed = false;
+      const id = createNode(node.x + 50, node.y + 50, clone);
+      selectItem('node', id);
+      refreshJsonBox(false);
+    }
+
+    function deleteSelected() {
+      const nodeIds = new Set(selected.nodes);
+      const edgeIds = new Set(selected.edges);
+      if (!nodeIds.size && !edgeIds.size) return;
+      state.nodes = state.nodes.filter((node) => !nodeIds.has(node.id));
+      state.edges = state.edges.filter((edge) =>
+        !edgeIds.has(edge.id) && !nodeIds.has(edge.source) && !nodeIds.has(edge.target));
+      clearSelection();
+      refreshJsonBox(false);
+    }
+
+    function handleConnectClick(nodeId) {
+      if (!connectingFrom) {
+        selectItem('node', nodeId);
+        connectingFrom = nodeId;
+        updateStatus();
+        return;
+      }
+      if (connectingFrom !== nodeId) {
+        const edgeId = createEdge(connectingFrom, nodeId);
+        if (edgeId) selectItem('edge', edgeId);
+        else selectItem('node', nodeId);
+      } else {
+        selectItem('node', nodeId);
+      }
+      connectingFrom = null;
+      refreshJsonBox(false);
+    }
+
+    function onNodeMouseDown(event, nodeId) {
+      if (event.button !== 0 || mode === 'connect') return;
+      event.stopPropagation();
+      const node = nodeById(nodeId);
+      if (!node) return;
+      if (handleShiftSelection('node', nodeId, event)) return;
+      selectItem('node', nodeId);
+      const p = screenToWorld(event);
+      drag = { kind: 'node', id: nodeId, dx: p.x - node.x, dy: p.y - node.y, moved: false };
+      svg.classList.add('dragging');
+    }
+
+    function onNodeClick(event, nodeId) {
+      event.stopPropagation();
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
+      handleSelectClick('node', nodeId, event);
+    }
+
+    function onNodeDoubleClick(event, nodeId) {
+      event.stopPropagation();
+      const node = nodeById(nodeId);
+      if (!node) return;
+      const next = prompt('Node label', node.label || '');
+      if (next !== null) {
+        node.label = next;
+        selectItem('node', nodeId);
+        renderGraphics();
+        syncSelectionPanel();
+        refreshJsonBox(false);
+      }
+    }
+
+    function toggleSimulation() {
+      state.sim.running = !state.sim.running;
+      if (state.sim.running && !raf) animate();
+      renderGraphics();
+    }
+
+    function animate() {
+      if (!state.sim.running) {
+        raf = null;
+        return;
+      }
+      tickSimulation(1);
+      renderGraphics();
+      raf = requestAnimationFrame(animate);
+    }
+
+    function tickSimulation(iterations = 1) {
+      const nodes = state.nodes;
+      const edges = state.edges;
+      const sim = state.sim;
+      const repulsion = finiteNumber(sim.repulsion, 9000);
+      const damping = finiteNumber(sim.damping, 0.86);
+      const centerStrength = finiteNumber(sim.centerStrength, 0.004);
+      const linkStrength = finiteNumber(sim.linkStrength, 0.025);
+      const defaultDistance = defaultLinkDistance();
+      const collisionPadding = finiteNumber(sim.collisionPadding, 18);
+      const edgeAvoidance = finiteNumber(sim.edgeAvoidance, 0);
+      const edgeAvoidanceDistance = finiteNumber(sim.edgeAvoidanceDistance, 90);
+
+      for (let iter = 0; iter < iterations; iter += 1) {
+        for (const node of nodes) {
+          if (node.fixed) {
+            node.vx = 0;
+            node.vy = 0;
+          }
+        }
+
+        for (let i = 0; i < nodes.length; i += 1) {
+          for (let j = i + 1; j < nodes.length; j += 1) {
+            const a = nodes[i];
+            const b = nodes[j];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let dist2 = dx * dx + dy * dy;
+            if (dist2 < 0.01) {
+              dx = Math.random() - 0.5;
+              dy = Math.random() - 0.5;
+              dist2 = dx * dx + dy * dy;
+            }
+            const dist = Math.sqrt(dist2);
+            const force = repulsion / Math.max(dist2, 100);
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            if (!a.fixed) {
+              a.vx -= fx;
+              a.vy -= fy;
+            }
+            if (!b.fixed) {
+              b.vx += fx;
+              b.vy += fy;
+            }
+
+            const minDist = Math.max(a.width, a.height) / 2 + Math.max(b.width, b.height) / 2 + collisionPadding;
+            if (dist < minDist && dist > 0) {
+              const push = (minDist - dist) * 0.035;
+              const px = (dx / dist) * push;
+              const py = (dy / dist) * push;
+              if (!a.fixed) {
+                a.vx -= px;
+                a.vy -= py;
+              }
+              if (!b.fixed) {
+                b.vx += px;
+                b.vy += py;
+              }
+            }
+          }
+        }
+
+        for (const edge of edges) {
+          const source = nodeById(edge.source);
+          const target = nodeById(edge.target);
+          if (!source || !target) continue;
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          const desired = linkDesiredCenterDistance(source, target, edge);
+          const force = (dist - desired) * linkStrength;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          if (!source.fixed) {
+            source.vx += fx;
+            source.vy += fy;
+          }
+          if (!target.fixed) {
+            target.vx -= fx;
+            target.vy -= fy;
+          }
+        }
+
+        if (edgeAvoidance > 0) {
+          for (const edge of edges) {
+            const source = nodeById(edge.source);
+            const target = nodeById(edge.target);
+            if (!source || !target) continue;
+            const samples = edgePathSamples(edge);
+            const segLen = Math.max(
+              Math.hypot(target.x - source.x, target.y - source.y),
+              samples.reduce((sum, point, index) => {
+                if (index === 0) return sum;
+                return sum + Math.hypot(point.x - samples[index - 1].x, point.y - samples[index - 1].y);
+              }, 0)
+            ) || 1;
+            const clearance = edgeAvoidanceDistance + Math.max(finiteNumber(edge.width, 2) * 2, 4);
+
+            for (const node of nodes) {
+              if (node.id === edge.source || node.id === edge.target) continue;
+              const { dist, cx, cy } = nearestSampleToPoint(samples, node.x, node.y);
+              if (dist >= clearance || dist < 0.01) continue;
+              let dx = node.x - cx;
+              let dy = node.y - cy;
+              const away = Math.hypot(dx, dy);
+              if (away < 0.01) {
+                dx = node.x - source.x;
+                dy = node.y - source.y;
+                const fallback = Math.hypot(dx, dy) || 1;
+                dx /= fallback;
+                dy /= fallback;
+              } else {
+                dx /= away;
+                dy /= away;
+              }
+              const depth = (clearance - dist) / clearance;
+              const hubHubBoost = source.hub && target.hub ? 1.75 : 1;
+              const force = edgeAvoidance * depth * depth * hubHubBoost / Math.max(segLen, 80);
+              if (!node.fixed) {
+                node.vx += dx * force;
+                node.vy += dy * force;
+              }
+            }
+          }
+        }
+
+        for (const node of nodes) {
+          if (node.fixed) continue;
+          node.vx += (finiteNumber(state.canvas.centerX, 0) - node.x) * centerStrength;
+          node.vy += (finiteNumber(state.canvas.centerY, 0) - node.y) * centerStrength;
+          node.vx *= damping;
+          node.vy *= damping;
+          node.x += node.vx;
+          node.y += node.vy;
+          if (Math.abs(node.vx) < 0.001) node.vx = 0;
+          if (Math.abs(node.vy) < 0.001) node.vy = 0;
+        }
+      }
+    }
+
+    function fitView() {
+      const rect = svg.getBoundingClientRect();
+      if (!state.nodes.length || rect.width <= 0 || rect.height <= 0) {
+        state.viewport = { x: rect.width / 2, y: rect.height / 2, scale: 1 };
+        renderGraphics();
+        return;
+      }
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const node of state.nodes) {
+        const w = finiteNumber(node.width, 120) / 2;
+        const h = finiteNumber(node.height, 70) / 2;
+        minX = Math.min(minX, node.x - w);
+        minY = Math.min(minY, node.y - h);
+        maxX = Math.max(maxX, node.x + w);
+        maxY = Math.max(maxY, node.y + h);
+      }
+      const padding = 90;
+      const width = Math.max(1, maxX - minX);
+      const height = Math.max(1, maxY - minY);
+      const scale = clamp(Math.min((rect.width - padding * 2) / width, (rect.height - padding * 2) / height), 0.12, 2.6);
+      state.viewport.scale = scale;
+      state.viewport.x = rect.width / 2 - ((minX + maxX) / 2) * scale;
+      state.viewport.y = rect.height / 2 - ((minY + maxY) / 2) * scale;
+      renderGraphics();
+    }
+
+    function resetView() {
+      const rect = svg.getBoundingClientRect();
+      state.viewport = { x: rect.width / 2, y: rect.height / 2, scale: 1 };
+      renderGraphics();
+    }
+
+    function isGlobalEditMode() {
+      return selectionCount() === 0;
+    }
+
+    function sharedNodeField(nodes, key, fallback) {
+      if (!nodes.length) return fallback;
+      const first = nodes[0][key];
+      return nodes.every((node) => node[key] === first) ? first : nodes[0][key];
+    }
+
+    function sharedEdgeField(edges, key, fallback) {
+      if (!edges.length) return fallback;
+      const first = edges[0][key];
+      return edges.every((edge) => edge[key] === first) ? first : edges[0][key];
+    }
+
+    function syncSelectionPanel() {
+      const node = selectedNode();
+      const edge = selectedEdge();
+      const nodes = selectedNodes();
+      const edges = selectedEdges();
+      const globalMode = isGlobalEditMode();
+      const multiNodes = nodes.length > 1;
+      const multiEdges = edges.length > 1;
+
+      $('globalHint').hidden = !globalMode;
+      $('nodeEditor').hidden = !globalMode && nodes.length === 0;
+      $('edgeEditor').hidden = !globalMode && edges.length === 0;
+      $('nodeSingleOnly').hidden = globalMode || multiNodes;
+      $('nodeFlagsOnly').hidden = globalMode || multiNodes;
+      $('edgeSingleOnly').hidden = globalMode || multiEdges;
+      $('edgeDistanceOnly').hidden = globalMode || multiEdges;
+
+      $('nodeEditorHeading').textContent = multiNodes
+        ? `${nodes.length} nodes selected`
+        : node
+          ? 'Node'
+          : `All nodes (${state.nodes.length})`;
+      $('edgeEditorHeading').textContent = multiEdges
+        ? `${edges.length} connections selected`
+        : edge
+          ? 'Connection'
+          : `All connections (${state.edges.length})`;
+
+      const nodeSource = node || nodes[0] || state.defaults.node;
+      const nodeTargets = nodes.length ? nodes : (globalMode && state.nodes.length ? state.nodes : [nodeSource]);
+      $('nodeLabel').value = node ? (node.label || '') : '';
+      $('nodeShape').value = normalizeShape(sharedNodeField(nodeTargets, 'shape', 'circle'), 'circle');
+      $('nodeHub').checked = node ? Boolean(node.hub) : false;
+      $('nodeFixed').checked = node ? Boolean(node.fixed) : false;
+      $('nodeWidth').value = finiteNumber(sharedNodeField(nodeTargets, 'width', 148), 148);
+      $('nodeHeight').value = finiteNumber(sharedNodeField(nodeTargets, 'height', 74), 74);
+      $('nodeFill').value = sharedNodeField(nodeTargets, 'fill', '#4f8cff') || '#4f8cff';
+      $('nodeTextColor').value = sharedNodeField(nodeTargets, 'textColor', '#ffffff') || '#ffffff';
+      $('nodeBorderColor').value = sharedNodeField(nodeTargets, 'borderColor', '#1e429f') || '#1e429f';
+      $('nodeBorderWidth').value = finiteNumber(sharedNodeField(nodeTargets, 'borderWidth', 3), 3);
+      $('nodeBorderStyle').value = sharedNodeField(nodeTargets, 'borderStyle', 'solid') || 'solid';
+      $('nodeCornerRadius').value = finiteNumber(sharedNodeField(nodeTargets, 'cornerRadius', 16), 16);
+      $('nodeFontSize').value = finiteNumber(sharedNodeField(nodeTargets, 'fontSize', 14), 14);
+      $('nodeTextPadding').value = finiteNumber(sharedNodeField(nodeTargets, 'textPadding', 12), 12);
+      $('nodeMaxLabelLines').value = finiteNumber(sharedNodeField(nodeTargets, 'maxLabelLines', 4), 4);
+      $('nodeTextLineHeight').value = finiteNumber(sharedNodeField(nodeTargets, 'textLineHeight', 1.15), 1.15);
+      $('nodeOpacity').value = finiteNumber(sharedNodeField(nodeTargets, 'opacity', 1), 1);
+      $('nodeShadow').checked = nodeTargets.every((item) => Boolean(item.shadow));
+
+      const edgeSource = edge || edges[0] || state.defaults.edge;
+      $('edgeLabel').value = edge ? (edge.label || '') : '';
+      $('edgeType').value = sharedEdgeField(edges.length ? edges : [edgeSource], 'type', 'straight') || 'straight';
+      $('edgeArrow').value = sharedEdgeField(edges.length ? edges : [edgeSource], 'arrow', 'target') || 'target';
+      $('edgeColor').value = sharedEdgeField(edges.length ? edges : [edgeSource], 'color', '#526071') || '#526071';
+      $('edgeWidth').value = finiteNumber(sharedEdgeField(edges.length ? edges : [edgeSource], 'width', 2), 2);
+      $('edgeStyle').value = sharedEdgeField(edges.length ? edges : [edgeSource], 'style', 'solid') || 'solid';
+      $('edgeCurve').value = finiteNumber(sharedEdgeField(edges.length ? edges : [edgeSource], 'curve', 0.22), 0.22);
+      $('edgeOpacity').value = finiteNumber(sharedEdgeField(edges.length ? edges : [edgeSource], 'opacity', 1), 1);
+      $('edgeArrowSize').value = clamp(finiteNumber(sharedEdgeField(edges.length ? edges : [edgeSource], 'arrowSize', 1), 1), 0, 4);
+      $('edgeArrowStyle').value = normalizeArrowStyle(
+        sharedEdgeField(edges.length ? edges : [edgeSource], 'arrowStyle', 'filled'),
+        'filled'
+      );
+
+      if (edge) {
+        $('edgeCustomDistance').checked = usesCustomLinkDistance(edge);
+        $('edgeDistance').value = edgeForceDistance(edge);
+        $('edgeDistance').disabled = !usesCustomLinkDistance(edge);
+      } else if (multiEdges) {
+        $('edgeCustomDistance').checked = false;
+        $('edgeDistance').value = defaultLinkDistance();
+        $('edgeDistance').disabled = true;
+      } else if (globalMode) {
+        $('edgeCustomDistance').checked = false;
+        $('edgeDistance').value = defaultLinkDistance();
+        $('edgeDistance').disabled = true;
+      }
+
+      const showBezierControls = globalMode
+        ? state.defaults.edge.type === 'bezier'
+        : edges.some((item) => item.type === 'bezier');
+      $('edgeBezierControls').hidden = !showBezierControls;
+      const bezierSource = edges.length ? edges : [state.defaults.edge];
+      $('edgeAutoAvoid').checked = bezierSource.every((item) => item.autoAvoid !== false);
+      $('edgeAvoidPadding').value = finiteNumber(sharedEdgeField(bezierSource, 'avoidPadding', 28), 28);
+      $('edgeAvoidPaddingOut').textContent = `${$('edgeAvoidPadding').value}px`;
+      $('edgeCpManual').checked = bezierSource.every((item) => item.cpManual === true);
+    }
+
+    function syncControlPanel() {
+      $('repulsion').value = finiteNumber(state.sim.repulsion, 9000);
+      $('linkDistance').value = finiteNumber(state.sim.linkDistance, 210);
+      $('linkStrength').value = finiteNumber(state.sim.linkStrength, 0.025);
+      $('centerStrength').value = finiteNumber(state.sim.centerStrength, 0.004);
+      $('damping').value = finiteNumber(state.sim.damping, 0.86);
+      $('collisionPadding').value = finiteNumber(state.sim.collisionPadding, 18);
+      $('edgeAvoidance').value = finiteNumber(state.sim.edgeAvoidance, 2200);
+      $('edgeAvoidanceDistance').value = finiteNumber(state.sim.edgeAvoidanceDistance, 90);
+      updateRangeOutputs();
+
+      $('defaultNodeShape').value = normalizeShape(state.defaults.node.shape, 'circle');
+      $('defaultNodeFill').value = state.defaults.node.fill || '#4f8cff';
+      $('defaultNodeTextColor').value = state.defaults.node.textColor || '#ffffff';
+      $('defaultNodeBorderColor').value = state.defaults.node.borderColor || '#1e429f';
+      $('defaultNodeBorderWidth').value = finiteNumber(state.defaults.node.borderWidth, 3);
+      $('defaultNodeBorderStyle').value = state.defaults.node.borderStyle || 'solid';
+      $('defaultNodeFontSize').value = finiteNumber(state.defaults.node.fontSize, 13);
+      $('defaultNodeTextPadding').value = finiteNumber(state.defaults.node.textPadding, 12);
+      $('defaultNodeMaxLabelLines').value = finiteNumber(state.defaults.node.maxLabelLines, 4);
+      $('defaultNodeTextLineHeight').value = finiteNumber(state.defaults.node.textLineHeight, 1.15);
+      $('defaultNodeShadow').checked = Boolean(state.defaults.node.shadow);
+      $('defaultEdgeType').value = state.defaults.edge.type || 'straight';
+      $('defaultEdgeStyle').value = state.defaults.edge.style || 'solid';
+      $('defaultEdgeColor').value = state.defaults.edge.color || '#526071';
+      $('defaultEdgeWidth').value = finiteNumber(state.defaults.edge.width, 2);
+      $('defaultEdgeArrow').value = state.defaults.edge.arrow || 'target';
+      $('defaultEdgeArrowSize').value = clamp(finiteNumber(state.defaults.edge.arrowSize, 1), 0, 4);
+      $('defaultEdgeArrowStyle').value = normalizeArrowStyle(state.defaults.edge.arrowStyle, 'filled');
+
+      $('canvasBackground').value = state.canvas.background || '#f6f8fc';
+      $('gridColor').value = state.canvas.gridColor || '#d7deea';
+      $('gridSize').value = finiteNumber(state.canvas.gridSize, 50);
+      $('gridOpacity').value = finiteNumber(state.canvas.gridOpacity, 0.85);
+      $('showGrid').checked = Boolean(state.canvas.grid);
+      $('snapToGrid').checked = Boolean(state.canvas.snap);
+    }
+
+    function updateRangeOutputs() {
+      $('repulsionOut').textContent = $('repulsion').value;
+      $('linkDistanceOut').textContent = `${$('linkDistance').value}px`;
+      $('linkStrengthOut').textContent = $('linkStrength').value;
+      $('centerStrengthOut').textContent = $('centerStrength').value;
+      $('dampingOut').textContent = $('damping').value;
+      $('collisionPaddingOut').textContent = `${$('collisionPadding').value}px`;
+      $('edgeAvoidanceOut').textContent = $('edgeAvoidance').value;
+      $('edgeAvoidanceDistanceOut').textContent = `${$('edgeAvoidanceDistance').value}px`;
+    }
+
+    function updateNodes(mutator, { syncDefault = false } = {}) {
+      const nodes = selectedNodes();
+      if (nodes.length > 0) {
+        nodes.forEach((item) => mutator(item));
+      } else if (isGlobalEditMode()) {
+        state.nodes.forEach((item) => mutator(item));
+        if (syncDefault) mutator(state.defaults.node);
+      } else {
+        return;
+      }
+      renderGraphics();
+      refreshJsonBox(false);
+    }
+
+    function updateEdges(mutator, { syncDefault = false } = {}) {
+      const edges = selectedEdges();
+      if (edges.length > 0) {
+        edges.forEach((item) => mutator(item));
+      } else if (isGlobalEditMode()) {
+        state.edges.forEach((item) => mutator(item));
+        if (syncDefault) mutator(state.defaults.edge);
+      } else {
+        return;
+      }
+      renderGraphics();
+      syncSelectionPanel();
+      refreshJsonBox(false);
+    }
+
+    function bindSelectionInputs() {
+      $('nodeLabel').addEventListener('input', (event) => updateNodes((node) => { node.label = event.target.value; }));
+      const applyNodeShape = (event) => updateNodes((node) => { node.shape = normalizeShape(event.target.value, 'circle'); }, { syncDefault: true });
+      $('nodeShape').addEventListener('input', applyNodeShape);
+      $('nodeShape').addEventListener('change', applyNodeShape);
+      $('nodeHub').addEventListener('change', (event) => updateNodes((node) => { node.hub = event.target.checked; }));
+      $('nodeFixed').addEventListener('change', (event) => updateNodes((node) => { node.fixed = event.target.checked; node.vx = 0; node.vy = 0; }));
+      $('nodeWidth').addEventListener('input', (event) => updateNodes((node) => { node.width = Math.max(20, finiteNumber(event.target.value, node.width)); }, { syncDefault: true }));
+      $('nodeHeight').addEventListener('input', (event) => updateNodes((node) => { node.height = Math.max(20, finiteNumber(event.target.value, node.height)); }, { syncDefault: true }));
+      $('nodeFill').addEventListener('input', (event) => updateNodes((node) => { node.fill = event.target.value; }, { syncDefault: true }));
+      $('nodeTextColor').addEventListener('input', (event) => updateNodes((node) => { node.textColor = event.target.value; }, { syncDefault: true }));
+      $('nodeBorderColor').addEventListener('input', (event) => updateNodes((node) => { node.borderColor = event.target.value; }, { syncDefault: true }));
+      $('nodeBorderWidth').addEventListener('input', (event) => updateNodes((node) => { node.borderWidth = Math.max(0, finiteNumber(event.target.value, node.borderWidth)); }, { syncDefault: true }));
+      $('nodeBorderStyle').addEventListener('change', (event) => updateNodes((node) => { node.borderStyle = event.target.value; }, { syncDefault: true }));
+      $('nodeCornerRadius').addEventListener('input', (event) => updateNodes((node) => { node.cornerRadius = Math.max(0, finiteNumber(event.target.value, node.cornerRadius)); }, { syncDefault: true }));
+      $('nodeFontSize').addEventListener('input', (event) => updateNodes((node) => { node.fontSize = Math.max(8, finiteNumber(event.target.value, node.fontSize)); }, { syncDefault: true }));
+      $('nodeTextPadding').addEventListener('input', (event) => updateNodes((node) => {
+        node.textPadding = Math.max(0, finiteNumber(event.target.value, node.textPadding));
+      }, { syncDefault: true }));
+      $('nodeMaxLabelLines').addEventListener('input', (event) => updateNodes((node) => { node.maxLabelLines = Math.max(1, Math.min(8, finiteNumber(event.target.value, node.maxLabelLines))); }, { syncDefault: true }));
+      $('nodeTextLineHeight').addEventListener('input', (event) => updateNodes((node) => { node.textLineHeight = clamp(finiteNumber(event.target.value, node.textLineHeight), 1, 2); }, { syncDefault: true }));
+      $('nodeOpacity').addEventListener('input', (event) => updateNodes((node) => { node.opacity = clamp(finiteNumber(event.target.value, node.opacity), 0, 1); }, { syncDefault: true }));
+      $('nodeShadow').addEventListener('change', (event) => updateNodes((node) => { node.shadow = event.target.checked; }, { syncDefault: true }));
+
+      $('edgeLabel').addEventListener('input', (event) => updateEdges((edge) => { edge.label = event.target.value; }));
+      $('edgeType').addEventListener('change', (event) => updateEdges((edge) => {
+        edge.type = event.target.value;
+        if (edge.type === 'bezier') {
+          edge.autoAvoid = true;
+          edge.cpManual = false;
+          edge.cp1 = null;
+          edge.cp2 = null;
+        }
+      }, { syncDefault: true }));
+      $('edgeAutoAvoid').addEventListener('change', (event) => updateEdges((edge) => {
+        if (edge.type !== 'bezier') return;
+        edge.autoAvoid = event.target.checked;
+        if (!edge.autoAvoid) edge.cpManual = true;
+        else edge.cpManual = false;
+      }, { syncDefault: true }));
+      $('edgeAvoidPadding').addEventListener('input', (event) => updateEdges((edge) => {
+        if (edge.type !== 'bezier') return;
+        edge.avoidPadding = Math.max(8, finiteNumber(event.target.value, edge.avoidPadding));
+        $('edgeAvoidPaddingOut').textContent = `${$('edgeAvoidPadding').value}px`;
+      }, { syncDefault: true }));
+      $('edgeCpManual').addEventListener('change', (event) => updateEdges((edge) => {
+        if (edge.type !== 'bezier') return;
+        edge.cpManual = event.target.checked;
+        if (!edge.cpManual) {
+          edge.cp1 = null;
+          edge.cp2 = null;
+        }
+      }, { syncDefault: true }));
+      $('resetBezierRoute').addEventListener('click', () => updateEdges((edge) => {
+        if (edge.type !== 'bezier') return;
+        edge.cpManual = false;
+        edge.autoAvoid = true;
+        edge.cp1 = null;
+        edge.cp2 = null;
+      }));
+      $('edgeCurve').addEventListener('input', (event) => updateEdges((edge) => {
+        edge.curve = clamp(finiteNumber(event.target.value, edge.curve), -1, 1);
+        if (edge.type === 'bezier' && !edge.cpManual) {
+          edge.cp1 = null;
+          edge.cp2 = null;
+        }
+      }, { syncDefault: true }));
+      $('edgeArrow').addEventListener('change', (event) => updateEdges((edge) => { edge.arrow = event.target.value; }, { syncDefault: true }));
+      $('edgeColor').addEventListener('input', (event) => updateEdges((edge) => { edge.color = event.target.value; }, { syncDefault: true }));
+      $('edgeWidth').addEventListener('input', (event) => updateEdges((edge) => { edge.width = Math.max(1, finiteNumber(event.target.value, edge.width)); }, { syncDefault: true }));
+      $('edgeStyle').addEventListener('change', (event) => updateEdges((edge) => { edge.style = event.target.value; }, { syncDefault: true }));
+      $('edgeDistance').addEventListener('input', (event) => updateEdges((edge) => {
+        edge.customDistance = true;
+        edge.distance = Math.max(0, finiteNumber(event.target.value, edge.distance));
+        $('edgeCustomDistance').checked = true;
+        $('edgeDistance').disabled = false;
+      }));
+      $('edgeCustomDistance').addEventListener('change', (event) => updateEdges((edge) => {
+        edge.customDistance = event.target.checked;
+        edge.distance = defaultLinkDistance();
+        syncSelectionPanel();
+      }));
+      $('edgeOpacity').addEventListener('input', (event) => updateEdges((edge) => { edge.opacity = clamp(finiteNumber(event.target.value, edge.opacity), 0, 1); }, { syncDefault: true }));
+      $('edgeArrowSize').addEventListener('input', (event) => updateEdges((edge) => { edge.arrowSize = clamp(finiteNumber(event.target.value, edge.arrowSize), 0, 4); }, { syncDefault: true }));
+      $('edgeArrowStyle').addEventListener('change', (event) => updateEdges((edge) => { edge.arrowStyle = normalizeArrowStyle(event.target.value, 'filled'); }, { syncDefault: true }));
+    }
+
+    function bindControls() {
+      $('modeSelect').addEventListener('click', () => setMode('select'));
+      $('modeAdd').addEventListener('click', () => setMode('add'));
+      $('modeConnect').addEventListener('click', () => setMode('connect'));
+      $('addHub').addEventListener('click', addHub);
+      $('addSpoke').addEventListener('click', addSpoke);
+      $('duplicateNode').addEventListener('click', duplicateSelectedNode);
+      $('deleteSelected').addEventListener('click', deleteSelected);
+
+      $('toggleSim').addEventListener('click', toggleSimulation);
+      $('stepSim').addEventListener('click', () => { tickSimulation(1); renderGraphics(); refreshJsonBox(false); });
+      $('settleSim').addEventListener('click', () => {
+        syncEdgesToGlobalLinkDistance();
+        tickSimulation(180);
+        renderGraphics();
+        refreshJsonBox(false);
+      });
+      $('freezeSelected').addEventListener('click', () => {
+        if (!selectedNodes().length) return;
+        updateNodes((node) => { node.fixed = true; node.vx = 0; node.vy = 0; });
+        syncSelectionPanel();
+      });
+      $('freeSelected').addEventListener('click', () => {
+        if (!selectedNodes().length) return;
+        updateNodes((node) => { node.fixed = false; });
+        syncSelectionPanel();
+      });
+      $('freezeAll').addEventListener('click', () => { state.nodes.forEach((node) => { node.fixed = true; node.vx = 0; node.vy = 0; }); renderGraphics(); syncSelectionPanel(); refreshJsonBox(false); });
+      $('freeAll').addEventListener('click', () => { state.nodes.forEach((node) => { node.fixed = false; }); renderGraphics(); syncSelectionPanel(); refreshJsonBox(false); });
+
+      const rangeBindings = [
+        ['repulsion', 'repulsion'],
+        ['linkDistance', 'linkDistance'],
+        ['linkStrength', 'linkStrength'],
+        ['centerStrength', 'centerStrength'],
+        ['damping', 'damping'],
+        ['collisionPadding', 'collisionPadding'],
+        ['edgeAvoidance', 'edgeAvoidance'],
+        ['edgeAvoidanceDistance', 'edgeAvoidanceDistance']
+      ];
+      for (const [id, key] of rangeBindings) {
+        $(id).addEventListener('input', (event) => {
+          state.sim[key] = finiteNumber(event.target.value, state.sim[key]);
+          updateRangeOutputs();
+          if (key === 'linkDistance') {
+            state.defaults.edge.distance = state.sim.linkDistance;
+            syncEdgesToGlobalLinkDistance();
+            syncSelectionPanel();
+          }
+          refreshJsonBox(false);
+        });
+      }
+
+      const applyDefaultNodeShape = (event) => { state.defaults.node.shape = normalizeShape(event.target.value, 'circle'); refreshJsonBox(false); };
+      $('defaultNodeShape').addEventListener('input', applyDefaultNodeShape);
+      $('defaultNodeShape').addEventListener('change', applyDefaultNodeShape);
+      $('defaultNodeFill').addEventListener('input', (event) => { state.defaults.node.fill = event.target.value; refreshJsonBox(false); });
+      $('defaultNodeTextColor').addEventListener('input', (event) => { state.defaults.node.textColor = event.target.value; refreshJsonBox(false); });
+      $('defaultNodeBorderColor').addEventListener('input', (event) => { state.defaults.node.borderColor = event.target.value; refreshJsonBox(false); });
+      $('defaultNodeBorderWidth').addEventListener('input', (event) => { state.defaults.node.borderWidth = Math.max(0, finiteNumber(event.target.value, state.defaults.node.borderWidth)); refreshJsonBox(false); });
+      $('defaultNodeBorderStyle').addEventListener('change', (event) => { state.defaults.node.borderStyle = event.target.value; refreshJsonBox(false); });
+      $('defaultNodeFontSize').addEventListener('input', (event) => { state.defaults.node.fontSize = Math.max(8, finiteNumber(event.target.value, state.defaults.node.fontSize)); refreshJsonBox(false); });
+      $('defaultNodeTextPadding').addEventListener('input', (event) => { state.defaults.node.textPadding = Math.max(0, finiteNumber(event.target.value, state.defaults.node.textPadding)); refreshJsonBox(false); });
+      $('defaultNodeMaxLabelLines').addEventListener('input', (event) => { state.defaults.node.maxLabelLines = Math.max(1, Math.min(8, finiteNumber(event.target.value, state.defaults.node.maxLabelLines))); refreshJsonBox(false); });
+      $('defaultNodeTextLineHeight').addEventListener('input', (event) => { state.defaults.node.textLineHeight = clamp(finiteNumber(event.target.value, state.defaults.node.textLineHeight), 1, 2); refreshJsonBox(false); });
+      $('defaultNodeShadow').addEventListener('change', (event) => { state.defaults.node.shadow = event.target.checked; refreshJsonBox(false); });
+      $('defaultEdgeType').addEventListener('change', (event) => {
+        state.defaults.edge.type = event.target.value;
+        syncSelectionPanel();
+        refreshJsonBox(false);
+      });
+      $('defaultEdgeStyle').addEventListener('change', (event) => { state.defaults.edge.style = event.target.value; refreshJsonBox(false); });
+      $('defaultEdgeColor').addEventListener('input', (event) => { state.defaults.edge.color = event.target.value; refreshJsonBox(false); });
+      $('defaultEdgeWidth').addEventListener('input', (event) => { state.defaults.edge.width = Math.max(1, finiteNumber(event.target.value, state.defaults.edge.width)); refreshJsonBox(false); });
+      $('defaultEdgeArrow').addEventListener('change', (event) => { state.defaults.edge.arrow = event.target.value; refreshJsonBox(false); });
+      $('defaultEdgeArrowSize').addEventListener('input', (event) => { state.defaults.edge.arrowSize = clamp(finiteNumber(event.target.value, state.defaults.edge.arrowSize), 0, 4); renderGraphics(); refreshJsonBox(false); });
+      $('defaultEdgeArrowStyle').addEventListener('change', (event) => { state.defaults.edge.arrowStyle = normalizeArrowStyle(event.target.value, 'filled'); renderGraphics(); refreshJsonBox(false); });
+
+      $('downloadSvg').addEventListener('click', downloadSvg);
+      $('copySvg').addEventListener('click', copySvg);
+
+      $('canvasBackground').addEventListener('input', (event) => { state.canvas.background = event.target.value; renderGraphics(); refreshJsonBox(false); });
+      $('gridColor').addEventListener('input', (event) => { state.canvas.gridColor = event.target.value; renderGraphics(); refreshJsonBox(false); });
+      $('gridSize').addEventListener('input', (event) => { state.canvas.gridSize = Math.max(8, finiteNumber(event.target.value, state.canvas.gridSize)); state.canvas.snapSize = state.canvas.gridSize; renderGraphics(); refreshJsonBox(false); });
+      $('gridOpacity').addEventListener('input', (event) => { state.canvas.gridOpacity = clamp(finiteNumber(event.target.value, state.canvas.gridOpacity), 0, 1); renderGraphics(); refreshJsonBox(false); });
+      $('showGrid').addEventListener('change', (event) => { state.canvas.grid = event.target.checked; renderGraphics(); refreshJsonBox(false); });
+      $('snapToGrid').addEventListener('change', (event) => { state.canvas.snap = event.target.checked; refreshJsonBox(false); });
+      $('fitView').addEventListener('click', fitView);
+      $('resetView').addEventListener('click', resetView);
+
+      $('refreshJson').addEventListener('click', () => refreshJsonBox(true));
+      $('copyJson').addEventListener('click', copyJson);
+      $('downloadJson').addEventListener('click', downloadJson);
+      $('importJson').addEventListener('click', () => importJson($('jsonBox').value));
+      $('jsonFile').addEventListener('change', importJsonFile);
+    }
+
+    function bindCanvasEvents() {
+      svg.addEventListener('mousedown', (event) => {
+        if (mode !== 'select' || event.button !== 0 || event.target !== svg) return;
+        pan = {
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: state.viewport.x,
+          originY: state.viewport.y,
+          moved: false
+        };
+        svg.classList.add('panning');
+      });
+
+      svg.addEventListener('click', (event) => {
+        if (suppressClick) {
+          suppressClick = false;
+          return;
+        }
+        if (event.target !== svg) return;
+        if (mode === 'add') {
+          const p = snapPoint(screenToWorld(event));
+          const id = createNode(p.x, p.y);
+          selectItem('node', id);
+          refreshJsonBox(false);
+        } else {
+          clearSelection();
+        }
+      });
+
+      svg.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const point = screenPoint(event);
+        const before = {
+          x: (point.x - state.viewport.x) / state.viewport.scale,
+          y: (point.y - state.viewport.y) / state.viewport.scale
+        };
+        const factor = event.deltaY < 0 ? 1.1 : 0.9;
+        const nextScale = clamp(state.viewport.scale * factor, 0.08, 5);
+        state.viewport.scale = nextScale;
+        state.viewport.x = point.x - before.x * nextScale;
+        state.viewport.y = point.y - before.y * nextScale;
+        renderGraphics();
+        refreshJsonBox(false);
+      }, { passive: false });
+
+      document.addEventListener('mousemove', (event) => {
+        if (drag && drag.kind === 'bezier-cp') {
+          const edge = edgeById(drag.edgeId);
+          if (!edge) return;
+          const p = screenToWorld(event);
+          const next = snapPoint(p);
+          if (!edge.cp1) edge.cp1 = { x: next.x, y: next.y };
+          if (!edge.cp2) edge.cp2 = { x: next.x, y: next.y };
+          if (drag.which === 'cp1') {
+            edge.cp1.x = next.x;
+            edge.cp1.y = next.y;
+          } else {
+            edge.cp2.x = next.x;
+            edge.cp2.y = next.y;
+          }
+          edge.cpManual = true;
+          if (Math.hypot(next.x - drag.startX, next.y - drag.startY) > 0.5) drag.moved = true;
+          renderGraphics();
+          refreshJsonBox(false);
+          event.preventDefault();
+          return;
+        }
+
+        if (drag && drag.kind === 'node') {
+          const node = nodeById(drag.id);
+          if (!node) return;
+          const p = screenToWorld(event);
+          const next = snapPoint({ x: p.x - drag.dx, y: p.y - drag.dy });
+          if (Math.hypot(node.x - next.x, node.y - next.y) > 0.5) drag.moved = true;
+          node.x = next.x;
+          node.y = next.y;
+          node.vx = 0;
+          node.vy = 0;
+          renderGraphics();
+          refreshJsonBox(false);
+          event.preventDefault();
+          return;
+        }
+
+        if (pan) {
+          const dx = event.clientX - pan.startX;
+          const dy = event.clientY - pan.startY;
+          if (Math.hypot(dx, dy) > 1) pan.moved = true;
+          state.viewport.x = pan.originX + dx;
+          state.viewport.y = pan.originY + dy;
+          renderGraphics();
+          refreshJsonBox(false);
+          event.preventDefault();
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (drag && drag.kind === 'bezier-cp') {
+          suppressClick = drag.moved;
+          drag = null;
+          svg.classList.remove('dragging');
+          syncSelectionPanel();
+          refreshJsonBox(false);
+        }
+        if (drag && drag.kind === 'node') {
+          const node = nodeById(drag.id);
+          if (node && $('freezeAfterDrag').checked) node.fixed = true;
+          suppressClick = drag.moved;
+          drag = null;
+          svg.classList.remove('dragging');
+          syncSelectionPanel();
+          renderGraphics();
+          refreshJsonBox(false);
+        }
+        if (pan) {
+          suppressClick = pan.moved;
+          pan = null;
+          svg.classList.remove('panning');
+        }
+      });
+
+      svg.addEventListener('contextmenu', (event) => event.preventDefault());
+    }
+
+    function bindKeyboard() {
+      document.addEventListener('keydown', (event) => {
+        const tag = (event.target && event.target.tagName || '').toLowerCase();
+        if (['input', 'textarea', 'select'].includes(tag)) return;
+
+        if (event.key === 'Delete' || event.key === 'Backspace') {
+          deleteSelected();
+          event.preventDefault();
+        } else if (event.key === 'Escape') {
+          clearSelection();
+          setMode('select');
+          event.preventDefault();
+        } else if (event.key.toLowerCase() === 'c') {
+          setMode('connect');
+          event.preventDefault();
+        } else if (event.key.toLowerCase() === 'n') {
+          setMode('add');
+          event.preventDefault();
+        } else if (event.key.toLowerCase() === 'v') {
+          setMode('select');
+          event.preventDefault();
+        } else if (event.key.toLowerCase() === 'h') {
+          const nodes = selectedNodes();
+          if (nodes.length) {
+            nodes.forEach((node) => { node.hub = !node.hub; });
+            syncSelectionPanel();
+            renderGraphics();
+            refreshJsonBox(false);
+          }
+          event.preventDefault();
+        } else if (event.key.toLowerCase() === 'f') {
+          const nodes = selectedNodes();
+          if (nodes.length) {
+            nodes.forEach((node) => {
+              node.fixed = !node.fixed;
+              node.vx = 0;
+              node.vy = 0;
+            });
+            syncSelectionPanel();
+            renderGraphics();
+            refreshJsonBox(false);
+          }
+          event.preventDefault();
+        } else if (event.code === 'Space') {
+          toggleSimulation();
+          event.preventDefault();
+        } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+          downloadJson();
+          event.preventDefault();
+        }
+      });
+    }
+
+    function serializeState() {
+      const data = JSON.parse(JSON.stringify(state));
+      data.ui = {
+        mode,
+        selected,
+        connectingFrom,
+        freezeAfterDrag: $('freezeAfterDrag').checked
+      };
+      return JSON.stringify(data, null, 2);
+    }
+
+    function refreshJsonBox(showMessage) {
+      $('jsonBox').value = serializeState();
+      if (showMessage) updateStatus('JSON refreshed');
+    }
+
+    async function copyJson() {
+      const text = serializeState();
+      $('jsonBox').value = text;
+      try {
+        await navigator.clipboard.writeText(text);
+        updateStatus('JSON copied');
+      } catch (error) {
+        $('jsonBox').focus();
+        $('jsonBox').select();
+        updateStatus('Clipboard unavailable; JSON selected');
+      }
+    }
+
+    function downloadJson() {
+      const blob = new Blob([serializeState()], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `org-network-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      updateStatus('JSON downloaded');
+    }
+
+    function networkBounds(padding = 40) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const node of state.nodes) {
+        const w = finiteNumber(node.width, 120) / 2;
+        const h = finiteNumber(node.height, 70) / 2;
+        minX = Math.min(minX, node.x - w);
+        minY = Math.min(minY, node.y - h);
+        maxX = Math.max(maxX, node.x + w);
+        maxY = Math.max(maxY, node.y + h);
+      }
+      if (!Number.isFinite(minX)) {
+        return { minX: -200, minY: -200, maxX: 200, maxY: 200, width: 400, height: 400 };
+      }
+      return {
+        minX: minX - padding,
+        minY: minY - padding,
+        maxX: maxX + padding,
+        maxY: maxY + padding,
+        width: maxX - minX + padding * 2,
+        height: maxY - minY + padding * 2
+      };
+    }
+
+    function appendExportNode(parent, node) {
+      const group = createSvgElement('g', {
+        transform: `translate(${node.x} ${node.y})`,
+        opacity: finiteNumber(node.opacity, 1)
+      });
+
+      if (node.hub) {
+        const hubRing = createNodeShape(node);
+        hubRing.setAttribute('fill', 'none');
+        hubRing.setAttribute('stroke', node.borderColor || '#1e429f');
+        hubRing.setAttribute('stroke-width', finiteNumber(node.borderWidth, 3) + 7);
+        hubRing.setAttribute('opacity', '0.22');
+        hubRing.setAttribute('vector-effect', 'non-scaling-stroke');
+        group.appendChild(hubRing);
+      }
+
+      const shape = createNodeShape(node);
+      applyNodeStroke(shape, node);
+      if (node.shadow) shape.setAttribute('filter', 'url(#nodeDropShadow)');
+      group.appendChild(shape);
+
+      group.appendChild(buildNodeLabelGroup(node));
+
+      parent.appendChild(group);
+    }
+
+    function appendExportEdge(parent, edge) {
+      const geom = edgeGeometry(edge);
+      if (!geom) return;
+      const path = createSvgElement('path', {
+        d: geom.d,
+        fill: 'none',
+        stroke: edge.color || '#526071',
+        'stroke-width': finiteNumber(edge.width, 2),
+        'stroke-dasharray': dashArray(edge.style, edge.width),
+        opacity: finiteNumber(edge.opacity, 1),
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        'vector-effect': 'non-scaling-stroke'
+      });
+      const { size: arrowSize, style: arrowStyle } = resolveEdgeArrow(edge);
+      if (arrowSize > 0) {
+        const markerId = arrowMarkerId(arrowStyle, arrowSize);
+        if (edge.arrow === 'target' || edge.arrow === 'both') path.setAttribute('marker-end', `url(#${markerId})`);
+        if (edge.arrow === 'source' || edge.arrow === 'both') path.setAttribute('marker-start', `url(#${markerId})`);
+      }
+      parent.appendChild(path);
+    }
+
+    function appendExportEdgeLabel(parent, edge) {
+      if (!edge.label) return;
+      const geom = edgeGeometry(edge);
+      if (!geom) return;
+      const label = String(edge.label);
+      const fontSize = 12;
+      const width = Math.max(28, label.length * fontSize * 0.58 + 16);
+      const height = 24;
+      const group = createSvgElement('g', { transform: `translate(${geom.label.x} ${geom.label.y})` });
+      const rect = createSvgElement('rect', {
+        x: -width / 2,
+        y: -height / 2,
+        width,
+        height,
+        rx: 10,
+        ry: 10,
+        fill: 'rgba(255, 255, 255, 0.86)',
+        stroke: 'rgba(120, 134, 160, 0.35)',
+        'vector-effect': 'non-scaling-stroke'
+      });
+      const text = createSvgElement('text', {
+        x: 0,
+        y: 0,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'middle',
+        'font-size': fontSize,
+        'font-weight': 700,
+        fill: '#293449'
+      });
+      text.textContent = label;
+      group.appendChild(rect);
+      group.appendChild(text);
+      parent.appendChild(group);
+    }
+
+    function buildExportSvgRoot() {
+      syncArrowMarkers();
+      const fitContent = $('exportFitContent').checked;
+      const includeGrid = $('exportIncludeGrid').checked;
+      const transparent = $('exportTransparent').checked;
+      const bounds = networkBounds(fitContent ? 48 : 0);
+      const viewBox = fitContent
+        ? `${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`
+        : '-20000 -20000 40000 40000';
+      const width = fitContent ? Math.ceil(bounds.width) : 1200;
+      const height = fitContent ? Math.ceil(bounds.height) : 800;
+
+      const root = createSvgElement('svg', {
+        xmlns: NS,
+        'xmlns:xlink': 'http://www.w3.org/1999/xlink',
+        version: '1.1',
+        viewBox,
+        width,
+        height
+      });
+
+      const style = createSvgElement('style');
+      style.textContent = 'text, tspan { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; dominant-baseline: middle; }';
+      root.appendChild(style);
+
+      const defs = createSvgElement('defs');
+      svgDefs.querySelectorAll('marker[id^="arrow-"], #nodeDropShadow, #gridPattern').forEach((node) => {
+        defs.appendChild(node.cloneNode(true));
+      });
+      if (includeGrid && !defs.querySelector('#gridPattern')) {
+        const pattern = createSvgElement('pattern', {
+          id: 'gridPattern',
+          patternUnits: 'userSpaceOnUse',
+          width: finiteNumber(state.canvas.gridSize, 50),
+          height: finiteNumber(state.canvas.gridSize, 50)
+        });
+        const path = createSvgElement('path', {
+          d: `M ${finiteNumber(state.canvas.gridSize, 50)} 0 L 0 0 0 ${finiteNumber(state.canvas.gridSize, 50)}`,
+          fill: 'none',
+          stroke: state.canvas.gridColor || '#d7deea',
+          'stroke-width': 1
+        });
+        pattern.appendChild(path);
+        defs.appendChild(pattern);
+      }
+      root.appendChild(defs);
+
+      if (!transparent) {
+        const bg = createSvgElement('rect', {
+          x: fitContent ? bounds.minX : -20000,
+          y: fitContent ? bounds.minY : -20000,
+          width: fitContent ? bounds.width : 40000,
+          height: fitContent ? bounds.height : 40000,
+          fill: state.canvas.background || '#f6f8fc'
+        });
+        root.appendChild(bg);
+      }
+
+      if (includeGrid && state.canvas.grid) {
+        const grid = createSvgElement('rect', {
+          x: fitContent ? bounds.minX : -20000,
+          y: fitContent ? bounds.minY : -20000,
+          width: fitContent ? bounds.width : 40000,
+          height: fitContent ? bounds.height : 40000,
+          fill: 'url(#gridPattern)',
+          opacity: finiteNumber(state.canvas.gridOpacity, 0.85)
+        });
+        root.appendChild(grid);
+      }
+
+      const edgesGroup = createSvgElement('g', { id: 'edges' });
+      for (const edge of state.edges) appendExportEdge(edgesGroup, edge);
+      root.appendChild(edgesGroup);
+
+      const labelsGroup = createSvgElement('g', { id: 'edge-labels' });
+      for (const edge of state.edges) appendExportEdgeLabel(labelsGroup, edge);
+      root.appendChild(labelsGroup);
+
+      const nodesGroup = createSvgElement('g', { id: 'nodes' });
+      for (const node of state.nodes) appendExportNode(nodesGroup, node);
+      root.appendChild(nodesGroup);
+
+      return root;
+    }
+
+    function serializeExportSvg() {
+      const root = buildExportSvgRoot();
+      const serializer = new XMLSerializer();
+      return `<?xml version="1.0" encoding="UTF-8"?>\n${serializer.serializeToString(root)}\n`;
+    }
+
+    function downloadSvg() {
+      const blob = new Blob([serializeExportSvg()], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `org-network-${stamp}.svg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      updateStatus('SVG downloaded');
+    }
+
+    async function copySvg() {
+      const text = serializeExportSvg();
+      try {
+        await navigator.clipboard.writeText(text);
+        updateStatus('SVG copied');
+      } catch (error) {
+        updateStatus('Clipboard unavailable for SVG');
+      }
+    }
+
+    function deepMerge(base, overlay) {
+      if (overlay === null && base && typeof base === 'object') return base;
+      if (Array.isArray(base) || Array.isArray(overlay)) return overlay !== undefined ? overlay : base;
+      if (base && typeof base === 'object' && overlay && typeof overlay === 'object') {
+        const out = { ...base };
+        for (const key of Object.keys(overlay)) out[key] = deepMerge(base[key], overlay[key]);
+        return out;
+      }
+      return overlay !== undefined ? overlay : base;
+    }
+
+    function normalizeImportedState(input) {
+      const source = input && typeof input === 'object' ? input : {};
+      const base = makeDefaultState();
+      const merged = deepMerge(base, source);
+      merged.nodes = Array.isArray(source.nodes) ? source.nodes : base.nodes;
+      merged.edges = Array.isArray(source.edges) ? source.edges : base.edges;
+
+      const nodeIds = new Set();
+      merged.nodes = merged.nodes.map((raw, index) => {
+        const id = String(raw.id || `n${index + 1}`);
+        const node = { ...merged.defaults.node, ...raw, id };
+        node.label = String(node.label ?? id);
+        node.x = finiteNumber(node.x, 0);
+        node.y = finiteNumber(node.y, 0);
+        node.vx = finiteNumber(node.vx, 0);
+        node.vy = finiteNumber(node.vy, 0);
+        node.width = Math.max(20, finiteNumber(node.width, merged.defaults.node.width));
+        node.height = Math.max(20, finiteNumber(node.height, merged.defaults.node.height));
+        node.borderWidth = Math.max(0, finiteNumber(node.borderWidth, merged.defaults.node.borderWidth));
+        node.cornerRadius = Math.max(0, finiteNumber(node.cornerRadius, merged.defaults.node.cornerRadius));
+        node.fontSize = Math.max(8, finiteNumber(node.fontSize, merged.defaults.node.fontSize));
+        node.textPadding = Math.max(0, finiteNumber(node.textPadding, merged.defaults.node.textPadding));
+        node.maxLabelLines = Math.max(1, Math.min(8, finiteNumber(node.maxLabelLines, merged.defaults.node.maxLabelLines)));
+        node.textLineHeight = clamp(finiteNumber(node.textLineHeight, merged.defaults.node.textLineHeight), 1, 2);
+        node.textCharWidth = clamp(finiteNumber(node.textCharWidth, merged.defaults.node.textCharWidth), 0.35, 0.75);
+        node.opacity = clamp(finiteNumber(node.opacity, 1), 0, 1);
+        node.shape = normalizeShape(node.shape, normalizeShape(merged.defaults.node.shape, 'circle'));
+        node.hub = Boolean(node.hub);
+        node.fixed = Boolean(node.fixed);
+        node.shadow = Boolean(node.shadow);
+        nodeIds.add(id);
+        return node;
+      });
+
+      merged.edges = merged.edges
+        .filter((raw) => raw && nodeIds.has(String(raw.source)) && nodeIds.has(String(raw.target)) && String(raw.source) !== String(raw.target))
+        .map((raw, index) => {
+          const edge = { ...merged.defaults.edge, ...raw, id: String(raw.id || `e${index + 1}`) };
+          edge.source = String(edge.source);
+          edge.target = String(edge.target);
+          edge.label = String(edge.label ?? '');
+          edge.width = Math.max(1, finiteNumber(edge.width, merged.defaults.edge.width));
+          edge.opacity = clamp(finiteNumber(edge.opacity, 1), 0, 1);
+          const globalDistance = finiteNumber(merged.sim.linkDistance, finiteNumber(merged.defaults.edge.distance, 190));
+          edge.customDistance = raw.customDistance === true;
+          edge.distance = Math.max(0, finiteNumber(edge.distance, globalDistance));
+          if (!edge.customDistance) edge.distance = globalDistance;
+          edge.curve = clamp(finiteNumber(edge.curve, 0.22), -1, 1);
+          edge.arrowSize = clamp(finiteNumber(edge.arrowSize, merged.defaults.edge.arrowSize), 0, 4);
+          edge.arrowStyle = normalizeArrowStyle(edge.arrowStyle, normalizeArrowStyle(merged.defaults.edge.arrowStyle, 'filled'));
+          const edgeTypes = ['straight', 'curved', 'orthogonal', 'bezier'];
+          edge.type = edgeTypes.includes(edge.type) ? edge.type : 'straight';
+          edge.autoAvoid = edge.autoAvoid !== false;
+          edge.avoidPadding = Math.max(8, finiteNumber(edge.avoidPadding, finiteNumber(merged.defaults.edge.avoidPadding, 28)));
+          edge.cpManual = edge.cpManual === true;
+          if (edge.cp1 && typeof edge.cp1 === 'object') {
+            edge.cp1 = { x: finiteNumber(edge.cp1.x, 0), y: finiteNumber(edge.cp1.y, 0) };
+          } else {
+            edge.cp1 = null;
+          }
+          if (edge.cp2 && typeof edge.cp2 === 'object') {
+            edge.cp2 = { x: finiteNumber(edge.cp2.x, 0), y: finiteNumber(edge.cp2.y, 0) };
+          } else {
+            edge.cp2 = null;
+          }
+          return edge;
+        });
+
+      merged.nextNodeId = Math.max(finiteNumber(merged.nextNodeId, 1), maxNumericSuffix(merged.nodes.map((node) => node.id), 'n') + 1);
+      merged.nextEdgeId = Math.max(finiteNumber(merged.nextEdgeId, 1), maxNumericSuffix(merged.edges.map((edge) => edge.id), 'e') + 1);
+      merged.viewport.x = finiteNumber(merged.viewport.x, 0);
+      merged.viewport.y = finiteNumber(merged.viewport.y, 0);
+      merged.viewport.scale = clamp(finiteNumber(merged.viewport.scale, 1), 0.08, 5);
+      merged.sim.running = Boolean(merged.sim.running);
+      return merged;
+    }
+
+    function maxNumericSuffix(ids, prefix) {
+      let max = 0;
+      for (const id of ids) {
+        const match = String(id).match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) max = Math.max(max, Number(match[1]));
+      }
+      return max;
+    }
+
+    function importJson(text) {
+      try {
+        const parsed = JSON.parse(text);
+        const source = parsed && typeof parsed === 'object' ? parsed : {};
+        const nextState = normalizeImportedState(source);
+        state = nextState;
+        mode = source.ui && source.ui.mode ? source.ui.mode : 'select';
+        selected = sanitizeSelection(source.ui && source.ui.selected ? source.ui.selected : emptySelection());
+        connectingFrom = source.ui && source.ui.connectingFrom && nodeById(source.ui.connectingFrom) ? source.ui.connectingFrom : null;
+        $('freezeAfterDrag').checked = Boolean(source.ui && source.ui.freezeAfterDrag);
+        const importedMode = ['select', 'add', 'connect'].includes(mode) ? mode : 'select';
+        setMode(importedMode);
+        connectingFrom = source.ui && source.ui.connectingFrom && nodeById(source.ui.connectingFrom) ? source.ui.connectingFrom : null;
+        syncControlPanel();
+        normalizeEdgeLinkSettings();
+        syncSelectionPanel();
+        renderGraphics();
+        refreshJsonBox(false);
+        if (state.sim.running && !raf) animate();
+        updateStatus('JSON imported');
+      } catch (error) {
+        updateStatus(`Import failed: ${error.message}`);
+      }
+    }
+
+    function importJsonFile(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => importJson(String(reader.result || ''));
+      reader.onerror = () => updateStatus('Could not read file');
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    function initialize() {
+      bindSelectionInputs();
+      bindControls();
+      bindCanvasEvents();
+      bindKeyboard();
+      syncControlPanel();
+      normalizeEdgeLinkSettings();
+      syncSelectionPanel();
+      fitView();
+      refreshJsonBox(false);
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
