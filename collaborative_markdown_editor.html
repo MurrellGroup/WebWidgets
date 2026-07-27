@@ -1,0 +1,2523 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="A serverless peer-to-peer collaborative Markdown editor matched to OpenReview's current renderer.">
+  <title>Collaborative OpenReview Markdown Editor</title>
+
+  <!--
+    OpenReview-compatible renderer behavior and preview styles are adapted from
+    openreview/openreview-web (AGPL-3.0), repository snapshot inspected 2026-07-27.
+    This file is its own source code.
+
+    Runtime libraries:
+      marked 15.0.6 (MIT)
+      DOMPurify 3.3.1 (Apache-2.0 OR MPL-2.0)
+      Bootstrap 3.4.1 CSS (MIT)
+      MathJax 3.2.2 (Apache-2.0)
+      Yjs 13.6.31 (MIT)
+      Trystero 0.25.3 (MIT)
+  -->
+
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css"
+    integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu"
+    crossorigin="anonymous"
+  >
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,700;1,400;1,700&display=fallback"
+  >
+
+  <style>
+    :root {
+      --or-background-white: #fffdfa;
+      --or-input-white: #fffaf4;
+      --or-medium-blue: #3e6775;
+      --or-medium-dark-blue: #3f6978;
+      --or-dark-blue: #2c3a4a;
+      --or-red: #8c1b13;
+      --or-sandy-brown: #efece3;
+      --or-subtle-gray: #616161;
+      --or-light-gray: #c6c6c6;
+      --or-background-gray: #dddddd;
+      --or-border-gray: rgba(0, 0, 0, 0.1);
+      --or-input-border: #659aae;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      height: 100%;
+      font-size: 16px;
+      scrollbar-gutter: stable;
+    }
+
+    body {
+      min-height: 100%;
+      margin: 0;
+      color: #333;
+      background: var(--or-sandy-brown);
+      font-family: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+    }
+
+    .app-header {
+      min-height: 64px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: #fff;
+      background: var(--or-dark-blue);
+      border-bottom: 4px solid var(--or-red);
+    }
+
+    .brand {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-mark {
+      width: 2.5rem;
+      height: 2.5rem;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(255, 255, 255, 0.7);
+      font-weight: 700;
+      letter-spacing: -0.08em;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-copy h1 {
+      margin: 0;
+      overflow: hidden;
+      color: #fff;
+      font-size: 1.125rem;
+      font-weight: 700;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand-copy p {
+      margin: 0.125rem 0 0;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 0.75rem;
+      line-height: 1.25;
+    }
+
+    .engine-state {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .state-dot {
+      width: 0.5rem;
+      height: 0.5rem;
+      display: inline-block;
+      border-radius: 50%;
+      background: #f0ad4e;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+    }
+
+    .engine-state[data-state="ready"] .state-dot {
+      background: #7fb77e;
+    }
+
+    .engine-state[data-state="error"] .state-dot {
+      background: #ee8a83;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1px;
+      background: var(--or-light-gray);
+    }
+
+    .pane {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: var(--or-background-white);
+    }
+
+    .pane-header {
+      min-height: 42px;
+      padding: 0.625rem 0.875rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-dark-blue);
+      background: var(--or-background-white);
+      border-bottom: 1px solid var(--or-border-gray);
+    }
+
+    .pane-title {
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .pane-meta {
+      overflow: hidden;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .editor-tools {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.625rem;
+    }
+
+    .copy-button {
+      flex: 0 0 auto;
+      padding: 0.3rem 0.625rem;
+      color: #fff;
+      background: var(--or-medium-blue);
+      border: 1px solid var(--or-medium-dark-blue);
+      border-radius: 3px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      line-height: 1.25;
+      cursor: pointer;
+    }
+
+    .copy-button:hover {
+      background: var(--or-medium-dark-blue);
+    }
+
+    .copy-button:focus-visible {
+      outline: 2px solid var(--or-red);
+      outline-offset: 2px;
+    }
+
+    .copy-button:disabled {
+      cursor: default;
+      opacity: 0.7;
+    }
+
+    #markdown-input {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      margin: 0;
+      padding: 1rem;
+      resize: none;
+      color: #333;
+      background: var(--or-input-white);
+      border: 0;
+      border-top: 2px solid var(--or-input-border);
+      border-radius: 0;
+      outline: none;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      tab-size: 4;
+    }
+
+    #markdown-input:focus {
+      border-top-color: var(--or-medium-dark-blue);
+      box-shadow: inset 0 0 0 2px var(--or-medium-dark-blue);
+    }
+
+    #markdown-input::selection {
+      color: inherit;
+      background: rgba(62, 103, 117, 0.22);
+    }
+
+    .preview-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding: 0.75rem 1rem;
+      background: var(--or-background-white);
+    }
+
+    .load-error {
+      margin: 0 0 0.75rem;
+      padding: 0.75rem;
+      color: #8a1f11;
+      background: #f2dede;
+      border: 1px solid #ebccd1;
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+
+    .load-error[hidden] {
+      display: none;
+    }
+
+    .tex-warning {
+      margin: 0 0 0.75rem;
+      padding: 0.65rem 0.75rem;
+      color: #6f4b00;
+      background: #fcf8e3;
+      border: 1px solid #faebcc;
+      font-size: 0.75rem;
+      line-height: 1.45;
+    }
+
+    .tex-warning code {
+      color: #8c1b13;
+      background: rgba(255, 255, 255, 0.55);
+    }
+
+    .tex-warning[hidden] {
+      display: none;
+    }
+
+    .app-footer {
+      min-height: 32px;
+      padding: 0.45rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-subtle-gray);
+      background: var(--or-sandy-brown);
+      border-top: 1px solid var(--or-border-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+    }
+
+    .app-footer span:last-child {
+      text-align: right;
+    }
+
+    .header-statuses {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 1rem;
+    }
+
+    .collaboration-bar {
+      min-height: 52px;
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-dark-blue);
+      background: var(--or-background-white);
+      border-bottom: 1px solid var(--or-light-gray);
+    }
+
+    .collaboration-summary,
+    .collaboration-actions {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .collaboration-summary {
+      flex: 1 1 auto;
+    }
+
+    .collaboration-actions {
+      flex: 0 0 auto;
+      justify-content: flex-end;
+    }
+
+    .network-state {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: var(--or-subtle-gray);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .network-state .state-dot {
+      background: #f0ad4e;
+      box-shadow: 0 0 0 2px rgba(44, 58, 74, 0.08);
+    }
+
+    .network-state[data-state="ready"] .state-dot {
+      background: #5d9f63;
+    }
+
+    .network-state[data-state="waiting"] .state-dot {
+      background: #5f8ba0;
+    }
+
+    .network-state[data-state="offline"] .state-dot,
+    .network-state[data-state="error"] .state-dot {
+      background: #c95b52;
+    }
+
+    .room-label {
+      flex: 0 0 auto;
+      padding: 0.2rem 0.45rem;
+      color: var(--or-subtle-gray);
+      background: var(--or-sandy-brown);
+      border: 1px solid var(--or-border-gray);
+      border-radius: 999px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .peer-list {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      overflow: hidden;
+    }
+
+    .peer-chip {
+      min-width: 0;
+      max-width: 9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.15rem 0.45rem 0.15rem 0.2rem;
+      color: var(--or-dark-blue);
+      background: #fff;
+      border: 1px solid var(--or-border-gray);
+      border-radius: 999px;
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .peer-chip-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .peer-avatar {
+      width: 1.35rem;
+      height: 1.35rem;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      border-radius: 50%;
+      font-size: 0.55rem;
+      font-weight: 700;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .peer-overflow {
+      flex: 0 0 auto;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .name-field {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .name-field input {
+      width: 9rem;
+      padding: 0.3rem 0.45rem;
+      color: #333;
+      background: var(--or-input-white);
+      border: 1px solid var(--or-input-border);
+      border-radius: 3px;
+      outline: none;
+      font-size: 0.75rem;
+    }
+
+    .name-field input:focus {
+      border-color: var(--or-medium-dark-blue);
+      box-shadow: 0 0 0 2px rgba(63, 105, 120, 0.18);
+    }
+
+    .action-button {
+      flex: 0 0 auto;
+      padding: 0.35rem 0.65rem;
+      color: #fff;
+      background: var(--or-medium-blue);
+      border: 1px solid var(--or-medium-dark-blue);
+      border-radius: 3px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      line-height: 1.25;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .action-button:hover {
+      background: var(--or-medium-dark-blue);
+    }
+
+    .action-button.secondary {
+      color: var(--or-medium-dark-blue);
+      background: transparent;
+    }
+
+    .action-button.secondary:hover {
+      color: #fff;
+      background: var(--or-medium-dark-blue);
+    }
+
+    .action-button:focus-visible {
+      outline: 2px solid var(--or-red);
+      outline-offset: 2px;
+    }
+
+    .action-button:disabled {
+      cursor: default;
+      opacity: 0.55;
+    }
+
+    .collaboration-message {
+      max-width: 23rem;
+      overflow: hidden;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .collaboration-message[data-tone="warning"] {
+      color: #7d5100;
+    }
+
+    .collaboration-message[data-tone="error"] {
+      color: var(--or-red);
+    }
+
+    .collaboration-message[hidden] {
+      display: none;
+    }
+
+    .editor-shell {
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      background: var(--or-input-white);
+    }
+
+    #markdown-input {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+
+    .cursor-overlay {
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 2;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .remote-cursor-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      min-height: 100%;
+      padding: 1rem;
+      color: transparent;
+      border-top: 2px solid transparent;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      overflow-wrap: break-word;
+      tab-size: 4;
+      white-space: pre-wrap;
+      word-break: normal;
+    }
+
+    .remote-selection {
+      color: transparent;
+      border-radius: 2px;
+    }
+
+    .remote-caret {
+      width: 0;
+      height: 1.5em;
+      position: relative;
+      display: inline-block;
+      margin-left: -1px;
+      border-left: 2px solid;
+      vertical-align: text-bottom;
+    }
+
+    .remote-caret::after {
+      content: attr(data-name);
+      max-width: 10rem;
+      position: absolute;
+      left: -2px;
+      bottom: calc(100% - 1px);
+      z-index: 3;
+      overflow: hidden;
+      padding: 0.12rem 0.3rem;
+      color: #fff;
+      background: var(--peer-color);
+      border-radius: 2px 2px 2px 0;
+      font-family: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.55rem;
+      font-weight: 700;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Current OpenReview note-content wrapper. */
+    .note-content {
+      margin-top: 0.125rem;
+      margin-bottom: 0.125rem;
+      font-size: 0.75rem;
+      line-height: 1.125rem;
+    }
+
+    .note-content li {
+      padding: 0.125rem 0;
+    }
+
+    .note-content strong {
+      padding-right: 0.25rem;
+      color: var(--or-red);
+      font-weight: 700;
+    }
+
+    .note-content .note-content-value {
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+
+    /* OpenReview's markdown-content-styles mixin, scoped to the View block. */
+    .note-content .note-content-value.markdown-rendered {
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+
+    .note-content .note-content-value.markdown-rendered h1,
+    .note-content .note-content-value.markdown-rendered h2,
+    .note-content .note-content-value.markdown-rendered h3,
+    .note-content .note-content-value.markdown-rendered h4,
+    .note-content .note-content-value.markdown-rendered h5,
+    .note-content .note-content-value.markdown-rendered h6 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      color: var(--or-dark-blue);
+    }
+
+    .note-content .note-content-value.markdown-rendered h1 {
+      font-size: 1.375rem;
+      font-weight: 700;
+    }
+
+    .note-content .note-content-value.markdown-rendered h2 {
+      font-size: 1.25rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered h3 {
+      font-size: 1rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered h4,
+    .note-content .note-content-value.markdown-rendered h5,
+    .note-content .note-content-value.markdown-rendered h6 {
+      font-size: 0.75rem;
+      font-weight: 400;
+    }
+
+    .note-content .note-content-value.markdown-rendered p {
+      margin-bottom: 0.5rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered strong {
+      padding-right: 0;
+      color: var(--or-dark-blue);
+    }
+
+    .note-content .note-content-value.markdown-rendered ol,
+    .note-content .note-content-value.markdown-rendered ul {
+      padding-left: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered ol li,
+    .note-content .note-content-value.markdown-rendered ul li {
+      padding: 0;
+    }
+
+    .note-content .note-content-value.markdown-rendered ol li p,
+    .note-content .note-content-value.markdown-rendered ul li p {
+      margin-bottom: 0.125rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered ol ol,
+    .note-content .note-content-value.markdown-rendered ol ul,
+    .note-content .note-content-value.markdown-rendered ul ol,
+    .note-content .note-content-value.markdown-rendered ul ul {
+      margin-bottom: 0.125rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered hr {
+      margin: 0.5rem 0;
+      border: 0;
+      border-top: 1px solid var(--or-border-gray);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .note-content .note-content-value.markdown-rendered a {
+      color: var(--or-medium-blue);
+    }
+
+    .note-content .note-content-value.markdown-rendered a:focus,
+    .note-content .note-content-value.markdown-rendered a:hover {
+      color: var(--or-medium-dark-blue);
+      text-decoration: none;
+    }
+
+    .note-content .note-content-value.markdown-rendered code {
+      color: var(--or-red);
+    }
+
+    .note-content .note-content-value.markdown-rendered pre {
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.5rem;
+      border-radius: 0;
+    }
+
+    .note-content .note-content-value.markdown-rendered pre code {
+      color: #333;
+      font-size: 0.75rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered img.icon {
+      width: 1rem;
+      height: 1rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered blockquote {
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.5rem;
+      border-left-color: #ccc;
+      font-size: 0.75rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered blockquote p {
+      margin-bottom: 0;
+    }
+
+    .note-content .note-content-value.markdown-rendered table {
+      max-width: 100%;
+      margin-bottom: 0.5rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered table thead > tr > th {
+      vertical-align: bottom;
+      border-top: 0;
+      border-bottom: 2px solid #ddd;
+    }
+
+    .note-content .note-content-value.markdown-rendered table tr > td,
+    .note-content .note-content-value.markdown-rendered table tr > th {
+      padding: 0.25rem;
+      vertical-align: top;
+      border-top: 1px solid #ddd;
+    }
+
+    /* Current OpenReview MathJax overflow behavior. */
+    .note-content-value mjx-container[jax="CHTML"][display="true"] {
+      overflow-x: scroll;
+      margin-bottom: 0;
+    }
+
+    .note-content-value mjx-container[jax="CHTML"][display="true"]:last-child {
+      margin-bottom: 1em;
+    }
+
+    .note-content-value mjx-container[jax="CHTML"][display="true"] mjx-math {
+      padding: 1px 0;
+    }
+
+    @media (max-width: 1100px) {
+      .collaboration-bar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .collaboration-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .collaboration-message {
+        max-width: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(320px, 1fr) minmax(320px, 1fr);
+      }
+
+      .app-footer {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+
+      .app-footer span:last-child {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 767px) {
+      html {
+        font-size: 14px;
+      }
+
+      .app-header {
+        align-items: flex-start;
+      }
+
+      .brand-copy p,
+      .engine-state,
+      .room-label,
+      .name-field span {
+        display: none;
+      }
+
+      .header-statuses {
+        gap: 0.4rem;
+      }
+
+      .collaboration-bar {
+        padding: 0.5rem 0.75rem;
+      }
+
+      .collaboration-summary,
+      .collaboration-actions {
+        gap: 0.45rem;
+      }
+
+      .name-field input {
+        width: 7.5rem;
+      }
+
+      .peer-chip {
+        max-width: 6.5rem;
+      }
+
+      .preview-scroll,
+      #markdown-input {
+        padding: 0.75rem;
+      }
+    }
+  </style>
+
+  <script>
+    window.__openReviewLoadErrors = [];
+    window.__openReviewDependencyError = function (name) {
+      window.__openReviewLoadErrors.push(name);
+      window.dispatchEvent(new CustomEvent("openreview-dependency-error", { detail: name }));
+    };
+
+    // OpenReview's MathJax configuration. Explicit CDN roots keep auxiliary
+    // modules and CHTML fonts stable on a static host.
+    window.MathJax = {
+      loader: {
+        paths: {
+          mathjax: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5"
+        },
+        load: ["ui/safe"]
+      },
+      options: {
+        ignoreHtmlClass: "disable-tex-rendering"
+      },
+      tex: {
+        inlineMath: [
+          ["$", "$"],
+          ["\\(", "\\)"]
+        ]
+      },
+      chtml: {
+        scale: 1,
+        minScale: 0.5,
+        matchFontHeight: true,
+        mtextInheritFont: false,
+        merrorInheritFont: true,
+        mathmlSpacing: false,
+        skipAttributes: {},
+        exFactor: 0.5,
+        displayAlign: "left",
+        displayIndent: "0",
+        fontURL: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/output/chtml/fonts/woff-v2"
+      },
+      startup: {
+        typeset: false,
+        ready: function () {
+          MathJax.startup.defaultReady();
+          var safe = MathJax.startup.document.safe;
+          safe.filterAttributes.set("fontfamily", "filterFamily");
+          safe.filterMethods.filterFamily = function (_safe, family) {
+            return family.split(/;/)[0];
+          };
+        }
+      }
+    };
+  </script>
+  <script
+    id="MathJax-script"
+    defer
+    src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml-full.js"
+    crossorigin="anonymous"
+    onload="window.dispatchEvent(new Event('openreview-mathjax-ready'))"
+    onerror="window.__openReviewDependencyError('MathJax 3.2.2')"
+  ></script>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">OR</div>
+        <div class="brand-copy">
+          <h1>Collaborative OpenReview Markdown Editor</h1>
+          <p>Peer-to-peer editing with a live OpenReview-compatible preview</p>
+        </div>
+      </div>
+      <div class="header-statuses">
+        <div id="engine-state" class="engine-state" data-state="loading" aria-live="polite">
+          <span class="state-dot" aria-hidden="true"></span>
+          <span id="engine-status">Loading renderer…</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="collaboration-bar" aria-label="Collaboration controls">
+      <div class="collaboration-summary">
+        <div id="network-state" class="network-state" data-state="loading" aria-live="polite">
+          <span class="state-dot" aria-hidden="true"></span>
+          <span id="network-status">Starting peer network…</span>
+        </div>
+        <span id="room-label" class="room-label">Room —</span>
+        <div id="peer-list" class="peer-list" aria-label="Editors in this room"></div>
+      </div>
+      <div class="collaboration-actions">
+        <span id="collaboration-message" class="collaboration-message" aria-live="polite" hidden></span>
+        <label class="name-field" for="display-name">
+          <span>Your name</span>
+          <input id="display-name" type="text" maxlength="40" autocomplete="name" aria-label="Your collaborator name">
+        </label>
+        <button id="share-button" class="action-button" type="button" title="Anyone with this link can join and edit the document." disabled>Copy invite link</button>
+        <button id="new-room-button" class="action-button secondary" type="button">New document</button>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <section class="pane" aria-labelledby="write-title">
+        <header class="pane-header">
+          <h2 id="write-title" class="pane-title">Markdown</h2>
+          <div class="editor-tools">
+            <span id="character-count" class="pane-meta" aria-live="polite">0 characters</span>
+            <button id="copy-button" class="copy-button" type="button">Copy text</button>
+          </div>
+        </header>
+        <div id="editor-shell" class="editor-shell">
+          <textarea
+            id="markdown-input"
+            aria-label="Collaborative Markdown source"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="true"
+            wrap="soft"
+          ></textarea>
+          <div id="cursor-overlay" class="cursor-overlay" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section class="pane" aria-labelledby="view-title">
+        <header class="pane-header">
+          <h2 id="view-title" class="pane-title">View</h2>
+          <span id="render-status" class="pane-meta">Waiting for input</span>
+        </header>
+        <div class="preview-scroll" role="region" aria-labelledby="view-title" tabindex="0">
+          <div id="load-error" class="load-error" role="alert" hidden></div>
+          <div id="tex-warning" class="tex-warning" role="status" hidden></div>
+          <div class="note-content">
+            <div id="markdown-view" class="note-content-value markdown-rendered"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span>Peer-to-peer CRDT sync · browser-local persistence · invite-link snapshots</span>
+      <span>OpenReview web 1.15.25 profile · Yjs 13.6.31 · Trystero 0.25.3</span>
+    </footer>
+  </div>
+
+  <noscript>
+    <div class="load-error">JavaScript is required to render the preview.</div>
+  </noscript>
+
+  <script type="text/plain" id="example-markdown">
+# OpenReview Markdown preview
+
+OpenReview renders **bold**, *italics*, ~~strikethrough~~, [links](https://openreview.net), and autolinks such as https://openreview.net.
+
+## Lists and task markers
+
+- First item
+- Nested item
+  1. Numbered child
+- [x] Completed task
+- [ ] Pending task
+
+## Table
+
+| Item | Result |
+| --- | ---: |
+| Inline TeX | $e^{i\\pi} + 1 = 0$ |
+| Code | `marked(value)` |
+
+## Display TeX
+
+$$
+\\int_0^1 x^2\\,dx = \\frac{1}{3}
+$$
+
+> Block quotes use OpenReview's compact styling.
+
+```python
+for reviewer in reviewers:
+    assign(reviewer)
+```
+
+Raw HTML is escaped rather than interpreted:
+
+<strong>This remains literal markup.</strong>
+
+External Markdown images are also shown as literal markup:
+
+![Example](https://example.com/image.png)
+  </script>
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/marked@15.0.6/lib/marked.umd.min.js"
+    onerror="window.__openReviewDependencyError('marked 15.0.6')"
+  ></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"
+    onerror="window.__openReviewDependencyError('DOMPurify 3.3.1')"
+  ></script>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var STORAGE_KEY = "openreview-markdown-editor-draft-v2";
+      var OPENREVIEW_ORIGIN = "https://openreview.net";
+      var input = document.getElementById("markdown-input");
+      var view = document.getElementById("markdown-view");
+      var renderStatus = document.getElementById("render-status");
+      var characterCount = document.getElementById("character-count");
+      var copyButton = document.getElementById("copy-button");
+      var engineState = document.getElementById("engine-state");
+      var engineStatus = document.getElementById("engine-status");
+      var loadError = document.getElementById("load-error");
+      var texWarning = document.getElementById("tex-warning");
+      var exampleNode = document.getElementById("example-markdown");
+
+      var renderTimer = null;
+      var saveTimer = null;
+      var renderQueue = Promise.resolve();
+      var renderRevision = 0;
+      var rendererReady = false;
+      var mathReady = false;
+      var mathStartupPending = false;
+      var markedFunction = null;
+      var collaborationActive = false;
+      var localInputListeners = [];
+      var storage = getStorage();
+
+      function setEngineState(state, message) {
+        engineState.dataset.state = state;
+        engineStatus.textContent = message;
+      }
+
+      function showError(message) {
+        loadError.hidden = false;
+        loadError.textContent = message;
+        setEngineState("error", "Renderer error");
+      }
+
+      function hideError() {
+        loadError.hidden = true;
+        loadError.textContent = "";
+      }
+
+      function encodeAsText(value) {
+        var holder = document.createElement("div");
+        holder.textContent = value;
+        return holder.innerHTML;
+      }
+
+      function toOpenReviewUrl(value) {
+        return typeof value === "string" && /^\/(?!\/)/.test(value)
+          ? OPENREVIEW_ORIGIN + value
+          : value;
+      }
+
+      function getStorage() {
+        if (window.location.protocol === "file:") return null;
+
+        try {
+          var testKey = "__openreview_markdown_storage_test__";
+          window.localStorage.setItem(testKey, "1");
+          window.localStorage.removeItem(testKey);
+          return window.localStorage;
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      function getMarkedApi() {
+        var api = window.marked;
+        if (!api) return null;
+
+        var callable = typeof api === "function" ? api : api.marked;
+        var Renderer = api.Renderer || (callable && callable.Renderer);
+        var setOptions = api.setOptions || (callable && callable.setOptions);
+
+        if (
+          typeof callable !== "function" ||
+          typeof Renderer !== "function" ||
+          typeof setOptions !== "function"
+        ) {
+          return null;
+        }
+
+        return {
+          callable: callable,
+          Renderer: Renderer,
+          setOptions: setOptions
+        };
+      }
+
+      function configureOpenReviewRenderer() {
+        var api = getMarkedApi();
+        if (!api || !window.DOMPurify) {
+          var missing = [];
+          if (!api) missing.push("marked 15.0.6");
+          if (!window.DOMPurify) missing.push("DOMPurify 3.3.1");
+          showError(
+            "Could not load " +
+              missing.join(" and ") +
+              ". This HTML file needs internet access for its pinned runtime libraries."
+          );
+          return false;
+        }
+
+        var renderer = new api.Renderer();
+
+        renderer.image = function (token) {
+          var href = token.href;
+          var title = token.title;
+          var text = token.text;
+
+          if (href.startsWith("/images/")) {
+            var titleAttr = title ? "title=\"" + title + "\" " : "";
+            var classAttr = href.endsWith("_icon.svg") ? "class=\"icon\" " : "";
+            return (
+              "<img src=\"" +
+              toOpenReviewUrl(href) +
+              "\" alt=\"" +
+              text +
+              "\" " +
+              titleAttr +
+              classAttr +
+              "/>"
+            );
+          }
+
+          return encodeAsText(
+            "<img src=\"" + href + "\" alt=\"" + text + "\" title=\"" + title + "\">"
+          );
+        };
+
+        renderer.checkbox = function (token) {
+          return token.checked ? "[x]" : "[ ]";
+        };
+
+        renderer.html = function (token) {
+          return encodeAsText(token.text);
+        };
+
+        api.setOptions({
+          baseUrl: null,
+          breaks: false,
+          gfm: true,
+          headerIds: false,
+          langPrefix: "language-",
+          mangle: false,
+          renderer: renderer
+        });
+
+        window.DOMPurify.addHook("afterSanitizeAttributes", function (node) {
+          if (node.tagName === "A") {
+            var href = node.getAttribute("href");
+            if (href) node.setAttribute("href", toOpenReviewUrl(href));
+            node.setAttribute("target", "_blank");
+            node.setAttribute("rel", "noopener noreferrer");
+          }
+          if (node.tagName === "IMG") {
+            var src = node.getAttribute("src");
+            if (src) node.setAttribute("src", toOpenReviewUrl(src));
+          }
+        });
+
+        markedFunction = api.callable;
+        rendererReady = true;
+        return true;
+      }
+
+      function sourceContainsMath(source) {
+        return /(^|[^\\])\$[^$\n]+\$|\$\$[\s\S]*?\$\$|\\\\\(|\\\\\[/.test(source);
+      }
+
+      function sourceMayNeedEscaping(source) {
+        var dollarBlocks = source.match(/\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])*\$/g) || [];
+        return dollarBlocks.some(function (block) {
+          return /(^|[^\\])\\[A-Za-z,;:!{}[\]()]/.test(block);
+        });
+      }
+
+      function sourceHasUnescapedTexLineBreak(source) {
+        var dollarBlocks = source.match(/\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])*\$/g) || [];
+        return dollarBlocks.some(function (block) {
+          return /(^|[^\\])\\\\(?!\\)(?=\s|\[|$)/m.test(block);
+        });
+      }
+
+      function updateTexWarning(source) {
+        if (!sourceContainsMath(source)) {
+          texWarning.hidden = true;
+          texWarning.textContent = "";
+          return;
+        }
+
+        var messages = [];
+        if (sourceMayNeedEscaping(source)) {
+          messages.push(
+            "OpenReview Markdown consumes TeX backslashes. Double each command slash: write ",
+            codeNode("\\\\frac"),
+            " rather than ",
+            codeNode("\\frac"),
+            "."
+          );
+        } else if (sourceHasUnescapedTexLineBreak(source)) {
+          messages.push(
+            "A TeX line break needs four backslashes in OpenReview source: ",
+            codeNode("\\\\\\\\"),
+            "."
+          );
+        }
+
+        if (!messages.length) {
+          texWarning.hidden = true;
+          texWarning.textContent = "";
+          return;
+        }
+
+        texWarning.replaceChildren.apply(texWarning, messages);
+        texWarning.hidden = false;
+      }
+
+      function codeNode(text) {
+        var code = document.createElement("code");
+        code.textContent = text;
+        return code;
+      }
+
+      function buildPreviewHtml(source) {
+        if (!source) return "<em>Nothing to preview</em>";
+        return window.DOMPurify.sanitize(markedFunction(source));
+      }
+
+      function queueRender(source, html, revision) {
+        renderQueue = renderQueue
+          .catch(function () {})
+          .then(function () {
+            if (revision !== renderRevision) return null;
+
+            if (!mathReady) {
+              view.innerHTML = html;
+              if (revision === renderRevision) {
+                renderStatus.textContent = "Markdown rendered · TeX loading";
+              }
+              return null;
+            }
+
+            return window.MathJax.startup.promise
+              .then(function () {
+                if (revision !== renderRevision) return false;
+                if (typeof window.MathJax.typesetClear === "function") {
+                  window.MathJax.typesetClear([view]);
+                }
+                view.innerHTML = html;
+                return window.MathJax.typesetPromise([view]).then(function () {
+                  return true;
+                });
+              })
+              .then(function (didTypeset) {
+                if (!didTypeset || revision !== renderRevision) return;
+
+                var mathExpected = sourceContainsMath(source);
+                var mathRendered = view.querySelector("mjx-container") !== null;
+                renderStatus.textContent =
+                  mathExpected && !mathRendered
+                    ? "Markdown rendered · no TeX delimiter survived Markdown"
+                    : "Rendered with MathJax";
+              });
+          })
+          .catch(function (error) {
+            if (revision !== renderRevision) return;
+            renderStatus.textContent = "Markdown rendered; TeX failed";
+            console.warn("Could not typeset TeX content", error);
+          });
+      }
+
+      function renderNow() {
+        if (!rendererReady) return;
+
+        var source = input.value;
+        var html;
+        var revision = ++renderRevision;
+        renderStatus.textContent = "Rendering…";
+        updateTexWarning(source);
+
+        try {
+          html = buildPreviewHtml(source);
+          queueRender(source, html, revision);
+        } catch (error) {
+          showError("Rendering failed: " + (error && error.message ? error.message : String(error)));
+          renderStatus.textContent = "Render failed";
+        }
+      }
+
+      function scheduleRender() {
+        window.clearTimeout(renderTimer);
+        renderTimer = window.setTimeout(renderNow, 70);
+      }
+
+      function updateCharacterCount() {
+        var count = Array.from(input.value).length;
+        characterCount.textContent =
+          count.toLocaleString() + (count === 1 ? " character" : " characters");
+      }
+
+      function updateDraftStatus(_saved) {
+        updateCharacterCount();
+      }
+
+      function copyString(text) {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          return navigator.clipboard.writeText(text);
+        }
+
+        return new Promise(function (resolve, reject) {
+          var helper = document.createElement("textarea");
+          helper.value = text;
+          helper.setAttribute("readonly", "");
+          helper.style.position = "fixed";
+          helper.style.opacity = "0";
+          helper.style.pointerEvents = "none";
+          document.body.appendChild(helper);
+          helper.select();
+          try {
+            if (!document.execCommand("copy")) throw new Error("Copy command was rejected");
+            resolve();
+          } catch (error) {
+            reject(error);
+          } finally {
+            helper.remove();
+          }
+        });
+      }
+
+      function copyText() {
+        var originalLabel = "Copy text";
+        copyButton.disabled = true;
+
+        copyString(input.value).then(
+          function () { finish("Copied"); },
+          function () { finish("Copy failed"); }
+        );
+
+        function finish(label) {
+          copyButton.textContent = label;
+          window.setTimeout(function () {
+            copyButton.textContent = originalLabel;
+            copyButton.disabled = false;
+          }, 1200);
+        }
+      }
+
+      function saveDraft() {
+        if (collaborationActive || !storage) {
+          updateDraftStatus(false);
+          return;
+        }
+
+        try {
+          storage.setItem(STORAGE_KEY, input.value);
+          updateDraftStatus(true);
+        } catch (_error) {
+          storage = null;
+          updateDraftStatus(false);
+        }
+      }
+
+      function scheduleSave() {
+        if (collaborationActive) return;
+        updateDraftStatus(false);
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(saveDraft, 250);
+      }
+
+      function loadInitialDraft() {
+        var example = exampleNode.textContent.replace(/^\s*\n/, "").replace(/\s+$/, "");
+        var stored = null;
+
+        if (storage) {
+          try {
+            stored = storage.getItem(STORAGE_KEY);
+          } catch (_error) {
+            storage = null;
+          }
+        }
+
+        input.value = stored === null ? example : stored;
+        updateDraftStatus(stored !== null);
+      }
+
+      function markMathReady() {
+        if (mathReady || mathStartupPending) return;
+        if (!(window.MathJax && window.MathJax.startup && window.MathJax.startup.promise)) return;
+
+        mathStartupPending = true;
+        Promise.resolve(window.MathJax.startup.promise)
+          .then(function () {
+            if (typeof window.MathJax.typesetPromise !== "function") {
+              throw new Error("MathJax startup completed without typesetPromise");
+            }
+            mathReady = true;
+            mathStartupPending = false;
+            setEngineState("ready", "Renderer ready");
+            renderNow();
+          })
+          .catch(function (error) {
+            mathStartupPending = false;
+            showError(
+              "MathJax failed to initialize: " +
+                (error && error.message ? error.message : String(error))
+            );
+            console.warn("MathJax startup failed", error);
+          });
+      }
+
+      function notifyLocalInput() {
+        localInputListeners.slice().forEach(function (listener) {
+          try {
+            listener(input.value);
+          } catch (error) {
+            console.error("Collaborative input listener failed", error);
+          }
+        });
+      }
+
+      window.addEventListener("openreview-mathjax-ready", markMathReady);
+      window.addEventListener("openreview-dependency-error", function (event) {
+        showError(
+          "Could not load " +
+            event.detail +
+            ". This HTML file needs internet access for its pinned runtime libraries."
+        );
+      });
+
+      loadInitialDraft();
+
+      if (configureOpenReviewRenderer()) {
+        hideError();
+        setEngineState("loading", "Markdown ready · TeX loading");
+        renderNow();
+      }
+
+      input.addEventListener("input", function () {
+        updateCharacterCount();
+        scheduleRender();
+        scheduleSave();
+        notifyLocalInput();
+      });
+
+      copyButton.addEventListener("click", copyText);
+      markMathReady();
+
+      if (window.__openReviewLoadErrors.length) {
+        showError(
+          "Could not load " +
+            window.__openReviewLoadErrors.join(", ") +
+            ". This HTML file needs internet access for its pinned runtime libraries."
+        );
+      }
+
+      window.OpenReviewEditor = {
+        input: input,
+        getText: function () {
+          return input.value;
+        },
+        setText: function (value) {
+          input.value = value;
+          updateCharacterCount();
+          scheduleRender();
+        },
+        refresh: function () {
+          updateCharacterCount();
+          scheduleRender();
+        },
+        onLocalInput: function (listener) {
+          localInputListeners.push(listener);
+          return function () {
+            var index = localInputListeners.indexOf(listener);
+            if (index !== -1) localInputListeners.splice(index, 1);
+          };
+        },
+        setCollaborationActive: function (active) {
+          collaborationActive = Boolean(active);
+          if (collaborationActive) window.clearTimeout(saveTimer);
+        },
+        copyString: copyString
+      };
+    })();
+  </script>
+
+  <script type="module">
+    (async function () {
+      "use strict";
+
+      const YJS_URLS = [
+        "https://esm.run/yjs@13.6.31",
+        "https://cdn.jsdelivr.net/npm/yjs@13.6.31/+esm"
+      ];
+      const TRYSTERO_URLS = [
+        "https://esm.run/trystero@0.25.3",
+        "https://cdn.jsdelivr.net/npm/trystero@0.25.3/+esm"
+      ];
+      const MODULE_LOAD_TIMEOUT = 15000;
+      const APP_ID = "openreview-markdown-collab-v1";
+      const PROFILE_KEY = "openreview-markdown-collab-profile-v1";
+      const DB_NAME = "openreview-markdown-collab-v1";
+      const DB_STORE = "documents";
+      const MAX_INVITE_URL_LENGTH = 60000;
+      const LOCAL_ORIGIN = {kind: "textarea"};
+      const REMOTE_ORIGIN = {kind: "peer"};
+      const LOAD_ORIGIN = {kind: "local-load"};
+
+      const editor = window.OpenReviewEditor;
+      const input = editor.input;
+      const networkState = document.getElementById("network-state");
+      const networkStatus = document.getElementById("network-status");
+      const roomLabel = document.getElementById("room-label");
+      const peerList = document.getElementById("peer-list");
+      const collaborationMessage = document.getElementById("collaboration-message");
+      const displayName = document.getElementById("display-name");
+      const shareButton = document.getElementById("share-button");
+      const newRoomButton = document.getElementById("new-room-button");
+      const cursorOverlay = document.getElementById("cursor-overlay");
+
+      let Y;
+      let joinRoom;
+      let selfId;
+      let room = null;
+      let updateAction = null;
+      let presenceAction = null;
+      let ydoc = null;
+      let ytext = null;
+      let undoManager = null;
+      let database = null;
+      let saveTimer = null;
+      let saveChain = Promise.resolve();
+      let presenceTimer = null;
+      let heartbeatTimer = null;
+      let messageTimer = null;
+      let savedSelection = null;
+      let networkError = null;
+      const peerIds = new Set();
+      const peerPresence = new Map();
+
+      const initialStandaloneText = editor.getText();
+      const roomConfig = readOrCreateRoomConfig();
+      input.readOnly = true;
+      input.setAttribute("aria-busy", "true");
+      roomLabel.textContent = "Room " + shortRoomName(roomConfig.roomId);
+      roomLabel.title = "Private room identifier: " + roomConfig.roomId;
+
+      newRoomButton.addEventListener("click", createNewDocument);
+
+      try {
+        const modules = await Promise.all([
+          importFirst(YJS_URLS, "Yjs"),
+          importFirst(TRYSTERO_URLS, "Trystero")
+        ]);
+        Y = modules[0];
+        joinRoom = modules[1].joinRoom;
+        selfId = modules[1].selfId;
+
+        if (!Y || typeof Y.Doc !== "function" || typeof joinRoom !== "function") {
+          throw new Error("The collaboration modules loaded without their expected APIs");
+        }
+
+        await initializeCollaboration();
+      } catch (error) {
+        console.error("Could not initialize collaboration", error);
+        input.readOnly = false;
+        input.removeAttribute("aria-busy");
+        editor.setCollaborationActive(false);
+        shareButton.disabled = true;
+        setNetworkState("error", "Collaboration unavailable");
+        showMessage(
+          "The peer-to-peer libraries failed to load. The editor still works locally.",
+          "error",
+          0
+        );
+      }
+
+      async function initializeCollaboration() {
+        editor.setCollaborationActive(true);
+        setNetworkState("loading", "Loading shared document…");
+
+        ydoc = new Y.Doc();
+        ytext = ydoc.getText("markdown");
+
+        database = await openDatabase().catch(function (error) {
+          console.warn("Browser-local document persistence is unavailable", error);
+          return null;
+        });
+
+        const storedUpdate = await loadStoredUpdate(roomConfig.roomId).catch(function (error) {
+          console.warn("Could not load the browser-local document", error);
+          return null;
+        });
+
+        if (storedUpdate) {
+          Y.applyUpdate(ydoc, storedUpdate, LOAD_ORIGIN);
+        }
+
+        if (roomConfig.seed) {
+          try {
+            const seedUpdate = await decodeSeed(roomConfig.seed);
+            Y.applyUpdate(ydoc, seedUpdate, LOAD_ORIGIN);
+          } catch (error) {
+            console.warn("Could not decode the invite-link snapshot", error);
+            showMessage(
+              "The link snapshot was invalid; live peer sync will still be attempted.",
+              "warning",
+              8000
+            );
+          }
+        }
+
+        if (roomConfig.isNew && ytext.length === 0 && initialStandaloneText) {
+          ydoc.transact(function () {
+            ytext.insert(0, initialStandaloneText);
+          }, LOCAL_ORIGIN);
+        }
+
+        editor.setText(ytext.toString());
+        bindSharedText();
+        configureProfile();
+        connectPeerRoom();
+        scheduleSnapshotSave(0);
+        shareButton.disabled = false;
+        shareButton.addEventListener("click", copyInviteLink);
+        renderParticipants();
+        renderRemoteCursors();
+        installSelectionTracking();
+        installUndoRedo();
+        input.readOnly = false;
+        input.removeAttribute("aria-busy");
+        updateNetworkStatus();
+
+        window.OpenReviewCollaboration = {
+          doc: ydoc,
+          text: ytext,
+          get room() { return room; },
+          roomId: roomConfig.roomId,
+          copyInviteLink: copyInviteLink
+        };
+      }
+
+      async function importFirst(urls, label) {
+        let lastError = null;
+
+        for (const url of urls) {
+          try {
+            return await Promise.race([
+              import(url),
+              new Promise(function (_resolve, reject) {
+                window.setTimeout(function () {
+                  reject(new Error(label + " load timed out"));
+                }, MODULE_LOAD_TIMEOUT);
+              })
+            ]);
+          } catch (error) {
+            lastError = error;
+            console.warn(label + " failed to load from " + url, error);
+          }
+        }
+
+        throw lastError || new Error(label + " could not be loaded");
+      }
+
+      function readOrCreateRoomConfig() {
+        const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const roomId = params.get("room");
+        const roomKey = params.get("key");
+        const validRoom = isToken(roomId, 16, 128);
+        const validKey = isToken(roomKey, 20, 128);
+
+        if (validRoom && validKey) {
+          return {
+            roomId: roomId,
+            roomKey: roomKey,
+            seed: params.get("seed") || "",
+            isNew: false
+          };
+        }
+
+        const config = {
+          roomId: randomToken(18),
+          roomKey: randomToken(24),
+          seed: "",
+          isNew: true
+        };
+        replaceAddressHash(config);
+        return config;
+      }
+
+      function isToken(value, minimum, maximum) {
+        return (
+          typeof value === "string" &&
+          value.length >= minimum &&
+          value.length <= maximum &&
+          /^[A-Za-z0-9_-]+$/.test(value)
+        );
+      }
+
+      function randomToken(byteLength) {
+        const bytes = new Uint8Array(byteLength);
+        window.crypto.getRandomValues(bytes);
+        return bytesToBase64Url(bytes);
+      }
+
+      function replaceAddressHash(config) {
+        const url = new URL(window.location.href);
+        const params = new URLSearchParams();
+        params.set("room", config.roomId);
+        params.set("key", config.roomKey);
+        if (config.seed) params.set("seed", config.seed);
+        url.hash = params.toString();
+        window.history.replaceState(null, "", url.href);
+      }
+
+      function createNewDocument() {
+        const url = new URL(window.location.href);
+        const params = new URLSearchParams();
+        params.set("room", randomToken(18));
+        params.set("key", randomToken(24));
+        url.hash = params.toString();
+        window.location.assign(url.href);
+      }
+
+      function shortRoomName(roomId) {
+        return roomId.slice(0, 4) + "…" + roomId.slice(-4);
+      }
+
+      function bindSharedText() {
+        undoManager = new Y.UndoManager(ytext, {
+          trackedOrigins: new Set([LOCAL_ORIGIN]),
+          captureTimeout: 500
+        });
+
+        ydoc.on("beforeTransaction", function (transaction) {
+          if (transaction.origin === LOCAL_ORIGIN || document.activeElement !== input) return;
+          savedSelection = selectionToRelativePosition();
+        });
+
+        ytext.observe(function (_event, transaction) {
+          if (transaction.origin === LOCAL_ORIGIN) return;
+
+          editor.setText(ytext.toString());
+          restoreRelativeSelection(savedSelection);
+          savedSelection = null;
+          queuePresenceUpdate(0);
+          renderRemoteCursors();
+        });
+
+        ydoc.on("afterTransaction", function () {
+          savedSelection = null;
+        });
+
+        editor.onLocalInput(function (nextText) {
+          applyTextareaDiff(ytext.toString(), nextText);
+          queuePresenceUpdate(30);
+          renderRemoteCursors();
+        });
+
+        ydoc.on("update", function (update, origin) {
+          scheduleSnapshotSave(350);
+          if (room && updateAction && origin !== REMOTE_ORIGIN && peerIds.size) {
+            fireAndForget(updateAction.send(update), "Could not send a document update");
+          }
+        });
+      }
+
+      function applyTextareaDiff(previousText, nextText) {
+        if (previousText === nextText) return;
+
+        let start = 0;
+        const previousLength = previousText.length;
+        const nextLength = nextText.length;
+        while (
+          start < previousLength &&
+          start < nextLength &&
+          previousText.charCodeAt(start) === nextText.charCodeAt(start)
+        ) {
+          start += 1;
+        }
+
+        let previousEnd = previousLength;
+        let nextEnd = nextLength;
+        while (
+          previousEnd > start &&
+          nextEnd > start &&
+          previousText.charCodeAt(previousEnd - 1) === nextText.charCodeAt(nextEnd - 1)
+        ) {
+          previousEnd -= 1;
+          nextEnd -= 1;
+        }
+
+        ydoc.transact(function () {
+          if (previousEnd > start) ytext.delete(start, previousEnd - start);
+          if (nextEnd > start) ytext.insert(start, nextText.slice(start, nextEnd));
+        }, LOCAL_ORIGIN);
+      }
+
+      function selectionToRelativePosition() {
+        if (!ytext) return null;
+        const start = clamp(input.selectionStart, 0, ytext.length);
+        const end = clamp(input.selectionEnd, 0, ytext.length);
+        const backward = input.selectionDirection === "backward";
+        const anchorIndex = backward ? end : start;
+        const headIndex = backward ? start : end;
+
+        return {
+          anchor: Y.createRelativePositionFromTypeIndex(ytext, anchorIndex),
+          head: Y.createRelativePositionFromTypeIndex(ytext, headIndex),
+          direction: backward ? "backward" : "forward"
+        };
+      }
+
+      function restoreRelativeSelection(selection) {
+        if (!selection) return;
+        const anchor = Y.createAbsolutePositionFromRelativePosition(selection.anchor, ydoc);
+        const head = Y.createAbsolutePositionFromRelativePosition(selection.head, ydoc);
+        if (!anchor || !head || anchor.type !== ytext || head.type !== ytext) return;
+
+        const anchorIndex = clamp(anchor.index, 0, input.value.length);
+        const headIndex = clamp(head.index, 0, input.value.length);
+        const start = Math.min(anchorIndex, headIndex);
+        const end = Math.max(anchorIndex, headIndex);
+        const direction = anchorIndex > headIndex ? "backward" : "forward";
+
+        try {
+          input.setSelectionRange(start, end, direction);
+        } catch (_error) {
+          input.setSelectionRange(start, end);
+        }
+      }
+
+      function configureProfile() {
+        const profile = loadProfile();
+        displayName.value = profile.name;
+        displayName.dataset.color = profile.color;
+
+        let nameTimer = null;
+        displayName.addEventListener("input", function () {
+          window.clearTimeout(nameTimer);
+          nameTimer = window.setTimeout(function () {
+            const current = getLocalProfile();
+            saveProfile(current);
+            renderParticipants();
+            queuePresenceUpdate(0);
+          }, 120);
+        });
+
+        displayName.addEventListener("blur", function () {
+          if (!displayName.value.trim()) {
+            displayName.value = defaultEditorName();
+          }
+          const current = getLocalProfile();
+          saveProfile(current);
+          renderParticipants();
+          queuePresenceUpdate(0);
+        });
+      }
+
+      function loadProfile() {
+        let stored = null;
+        try {
+          stored = JSON.parse(window.localStorage.getItem(PROFILE_KEY));
+        } catch (_error) {}
+
+        return {
+          name:
+            stored && typeof stored.name === "string" && stored.name.trim()
+              ? stored.name.trim().slice(0, 40)
+              : defaultEditorName(),
+          color:
+            stored && isColor(stored.color)
+              ? stored.color
+              : chooseColor(selfId || roomConfig.roomId)
+        };
+      }
+
+      function getLocalProfile() {
+        return {
+          name: displayName.value.trim().slice(0, 40) || defaultEditorName(),
+          color: isColor(displayName.dataset.color)
+            ? displayName.dataset.color
+            : chooseColor(selfId || roomConfig.roomId)
+        };
+      }
+
+      function saveProfile(profile) {
+        displayName.dataset.color = profile.color;
+        try {
+          window.localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+        } catch (_error) {}
+      }
+
+      function defaultEditorName() {
+        const suffix = String(selfId || roomConfig.roomId).replace(/[^A-Za-z0-9]/g, "").slice(-4);
+        return "Editor " + (suffix || Math.floor(Math.random() * 900 + 100));
+      }
+
+      function chooseColor(seed) {
+        const palette = [
+          "#8c1b13",
+          "#3e6775",
+          "#6a4c93",
+          "#2a7f62",
+          "#a55400",
+          "#7a3e65",
+          "#4b6f31",
+          "#355c9a"
+        ];
+        let hash = 0;
+        for (let index = 0; index < seed.length; index += 1) {
+          hash = ((hash << 5) - hash + seed.charCodeAt(index)) | 0;
+        }
+        return palette[Math.abs(hash) % palette.length];
+      }
+
+      function isColor(value) {
+        return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+      }
+
+      function connectPeerRoom() {
+        setNetworkState("loading", "Connecting to peer network…");
+
+        room = joinRoom(
+          {
+            appId: APP_ID,
+            password: roomConfig.roomKey,
+            relayConfig: {
+              redundancy: 4,
+              warnOnRelayFailure: false
+            }
+          },
+          roomConfig.roomId,
+          {
+            onJoinError: function (details) {
+              const error = details && details.error;
+              networkError = error && error.message ? error.message : "Peer connection failed";
+              console.warn("Peer connection failed", details);
+              updateNetworkStatus();
+              showMessage(
+                "A browser-to-browser connection failed. This network may require a TURN relay.",
+                "warning",
+                10000
+              );
+            }
+          }
+        );
+
+        updateAction = room.makeAction("yupd");
+        presenceAction = room.makeAction("pres");
+
+        updateAction.onMessage = function (data, context) {
+          try {
+            const update = toUint8Array(data);
+            Y.applyUpdate(ydoc, update, REMOTE_ORIGIN);
+          } catch (error) {
+            console.warn("Ignored an invalid document update from " + context.peerId, error);
+          }
+        };
+
+        presenceAction.onMessage = function (data, context) {
+          const presence = sanitizePresence(data);
+          if (!presence) return;
+          peerPresence.set(context.peerId, presence);
+          peerIds.add(context.peerId);
+          renderParticipants();
+          renderRemoteCursors();
+          updateNetworkStatus();
+        };
+
+        room.onPeerJoin = function (peerId) {
+          networkError = null;
+          peerIds.add(peerId);
+          renderParticipants();
+          updateNetworkStatus();
+          sendDocumentState(peerId);
+          sendPresence(peerId);
+        };
+
+        room.onPeerLeave = function (peerId) {
+          peerIds.delete(peerId);
+          peerPresence.delete(peerId);
+          renderParticipants();
+          renderRemoteCursors();
+          updateNetworkStatus();
+        };
+
+        window.addEventListener("online", updateNetworkStatus);
+        window.addEventListener("offline", updateNetworkStatus);
+        window.addEventListener("pagehide", function () {
+          saveSnapshot();
+          if (room) room.leave();
+        });
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "hidden") saveSnapshot();
+        });
+
+        heartbeatTimer = window.setInterval(function () {
+          sendPresence();
+        }, 15000);
+      }
+
+      function sendDocumentState(peerId) {
+        const update = Y.encodeStateAsUpdate(ydoc);
+        fireAndForget(
+          updateAction.send(update, {target: peerId}),
+          "Could not send the document snapshot"
+        );
+      }
+
+      function sanitizePresence(value) {
+        if (!value || typeof value !== "object") return null;
+        const name =
+          typeof value.name === "string" && value.name.trim()
+            ? value.name.trim().slice(0, 40)
+            : "Collaborator";
+        const color = isColor(value.color) ? value.color : "#3e6775";
+        const cursor =
+          value.cursor && typeof value.cursor === "object" && value.cursor.anchor && value.cursor.head
+            ? value.cursor
+            : null;
+        return {name: name, color: color, cursor: cursor};
+      }
+
+      function currentPresence() {
+        const profile = getLocalProfile();
+        return {
+          version: 1,
+          name: profile.name,
+          color: profile.color,
+          cursor: document.activeElement === input ? selectionToRelativePosition() : null
+        };
+      }
+
+      function sendPresence(target) {
+        if (!presenceAction || !room) return;
+        const options = target ? {target: target} : undefined;
+        fireAndForget(presenceAction.send(currentPresence(), options), "Could not send presence");
+      }
+
+      function queuePresenceUpdate(delay) {
+        window.clearTimeout(presenceTimer);
+        presenceTimer = window.setTimeout(function () {
+          sendPresence();
+        }, delay == null ? 60 : delay);
+      }
+
+      function installSelectionTracking() {
+        ["select", "keyup", "mouseup", "focus", "blur"].forEach(function (eventName) {
+          input.addEventListener(eventName, function () {
+            queuePresenceUpdate(eventName === "blur" ? 0 : 40);
+          });
+        });
+
+        document.addEventListener("selectionchange", function () {
+          if (document.activeElement === input) queuePresenceUpdate(50);
+        });
+
+        input.addEventListener("scroll", syncCursorScroll, {passive: true});
+        window.addEventListener("resize", renderRemoteCursors);
+      }
+
+      function installUndoRedo() {
+        input.addEventListener("keydown", function (event) {
+          const command = event.metaKey || event.ctrlKey;
+          if (!command || event.altKey || event.key.toLowerCase() !== "z") return;
+
+          event.preventDefault();
+          if (event.shiftKey) undoManager.redo();
+          else undoManager.undo();
+          queuePresenceUpdate(0);
+        });
+
+        input.addEventListener("keydown", function (event) {
+          const command = event.metaKey || event.ctrlKey;
+          if (!command || event.altKey || event.key.toLowerCase() !== "y") return;
+          event.preventDefault();
+          undoManager.redo();
+          queuePresenceUpdate(0);
+        });
+      }
+
+      function renderParticipants() {
+        const local = getLocalProfile();
+        const participants = [{
+          id: selfId || "self",
+          name: local.name + " (you)",
+          color: local.color,
+          self: true
+        }];
+
+        peerIds.forEach(function (peerId) {
+          const presence = peerPresence.get(peerId) || {
+            name: "Collaborator",
+            color: chooseColor(peerId)
+          };
+          participants.push({
+            id: peerId,
+            name: presence.name,
+            color: presence.color,
+            self: false
+          });
+        });
+
+        peerList.replaceChildren();
+        const visible = participants.slice(0, 5);
+        visible.forEach(function (participant) {
+          const chip = document.createElement("span");
+          chip.className = "peer-chip";
+          chip.title = participant.name;
+
+          const avatar = document.createElement("span");
+          avatar.className = "peer-avatar";
+          avatar.style.backgroundColor = participant.color;
+          avatar.textContent = initials(participant.name.replace(/\s*\(you\)$/, ""));
+
+          const name = document.createElement("span");
+          name.className = "peer-chip-name";
+          name.textContent = participant.name;
+
+          chip.append(avatar, name);
+          peerList.appendChild(chip);
+        });
+
+        if (participants.length > visible.length) {
+          const overflow = document.createElement("span");
+          overflow.className = "peer-overflow";
+          overflow.textContent = "+" + (participants.length - visible.length);
+          peerList.appendChild(overflow);
+        }
+      }
+
+      function initials(name) {
+        const words = name.trim().split(/\s+/).filter(Boolean);
+        if (!words.length) return "?";
+        if (words.length === 1) return words[0].slice(0, 2);
+        return (words[0][0] + words[words.length - 1][0]).slice(0, 2);
+      }
+
+      function renderRemoteCursors() {
+        if (!Y || !ydoc || !ytext) return;
+        cursorOverlay.replaceChildren();
+        cursorOverlay.style.width = input.clientWidth + "px";
+        const source = ytext.toString();
+
+        peerIds.forEach(function (peerId) {
+          const presence = peerPresence.get(peerId);
+          if (!presence || !presence.cursor) return;
+
+          const cursor = absoluteCursor(presence.cursor);
+          if (!cursor) return;
+
+          const layer = document.createElement("div");
+          layer.className = "remote-cursor-layer";
+          layer.style.width = input.clientWidth + "px";
+          layer.style.minHeight = Math.max(input.clientHeight, input.scrollHeight) + "px";
+          layer.style.setProperty("--peer-color", presence.color);
+          layer.dataset.peerId = peerId;
+
+          const start = Math.min(cursor.anchor, cursor.head);
+          const end = Math.max(cursor.anchor, cursor.head);
+          appendText(layer, source.slice(0, start));
+
+          if (cursor.head === start) {
+            layer.appendChild(makeCaret(presence.name, presence.color));
+          }
+
+          if (end > start) {
+            const selection = document.createElement("span");
+            selection.className = "remote-selection";
+            selection.style.backgroundColor = colorWithAlpha(presence.color, 0.22);
+            selection.textContent = source.slice(start, end);
+            layer.appendChild(selection);
+          }
+
+          if (cursor.head === end && cursor.head !== start) {
+            layer.appendChild(makeCaret(presence.name, presence.color));
+          }
+
+          appendText(layer, source.slice(end));
+          appendText(layer, "\u200b");
+          cursorOverlay.appendChild(layer);
+        });
+
+        syncCursorScroll();
+      }
+
+      function absoluteCursor(cursor) {
+        try {
+          const anchor = Y.createAbsolutePositionFromRelativePosition(cursor.anchor, ydoc);
+          const head = Y.createAbsolutePositionFromRelativePosition(cursor.head, ydoc);
+          if (!anchor || !head || anchor.type !== ytext || head.type !== ytext) return null;
+          return {
+            anchor: clamp(anchor.index, 0, ytext.length),
+            head: clamp(head.index, 0, ytext.length)
+          };
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      function makeCaret(name, color) {
+        const caret = document.createElement("span");
+        caret.className = "remote-caret";
+        caret.dataset.name = name;
+        caret.style.borderColor = color;
+        caret.style.setProperty("--peer-color", color);
+        return caret;
+      }
+
+      function appendText(parent, value) {
+        if (value) parent.appendChild(document.createTextNode(value));
+      }
+
+      function syncCursorScroll() {
+        const transform = "translate(" + -input.scrollLeft + "px, " + -input.scrollTop + "px)";
+        cursorOverlay.querySelectorAll(".remote-cursor-layer").forEach(function (layer) {
+          layer.style.transform = transform;
+        });
+      }
+
+      function colorWithAlpha(hex, alpha) {
+        const value = parseInt(hex.slice(1), 16);
+        const red = (value >> 16) & 255;
+        const green = (value >> 8) & 255;
+        const blue = value & 255;
+        return "rgba(" + red + ", " + green + ", " + blue + ", " + alpha + ")";
+      }
+
+      function updateNetworkStatus() {
+        if (!navigator.onLine) {
+          setNetworkState("offline", "Offline · edits saved in this browser");
+          return;
+        }
+
+        const editorCount = peerIds.size + 1;
+        if (networkError && !peerIds.size) {
+          setNetworkState("error", "Peer connection blocked · 1 editor");
+          return;
+        }
+
+        if (peerIds.size) {
+          setNetworkState(
+            "ready",
+            editorCount + (editorCount === 1 ? " editor" : " editors") + " · live"
+          );
+        } else {
+          setNetworkState("waiting", "1 editor · waiting for collaborators");
+        }
+      }
+
+      function setNetworkState(state, message) {
+        networkState.dataset.state = state;
+        networkStatus.textContent = message;
+      }
+
+      function showMessage(message, tone, duration) {
+        window.clearTimeout(messageTimer);
+        collaborationMessage.hidden = false;
+        collaborationMessage.dataset.tone = tone || "info";
+        collaborationMessage.textContent = message;
+        if (duration) {
+          messageTimer = window.setTimeout(function () {
+            collaborationMessage.hidden = true;
+            collaborationMessage.textContent = "";
+          }, duration);
+        }
+      }
+
+      async function copyInviteLink() {
+        const originalLabel = "Copy invite link";
+        shareButton.disabled = true;
+        shareButton.textContent = "Building link…";
+
+        try {
+          const result = await buildInviteUrl();
+          await editor.copyString(result.url);
+          shareButton.textContent = "Link copied";
+          showMessage(
+            result.includesSnapshot
+              ? "Invite copied. It includes the current snapshot. Anyone with the link can edit."
+              : "Live-room link copied. Anyone with it can edit; keep one current browser online for the first sync.",
+            result.includesSnapshot ? "info" : "warning",
+            6500
+          );
+        } catch (error) {
+          console.warn("Could not copy the invite link", error);
+          shareButton.textContent = "Copy failed";
+          showMessage("Could not copy the invite link.", "error", 5000);
+        } finally {
+          window.setTimeout(function () {
+            shareButton.textContent = originalLabel;
+            shareButton.disabled = false;
+          }, 1300);
+        }
+      }
+
+      async function buildInviteUrl() {
+        const update = Y.encodeStateAsUpdate(ydoc);
+        const seed = await encodeSeed(update);
+        const url = new URL(window.location.href);
+        const params = new URLSearchParams();
+        params.set("room", roomConfig.roomId);
+        params.set("key", roomConfig.roomKey);
+        params.set("seed", seed);
+        url.hash = params.toString();
+
+        if (url.href.length <= MAX_INVITE_URL_LENGTH) {
+          return {url: url.href, includesSnapshot: true};
+        }
+
+        params.delete("seed");
+        url.hash = params.toString();
+        return {url: url.href, includesSnapshot: false};
+      }
+
+      async function encodeSeed(bytes) {
+        if (typeof window.CompressionStream === "function") {
+          try {
+            const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+            const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+            if (compressed.length < bytes.length) {
+              return "g." + bytesToBase64Url(compressed);
+            }
+          } catch (_error) {}
+        }
+        return "r." + bytesToBase64Url(bytes);
+      }
+
+      async function decodeSeed(value) {
+        const separator = value.indexOf(".");
+        const mode = separator === -1 ? "r" : value.slice(0, separator);
+        const payload = separator === -1 ? value : value.slice(separator + 1);
+        const bytes = base64UrlToBytes(payload);
+
+        if (mode === "g") {
+          if (typeof window.DecompressionStream !== "function") {
+            throw new Error("This browser cannot decompress the invite snapshot");
+          }
+          const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+          return new Uint8Array(await new Response(stream).arrayBuffer());
+        }
+
+        if (mode !== "r") throw new Error("Unknown invite snapshot format");
+        return bytes;
+      }
+
+      function bytesToBase64Url(bytes) {
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
+        }
+        return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      function base64UrlToBytes(value) {
+        const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+        const binary = window.atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        return bytes;
+      }
+
+      function toUint8Array(value) {
+        if (value instanceof Uint8Array) return value;
+        if (value instanceof ArrayBuffer) return new Uint8Array(value);
+        if (ArrayBuffer.isView(value)) {
+          return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+        }
+        throw new TypeError("Expected a binary Yjs update");
+      }
+
+      function openDatabase() {
+        return new Promise(function (resolve, reject) {
+          if (!window.indexedDB) {
+            resolve(null);
+            return;
+          }
+
+          const request = window.indexedDB.open(DB_NAME, 1);
+          request.onupgradeneeded = function () {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(DB_STORE)) {
+              db.createObjectStore(DB_STORE);
+            }
+          };
+          request.onsuccess = function () { resolve(request.result); };
+          request.onerror = function () { reject(request.error || new Error("IndexedDB failed")); };
+          request.onblocked = function () { reject(new Error("IndexedDB upgrade was blocked")); };
+        });
+      }
+
+      function loadStoredUpdate(roomId) {
+        if (!database) return Promise.resolve(null);
+        return new Promise(function (resolve, reject) {
+          const transaction = database.transaction(DB_STORE, "readonly");
+          const request = transaction.objectStore(DB_STORE).get(roomId);
+          request.onsuccess = function () {
+            const value = request.result;
+            if (!value || !value.update) {
+              resolve(null);
+              return;
+            }
+            try {
+              resolve(toUint8Array(value.update));
+            } catch (error) {
+              reject(error);
+            }
+          };
+          request.onerror = function () { reject(request.error || new Error("Document load failed")); };
+        });
+      }
+
+      function scheduleSnapshotSave(delay) {
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(function () {
+          saveChain = saveChain.then(saveSnapshot).catch(function (error) {
+            console.warn("Could not save the browser-local document", error);
+          });
+        }, delay == null ? 350 : delay);
+      }
+
+      function saveSnapshot() {
+        if (!database || !ydoc) return Promise.resolve();
+        const update = Y.encodeStateAsUpdate(ydoc);
+        const stored = update.buffer.slice(update.byteOffset, update.byteOffset + update.byteLength);
+
+        return new Promise(function (resolve, reject) {
+          const transaction = database.transaction(DB_STORE, "readwrite");
+          transaction.objectStore(DB_STORE).put(
+            {update: stored, savedAt: Date.now()},
+            roomConfig.roomId
+          );
+          transaction.oncomplete = function () { resolve(); };
+          transaction.onerror = function () {
+            reject(transaction.error || new Error("Document save failed"));
+          };
+          transaction.onabort = function () {
+            reject(transaction.error || new Error("Document save was aborted"));
+          };
+        });
+      }
+
+      function fireAndForget(promise, label) {
+        if (!promise || typeof promise.catch !== "function") return;
+        promise.catch(function (error) {
+          console.warn(label, error);
+        });
+      }
+
+      function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, Number(value) || 0));
+      }
+    })();
+  </script>
+</body>
+</html>
