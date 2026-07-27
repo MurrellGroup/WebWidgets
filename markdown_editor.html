@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="A single-file live Markdown editor matched to OpenReview's current renderer.">
+  <title>OpenReview Markdown Editor</title>
+
+  <!--
+    OpenReview-compatible renderer behavior and preview styles are adapted from
+    openreview/openreview-web (AGPL-3.0), repository snapshot inspected 2026-07-27.
+    This file is its own source code.
+
+    Runtime libraries:
+      marked 15.0.6 (MIT)
+      DOMPurify 3.3.1 (Apache-2.0 OR MPL-2.0)
+      Bootstrap 3.4.1 CSS (MIT)
+      MathJax 3.2.2 (Apache-2.0)
+  -->
+
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css"
+    integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu"
+    crossorigin="anonymous"
+  >
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,700;1,400;1,700&display=fallback"
+  >
+
+  <style>
+    :root {
+      --or-background-white: #fffdfa;
+      --or-input-white: #fffaf4;
+      --or-medium-blue: #3e6775;
+      --or-medium-dark-blue: #3f6978;
+      --or-dark-blue: #2c3a4a;
+      --or-red: #8c1b13;
+      --or-sandy-brown: #efece3;
+      --or-subtle-gray: #616161;
+      --or-light-gray: #c6c6c6;
+      --or-background-gray: #dddddd;
+      --or-border-gray: rgba(0, 0, 0, 0.1);
+      --or-input-border: #659aae;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      height: 100%;
+      font-size: 16px;
+      scrollbar-gutter: stable;
+    }
+
+    body {
+      min-height: 100%;
+      margin: 0;
+      color: #333;
+      background: var(--or-sandy-brown);
+      font-family: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .app-header {
+      min-height: 64px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: #fff;
+      background: var(--or-dark-blue);
+      border-bottom: 4px solid var(--or-red);
+    }
+
+    .brand {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-mark {
+      width: 2.5rem;
+      height: 2.5rem;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(255, 255, 255, 0.7);
+      font-weight: 700;
+      letter-spacing: -0.08em;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-copy h1 {
+      margin: 0;
+      overflow: hidden;
+      color: #fff;
+      font-size: 1.125rem;
+      font-weight: 700;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand-copy p {
+      margin: 0.125rem 0 0;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 0.75rem;
+      line-height: 1.25;
+    }
+
+    .engine-state {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .state-dot {
+      width: 0.5rem;
+      height: 0.5rem;
+      display: inline-block;
+      border-radius: 50%;
+      background: #f0ad4e;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+    }
+
+    .engine-state[data-state="ready"] .state-dot {
+      background: #7fb77e;
+    }
+
+    .engine-state[data-state="error"] .state-dot {
+      background: #ee8a83;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1px;
+      background: var(--or-light-gray);
+    }
+
+    .pane {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: var(--or-background-white);
+    }
+
+    .pane-header {
+      min-height: 42px;
+      padding: 0.625rem 0.875rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-dark-blue);
+      background: var(--or-background-white);
+      border-bottom: 1px solid var(--or-border-gray);
+    }
+
+    .pane-title {
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .pane-meta {
+      overflow: hidden;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #markdown-input {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      margin: 0;
+      padding: 1rem;
+      resize: none;
+      color: #333;
+      background: var(--or-input-white);
+      border: 0;
+      border-top: 2px solid var(--or-input-border);
+      border-radius: 0;
+      outline: none;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      tab-size: 4;
+    }
+
+    #markdown-input:focus {
+      border-top-color: var(--or-medium-dark-blue);
+      box-shadow: inset 0 0 0 2px var(--or-medium-dark-blue);
+    }
+
+    #markdown-input::selection {
+      color: inherit;
+      background: rgba(62, 103, 117, 0.22);
+    }
+
+    .preview-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding: 0.75rem 1rem;
+      background: var(--or-background-white);
+    }
+
+    .load-error {
+      margin: 0 0 0.75rem;
+      padding: 0.75rem;
+      color: #8a1f11;
+      background: #f2dede;
+      border: 1px solid #ebccd1;
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+
+    .load-error[hidden] {
+      display: none;
+    }
+
+    .tex-warning {
+      margin: 0 0 0.75rem;
+      padding: 0.65rem 0.75rem;
+      color: #6f4b00;
+      background: #fcf8e3;
+      border: 1px solid #faebcc;
+      font-size: 0.75rem;
+      line-height: 1.45;
+    }
+
+    .tex-warning code {
+      color: #8c1b13;
+      background: rgba(255, 255, 255, 0.55);
+    }
+
+    .tex-warning[hidden] {
+      display: none;
+    }
+
+    .app-footer {
+      min-height: 32px;
+      padding: 0.45rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-subtle-gray);
+      background: var(--or-sandy-brown);
+      border-top: 1px solid var(--or-border-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+    }
+
+    .app-footer span:last-child {
+      text-align: right;
+    }
+
+    /* Current OpenReview note-content wrapper. */
+    .note-content {
+      margin-top: 0.125rem;
+      margin-bottom: 0.125rem;
+      font-size: 0.75rem;
+      line-height: 1.125rem;
+    }
+
+    .note-content li {
+      padding: 0.125rem 0;
+    }
+
+    .note-content strong {
+      padding-right: 0.25rem;
+      color: var(--or-red);
+      font-weight: 700;
+    }
+
+    .note-content .note-content-value {
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+
+    /* OpenReview's markdown-content-styles mixin, scoped to the View block. */
+    .note-content .note-content-value.markdown-rendered {
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+
+    .note-content .note-content-value.markdown-rendered h1,
+    .note-content .note-content-value.markdown-rendered h2,
+    .note-content .note-content-value.markdown-rendered h3,
+    .note-content .note-content-value.markdown-rendered h4,
+    .note-content .note-content-value.markdown-rendered h5,
+    .note-content .note-content-value.markdown-rendered h6 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      color: var(--or-dark-blue);
+    }
+
+    .note-content .note-content-value.markdown-rendered h1 {
+      font-size: 1.375rem;
+      font-weight: 700;
+    }
+
+    .note-content .note-content-value.markdown-rendered h2 {
+      font-size: 1.25rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered h3 {
+      font-size: 1rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered h4,
+    .note-content .note-content-value.markdown-rendered h5,
+    .note-content .note-content-value.markdown-rendered h6 {
+      font-size: 0.75rem;
+      font-weight: 400;
+    }
+
+    .note-content .note-content-value.markdown-rendered p {
+      margin-bottom: 0.5rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered strong {
+      padding-right: 0;
+      color: var(--or-dark-blue);
+    }
+
+    .note-content .note-content-value.markdown-rendered ol,
+    .note-content .note-content-value.markdown-rendered ul {
+      padding-left: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered ol li,
+    .note-content .note-content-value.markdown-rendered ul li {
+      padding: 0;
+    }
+
+    .note-content .note-content-value.markdown-rendered ol li p,
+    .note-content .note-content-value.markdown-rendered ul li p {
+      margin-bottom: 0.125rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered ol ol,
+    .note-content .note-content-value.markdown-rendered ol ul,
+    .note-content .note-content-value.markdown-rendered ul ol,
+    .note-content .note-content-value.markdown-rendered ul ul {
+      margin-bottom: 0.125rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered hr {
+      margin: 0.5rem 0;
+      border: 0;
+      border-top: 1px solid var(--or-border-gray);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .note-content .note-content-value.markdown-rendered a {
+      color: var(--or-medium-blue);
+    }
+
+    .note-content .note-content-value.markdown-rendered a:focus,
+    .note-content .note-content-value.markdown-rendered a:hover {
+      color: var(--or-medium-dark-blue);
+      text-decoration: none;
+    }
+
+    .note-content .note-content-value.markdown-rendered code {
+      color: var(--or-red);
+    }
+
+    .note-content .note-content-value.markdown-rendered pre {
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.5rem;
+      border-radius: 0;
+    }
+
+    .note-content .note-content-value.markdown-rendered pre code {
+      color: #333;
+      font-size: 0.75rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered img.icon {
+      width: 1rem;
+      height: 1rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered blockquote {
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.5rem;
+      border-left-color: #ccc;
+      font-size: 0.75rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered blockquote p {
+      margin-bottom: 0;
+    }
+
+    .note-content .note-content-value.markdown-rendered table {
+      max-width: 100%;
+      margin-bottom: 0.5rem;
+    }
+
+    .note-content .note-content-value.markdown-rendered table thead > tr > th {
+      vertical-align: bottom;
+      border-top: 0;
+      border-bottom: 2px solid #ddd;
+    }
+
+    .note-content .note-content-value.markdown-rendered table tr > td,
+    .note-content .note-content-value.markdown-rendered table tr > th {
+      padding: 0.25rem;
+      vertical-align: top;
+      border-top: 1px solid #ddd;
+    }
+
+    /* Current OpenReview MathJax overflow behavior. */
+    .note-content-value mjx-container[jax="CHTML"][display="true"] {
+      overflow-x: scroll;
+      margin-bottom: 0;
+    }
+
+    .note-content-value mjx-container[jax="CHTML"][display="true"]:last-child {
+      margin-bottom: 1em;
+    }
+
+    .note-content-value mjx-container[jax="CHTML"][display="true"] mjx-math {
+      padding: 1px 0;
+    }
+
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(320px, 1fr) minmax(320px, 1fr);
+      }
+
+      .app-footer {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+
+      .app-footer span:last-child {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 767px) {
+      html {
+        font-size: 14px;
+      }
+
+      .app-header {
+        align-items: flex-start;
+      }
+
+      .brand-copy p,
+      .engine-state {
+        display: none;
+      }
+
+      .preview-scroll,
+      #markdown-input {
+        padding: 0.75rem;
+      }
+    }
+  </style>
+
+  <script>
+    window.__openReviewLoadErrors = [];
+    window.__openReviewDependencyError = function (name) {
+      window.__openReviewLoadErrors.push(name);
+      window.dispatchEvent(new CustomEvent("openreview-dependency-error", { detail: name }));
+    };
+
+    // OpenReview's MathJax configuration. The explicit CDN roots only make
+    // auxiliary modules and CHTML fonts resolve safely from a file:// page.
+    window.MathJax = {
+      loader: {
+        paths: {
+          mathjax: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5"
+        },
+        load: ["ui/safe"]
+      },
+      options: {
+        ignoreHtmlClass: "disable-tex-rendering"
+      },
+      tex: {
+        inlineMath: [
+          ["$", "$"],
+          ["\\(", "\\)"]
+        ]
+      },
+      chtml: {
+        scale: 1,
+        minScale: 0.5,
+        matchFontHeight: true,
+        mtextInheritFont: false,
+        merrorInheritFont: true,
+        mathmlSpacing: false,
+        skipAttributes: {},
+        exFactor: 0.5,
+        displayAlign: "left",
+        displayIndent: "0",
+        fontURL: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/output/chtml/fonts/woff-v2"
+      },
+      startup: {
+        typeset: false,
+        ready: function () {
+          MathJax.startup.defaultReady();
+          var safe = MathJax.startup.document.safe;
+          safe.filterAttributes.set("fontfamily", "filterFamily");
+          safe.filterMethods.filterFamily = function (_safe, family) {
+            return family.split(/;/)[0];
+          };
+        }
+      }
+    };
+  </script>
+  <script
+    id="MathJax-script"
+    defer
+    src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml-full.js"
+    crossorigin="anonymous"
+    onload="window.dispatchEvent(new Event('openreview-mathjax-ready'))"
+    onerror="window.__openReviewDependencyError('MathJax 3.2.2')"
+  ></script>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">OR</div>
+        <div class="brand-copy">
+          <h1>OpenReview Markdown Editor</h1>
+          <p>Live preview matched to the current OpenReview web renderer</p>
+        </div>
+      </div>
+      <div id="engine-state" class="engine-state" data-state="loading" aria-live="polite">
+        <span class="state-dot" aria-hidden="true"></span>
+        <span id="engine-status">Loading renderer…</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="pane" aria-labelledby="write-title">
+        <header class="pane-header">
+          <h2 id="write-title" class="pane-title">Markdown</h2>
+          <span id="draft-status" class="pane-meta">Draft stored locally</span>
+        </header>
+        <textarea
+          id="markdown-input"
+          aria-label="Markdown source"
+          autocomplete="off"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="true"
+        ></textarea>
+      </section>
+
+      <section class="pane" aria-labelledby="view-title">
+        <header class="pane-header">
+          <h2 id="view-title" class="pane-title">View</h2>
+          <span id="render-status" class="pane-meta">Waiting for input</span>
+        </header>
+        <div class="preview-scroll" role="region" aria-labelledby="view-title" tabindex="0">
+          <div id="load-error" class="load-error" role="alert" hidden></div>
+          <div id="tex-warning" class="tex-warning" role="status" hidden></div>
+          <div class="note-content">
+            <div id="markdown-view" class="note-content-value markdown-rendered"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span>OpenReview web 1.15.25 renderer profile · local-file-safe MathJax loader</span>
+      <span>marked 15.0.6 · DOMPurify 3.3.1 · MathJax 3.2.2 · Bootstrap 3.4.1</span>
+    </footer>
+  </div>
+
+  <noscript>
+    <div class="load-error">JavaScript is required to render the preview.</div>
+  </noscript>
+
+  <script type="text/plain" id="example-markdown">
+# OpenReview Markdown preview
+
+OpenReview renders **bold**, *italics*, ~~strikethrough~~, [links](https://openreview.net), and autolinks such as https://openreview.net.
+
+## Lists and task markers
+
+- First item
+- Nested item
+  1. Numbered child
+- [x] Completed task
+- [ ] Pending task
+
+## Table
+
+| Item | Result |
+| --- | ---: |
+| Inline TeX | $e^{i\\pi} + 1 = 0$ |
+| Code | `marked(value)` |
+
+## Display TeX
+
+$$
+\\int_0^1 x^2\\,dx = \\frac{1}{3}
+$$
+
+> Block quotes use OpenReview's compact styling.
+
+```python
+for reviewer in reviewers:
+    assign(reviewer)
+```
+
+Raw HTML is escaped rather than interpreted:
+
+<strong>This remains literal markup.</strong>
+
+External Markdown images are also shown as literal markup:
+
+![Example](https://example.com/image.png)
+  </script>
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/marked@15.0.6/lib/marked.umd.min.js"
+    onerror="window.__openReviewDependencyError('marked 15.0.6')"
+  ></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"
+    onerror="window.__openReviewDependencyError('DOMPurify 3.3.1')"
+  ></script>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var STORAGE_KEY = "openreview-markdown-editor-draft-v2";
+      var OPENREVIEW_ORIGIN = "https://openreview.net";
+      var input = document.getElementById("markdown-input");
+      var view = document.getElementById("markdown-view");
+      var renderStatus = document.getElementById("render-status");
+      var draftStatus = document.getElementById("draft-status");
+      var engineState = document.getElementById("engine-state");
+      var engineStatus = document.getElementById("engine-status");
+      var loadError = document.getElementById("load-error");
+      var texWarning = document.getElementById("tex-warning");
+      var exampleNode = document.getElementById("example-markdown");
+
+      var renderTimer = null;
+      var saveTimer = null;
+      var renderQueue = Promise.resolve();
+      var renderRevision = 0;
+      var rendererReady = false;
+      var mathReady = false;
+      var mathStartupPending = false;
+      var markedFunction = null;
+      var storage = getStorage();
+
+      function setEngineState(state, message) {
+        engineState.dataset.state = state;
+        engineStatus.textContent = message;
+      }
+
+      function showError(message) {
+        loadError.hidden = false;
+        loadError.textContent = message;
+        setEngineState("error", "Renderer error");
+      }
+
+      function hideError() {
+        loadError.hidden = true;
+        loadError.textContent = "";
+      }
+
+      function encodeAsText(value) {
+        var holder = document.createElement("div");
+        holder.textContent = value;
+        return holder.innerHTML;
+      }
+
+      function toOpenReviewUrl(value) {
+        return typeof value === "string" && /^\/(?!\/)/.test(value)
+          ? OPENREVIEW_ORIGIN + value
+          : value;
+      }
+
+      function getStorage() {
+        // Browsers do not define stable localStorage behavior for file:// origins.
+        // Avoid touching it there; this also avoids origin warnings in Chromium.
+        if (window.location.protocol === "file:") return null;
+
+        try {
+          var testKey = "__openreview_markdown_storage_test__";
+          window.localStorage.setItem(testKey, "1");
+          window.localStorage.removeItem(testKey);
+          return window.localStorage;
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      function getMarkedApi() {
+        var api = window.marked;
+        if (!api) return null;
+
+        var callable = typeof api === "function" ? api : api.marked;
+        var Renderer = api.Renderer || (callable && callable.Renderer);
+        var setOptions = api.setOptions || (callable && callable.setOptions);
+
+        if (
+          typeof callable !== "function" ||
+          typeof Renderer !== "function" ||
+          typeof setOptions !== "function"
+        ) {
+          return null;
+        }
+
+        return {
+          callable: callable,
+          Renderer: Renderer,
+          setOptions: setOptions
+        };
+      }
+
+      function configureOpenReviewRenderer() {
+        var api = getMarkedApi();
+        if (!api || !window.DOMPurify) {
+          var missing = [];
+          if (!api) missing.push("marked 15.0.6");
+          if (!window.DOMPurify) missing.push("DOMPurify 3.3.1");
+          showError(
+            "Could not load " +
+              missing.join(" and ") +
+              ". This HTML file needs internet access for its pinned runtime libraries."
+          );
+          return false;
+        }
+
+        var renderer = new api.Renderer();
+
+        // Exact OpenReview renderer behavior, with /images URLs made absolute so
+        // the same assets work when this page is opened from disk.
+        renderer.image = function (token) {
+          var href = token.href;
+          var title = token.title;
+          var text = token.text;
+
+          if (href.startsWith("/images/")) {
+            var titleAttr = title ? "title=\"" + title + "\" " : "";
+            var classAttr = href.endsWith("_icon.svg") ? "class=\"icon\" " : "";
+            return (
+              "<img src=\"" +
+              toOpenReviewUrl(href) +
+              "\" alt=\"" +
+              text +
+              "\" " +
+              titleAttr +
+              classAttr +
+              "/>"
+            );
+          }
+
+          return encodeAsText(
+            "<img src=\"" + href + "\" alt=\"" + text + "\" title=\"" + title + "\">"
+          );
+        };
+
+        renderer.checkbox = function (token) {
+          return token.checked ? "[x]" : "[ ]";
+        };
+
+        renderer.html = function (token) {
+          return encodeAsText(token.text);
+        };
+
+        api.setOptions({
+          baseUrl: null,
+          breaks: false,
+          gfm: true,
+          headerIds: false,
+          langPrefix: "language-",
+          mangle: false,
+          renderer: renderer
+        });
+
+        window.DOMPurify.addHook("afterSanitizeAttributes", function (node) {
+          if (node.tagName === "A") {
+            var href = node.getAttribute("href");
+            if (href) node.setAttribute("href", toOpenReviewUrl(href));
+            node.setAttribute("target", "_blank");
+            node.setAttribute("rel", "noopener noreferrer");
+          }
+          if (node.tagName === "IMG") {
+            var src = node.getAttribute("src");
+            if (src) node.setAttribute("src", toOpenReviewUrl(src));
+          }
+        });
+
+        markedFunction = api.callable;
+        rendererReady = true;
+        return true;
+      }
+
+      function sourceContainsMath(source) {
+        return /(^|[^\\])\$[^$\n]+\$|\$\$[\s\S]*?\$\$|\\\\\(|\\\\\[/.test(source);
+      }
+
+      function sourceMayNeedEscaping(source) {
+        var dollarBlocks = source.match(/\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])*\$/g) || [];
+        return dollarBlocks.some(function (block) {
+          // A lone TeX command slash in Markdown source should be doubled.
+          return /(^|[^\\])\\[A-Za-z,;:!{}[\]()]/.test(block);
+        });
+      }
+
+      function sourceHasUnescapedTexLineBreak(source) {
+        var dollarBlocks = source.match(/\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])*\$/g) || [];
+        return dollarBlocks.some(function (block) {
+          // Two source slashes become one after Markdown. A TeX line break needs four.
+          return /(^|[^\\])\\\\(?!\\)(?=\s|\[|$)/m.test(block);
+        });
+      }
+
+      function updateTexWarning(source) {
+        if (!sourceContainsMath(source)) {
+          texWarning.hidden = true;
+          texWarning.textContent = "";
+          return;
+        }
+
+        var messages = [];
+        if (sourceMayNeedEscaping(source)) {
+          messages.push(
+            "OpenReview Markdown consumes TeX backslashes. Double each command slash: write ",
+            codeNode("\\\\frac"),
+            " rather than ",
+            codeNode("\\frac"),
+            "."
+          );
+        } else if (sourceHasUnescapedTexLineBreak(source)) {
+          messages.push(
+            "A TeX line break needs four backslashes in OpenReview source: ",
+            codeNode("\\\\\\\\"),
+            "."
+          );
+        }
+
+        if (!messages.length) {
+          texWarning.hidden = true;
+          texWarning.textContent = "";
+          return;
+        }
+
+        texWarning.replaceChildren.apply(texWarning, messages);
+        texWarning.hidden = false;
+      }
+
+      function codeNode(text) {
+        var code = document.createElement("code");
+        code.textContent = text;
+        return code;
+      }
+
+      function buildPreviewHtml(source) {
+        if (!source) return "<em>Nothing to preview</em>";
+        return window.DOMPurify.sanitize(markedFunction(source));
+      }
+
+      function queueRender(source, html, revision) {
+        renderQueue = renderQueue
+          .catch(function () {})
+          .then(function () {
+            if (revision !== renderRevision) return null;
+
+            if (!mathReady) {
+              view.innerHTML = html;
+              if (revision === renderRevision) {
+                renderStatus.textContent = "Markdown rendered · TeX loading";
+              }
+              return null;
+            }
+
+            return window.MathJax.startup.promise
+              .then(function () {
+                if (revision !== renderRevision) return false;
+                if (typeof window.MathJax.typesetClear === "function") {
+                  window.MathJax.typesetClear([view]);
+                }
+                view.innerHTML = html;
+                return window.MathJax.typesetPromise([view]).then(function () {
+                  return true;
+                });
+              })
+              .then(function (didTypeset) {
+                if (!didTypeset || revision !== renderRevision) return;
+
+                var mathExpected = sourceContainsMath(source);
+                var mathRendered = view.querySelector("mjx-container") !== null;
+                renderStatus.textContent =
+                  mathExpected && !mathRendered
+                    ? "Markdown rendered · no TeX delimiter survived Markdown"
+                    : "Rendered with MathJax";
+              });
+          })
+          .catch(function (error) {
+            if (revision !== renderRevision) return;
+            renderStatus.textContent = "Markdown rendered; TeX failed";
+            console.warn("Could not typeset TeX content", error);
+          });
+      }
+
+      function renderNow() {
+        if (!rendererReady) return;
+
+        var source = input.value;
+        var html;
+        var revision = ++renderRevision;
+        renderStatus.textContent = "Rendering…";
+        updateTexWarning(source);
+
+        try {
+          html = buildPreviewHtml(source);
+          queueRender(source, html, revision);
+        } catch (error) {
+          showError("Rendering failed: " + (error && error.message ? error.message : String(error)));
+          renderStatus.textContent = "Render failed";
+        }
+      }
+
+      function scheduleRender() {
+        window.clearTimeout(renderTimer);
+        renderTimer = window.setTimeout(renderNow, 70);
+      }
+
+      function updateDraftStatus(saved) {
+        var count = input.value.length;
+        var suffix;
+
+        if (!storage) {
+          suffix = window.location.protocol === "file:" ? " · local-file autosave off" : "";
+        } else {
+          suffix = saved ? " · saved locally" : "";
+        }
+
+        draftStatus.textContent =
+          count.toLocaleString() + (count === 1 ? " character" : " characters") + suffix;
+      }
+
+      function saveDraft() {
+        if (!storage) {
+          updateDraftStatus(false);
+          return;
+        }
+
+        try {
+          storage.setItem(STORAGE_KEY, input.value);
+          updateDraftStatus(true);
+        } catch (_error) {
+          storage = null;
+          updateDraftStatus(false);
+        }
+      }
+
+      function scheduleSave() {
+        updateDraftStatus(false);
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(saveDraft, 250);
+      }
+
+      function loadInitialDraft() {
+        var example = exampleNode.textContent.replace(/^\s*\n/, "").replace(/\s+$/, "");
+        var stored = null;
+
+        if (storage) {
+          try {
+            stored = storage.getItem(STORAGE_KEY);
+          } catch (_error) {
+            storage = null;
+          }
+        }
+
+        input.value = stored === null ? example : stored;
+        updateDraftStatus(stored !== null);
+      }
+
+      function markMathReady() {
+        if (mathReady || mathStartupPending) return;
+        if (!(window.MathJax && window.MathJax.startup && window.MathJax.startup.promise)) return;
+
+        mathStartupPending = true;
+        Promise.resolve(window.MathJax.startup.promise)
+          .then(function () {
+            if (typeof window.MathJax.typesetPromise !== "function") {
+              throw new Error("MathJax startup completed without typesetPromise");
+            }
+            mathReady = true;
+            mathStartupPending = false;
+            setEngineState("ready", "Renderer ready");
+            renderNow();
+          })
+          .catch(function (error) {
+            mathStartupPending = false;
+            showError(
+              "MathJax failed to initialize: " +
+                (error && error.message ? error.message : String(error))
+            );
+            console.warn("MathJax startup failed", error);
+          });
+      }
+
+      window.addEventListener("openreview-mathjax-ready", markMathReady);
+      window.addEventListener("openreview-dependency-error", function (event) {
+        showError(
+          "Could not load " +
+            event.detail +
+            ". This HTML file needs internet access for its pinned runtime libraries."
+        );
+      });
+
+      loadInitialDraft();
+
+      if (configureOpenReviewRenderer()) {
+        hideError();
+        setEngineState("loading", "Markdown ready · TeX loading");
+        renderNow();
+      }
+
+      input.addEventListener("input", function () {
+        scheduleRender();
+        scheduleSave();
+      });
+
+      // Covers the case where the deferred MathJax script completed first.
+      markMathReady();
+
+      if (window.__openReviewLoadErrors.length) {
+        showError(
+          "Could not load " +
+            window.__openReviewLoadErrors.join(", ") +
+            ". This HTML file needs internet access for its pinned runtime libraries."
+        );
+      }
+    })();
+  </script>
+</body>
+</html>
