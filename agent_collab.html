@@ -873,6 +873,10 @@
       width: min(1040px, 100%);
     }
 
+    .dialog-card.turn-card {
+      width: min(620px, 100%);
+    }
+
     .dialog-header {
       padding: 0.9rem 1rem;
       display: flex;
@@ -1007,6 +1011,51 @@
 
     .dialog-actions .action-button {
       font-size: 0.75rem;
+    }
+
+    .turn-form {
+      display: grid;
+      gap: 0.8rem;
+    }
+
+    .turn-field {
+      display: grid;
+      gap: 0.3rem;
+      color: var(--or-dark-blue);
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    .turn-field input,
+    .turn-field textarea {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      color: #333;
+      background: var(--or-input-white);
+      border: 1px solid var(--or-light-gray);
+      border-radius: 3px;
+      font: 0.75rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 400;
+    }
+
+    .turn-field textarea {
+      min-height: 5rem;
+      resize: vertical;
+    }
+
+    .turn-field input:focus,
+    .turn-field textarea:focus {
+      border-color: var(--or-input-border);
+      outline: 2px solid rgba(101, 154, 174, 0.2);
+      outline-offset: 1px;
+    }
+
+    .turn-help {
+      margin: 0;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      font-weight: 400;
+      line-height: 1.45;
     }
 
     .history-layout {
@@ -1831,6 +1880,7 @@
           <button id="share-edit-button" class="action-button" type="button" title="Copy a capability link that can publish signed edits." disabled>Copy edit link</button>
           <button id="share-read-button" class="action-button secondary" type="button" title="Copy a cryptographically read-only link." disabled>Copy read-only link</button>
         </div>
+        <button id="turn-button" class="action-button secondary" type="button">TURN relay</button>
         <button id="history-button" class="action-button secondary" type="button" disabled>History</button>
         <button id="new-room-button" class="action-button secondary" type="button">New document</button>
       </div>
@@ -1949,6 +1999,41 @@
       </div>
       <footer class="dialog-actions">
         <button id="history-footer-close-button" class="action-button secondary" type="button">Close</button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="turn-dialog" class="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="turn-title" hidden>
+    <section class="dialog-card turn-card">
+      <header class="dialog-header">
+        <div class="dialog-heading">
+          <h2 id="turn-title">TURN relay credentials</h2>
+          <p>Use a short-lived authenticated relay when direct WebRTC connections are blocked.</p>
+        </div>
+        <button id="turn-close-button" class="dialog-close" type="button" aria-label="Close TURN settings">×</button>
+      </header>
+      <div class="dialog-body">
+        <form id="turn-form" class="turn-form">
+          <label class="turn-field" for="turn-urls">
+            TURN URL
+            <textarea id="turn-urls" required spellcheck="false" autocomplete="off" placeholder="turns:turn.example.com:443?transport=tcp"></textarea>
+            <span class="turn-help">Enter one <code>turn:</code> or <code>turns:</code> URL per line. For restrictive browsers, prefer <code>turns:</code> over TCP/TLS port 443.</span>
+          </label>
+          <label class="turn-field" for="turn-username">
+            Username
+            <input id="turn-username" type="text" required spellcheck="false" autocomplete="off">
+          </label>
+          <label class="turn-field" for="turn-credential">
+            Credential
+            <input id="turn-credential" type="password" required spellcheck="false" autocomplete="new-password">
+          </label>
+        </form>
+        <p class="dialog-note">The copied collaboration link will contain these credentials in its URL fragment. Anyone with the link can decode and use them. Use temporary credentials with a short expiry, then disable TURN or create a new document link.</p>
+      </div>
+      <footer class="dialog-actions">
+        <button id="turn-disable-button" class="action-button secondary" type="button" disabled>Disable TURN</button>
+        <button id="turn-cancel-button" class="action-button secondary" type="button">Cancel</button>
+        <button id="turn-enable-button" class="action-button" type="submit" form="turn-form">Enable and reconnect</button>
       </footer>
     </section>
   </div>
@@ -2776,6 +2861,7 @@ Every collaborator keeps browser-local history.
   const MAX_SYNC_BYTES = 8 * 1024 * 1024;
   const MAX_HISTORY_ENTRIES = 50;
   const AUTO_CHECKPOINT_DELAY = 2600;
+  const TURN_CREDENTIAL_TIMEOUT = 4000;
   const LOCAL_ORIGIN = {kind: "textarea"};
   const REMOTE_ORIGIN = {kind: "peer"};
   const LOAD_ORIGIN = {kind: "local-load"};
@@ -2795,6 +2881,7 @@ Every collaborator keeps browser-local history.
   const shareReadButton = document.getElementById("share-read-button");
   const accessBadge = document.getElementById("access-badge");
   const reviewConflictButton = document.getElementById("review-conflict-button");
+  const turnButton = document.getElementById("turn-button");
   const historyButton = document.getElementById("history-button");
   const newRoomButton = document.getElementById("new-room-button");
   const cursorOverlay = document.getElementById("cursor-overlay");
@@ -2820,6 +2907,16 @@ Every collaborator keeps browser-local history.
   const historyPreviewMeta = document.getElementById("history-preview-meta");
   const historyCloseButton = document.getElementById("history-close-button");
   const historyFooterCloseButton = document.getElementById("history-footer-close-button");
+
+  const turnDialog = document.getElementById("turn-dialog");
+  const turnForm = document.getElementById("turn-form");
+  const turnUrlsInput = document.getElementById("turn-urls");
+  const turnUsernameInput = document.getElementById("turn-username");
+  const turnCredentialInput = document.getElementById("turn-credential");
+  const turnCloseButton = document.getElementById("turn-close-button");
+  const turnCancelButton = document.getElementById("turn-cancel-button");
+  const turnDisableButton = document.getElementById("turn-disable-button");
+  const turnEnableButton = document.getElementById("turn-enable-button");
 
   let Y;
   let joinRoom;
@@ -2855,6 +2952,8 @@ Every collaborator keeps browser-local history.
   let capabilityWarning = "";
   let turnServers = [];
   let turnConfigurationError = "";
+  let turnConfigurationPromise = Promise.resolve();
+  let turnShareToken = readTurnShareToken();
 
   const peerIds = new Set();
   const activePeers = new Set();
@@ -2880,6 +2979,7 @@ Every collaborator keeps browser-local history.
   setPersistenceState("loading", "Opening local history…");
 
   newRoomButton.addEventListener("click", createNewDocument);
+  turnButton.addEventListener("click", openTurnDialog);
   historyButton.addEventListener("click", openHistoryDialog);
   reviewConflictButton.addEventListener("click", openOldestConflict);
   conflictMergeButton.addEventListener("click", mergeCurrentConflict);
@@ -2888,6 +2988,10 @@ Every collaborator keeps browser-local history.
   conflictCloseButton.addEventListener("click", deferCurrentConflict);
   historyCloseButton.addEventListener("click", closeHistoryDialog);
   historyFooterCloseButton.addEventListener("click", closeHistoryDialog);
+  turnCloseButton.addEventListener("click", closeTurnDialog);
+  turnCancelButton.addEventListener("click", closeTurnDialog);
+  turnDisableButton.addEventListener("click", disableTurnRelay);
+  turnForm.addEventListener("submit", enableTurnRelay);
 
   conflictDialog.addEventListener("click", function (event) {
     if (event.target === conflictDialog) deferCurrentConflict();
@@ -2895,9 +2999,15 @@ Every collaborator keeps browser-local history.
   historyDialog.addEventListener("click", function (event) {
     if (event.target === historyDialog) closeHistoryDialog();
   });
+  turnDialog.addEventListener("click", function (event) {
+    if (event.target === turnDialog) closeTurnDialog();
+  });
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
-    if (!historyDialog.hidden) {
+    if (!turnDialog.hidden) {
+      event.preventDefault();
+      closeTurnDialog();
+    } else if (!historyDialog.hidden) {
       event.preventDefault();
       closeHistoryDialog();
     } else if (!conflictDialog.hidden) {
@@ -2919,7 +3029,7 @@ Every collaborator keeps browser-local history.
       throw new Error("The collaboration modules loaded without their expected APIs");
     }
 
-    await initializeTurnConfiguration();
+    turnConfigurationPromise = initializeTurnConfiguration();
     await initializeCapabilities();
     await initializeCollaboration();
   } catch (error) {
@@ -3087,6 +3197,8 @@ Every collaborator keeps browser-local history.
     await saveSnapshot();
     await saveCheckpoint("Opened document", {important: false});
     showForkNotice();
+    await turnConfigurationPromise;
+    updateTurnUi();
 
     if (startupConflict) {
       enqueueConflict(startupConflict, true);
@@ -3677,6 +3789,7 @@ Every collaborator keeps browser-local history.
     if (config.seedSignature) params.set("sig", config.seedSignature);
     if (config.head) params.set("head", config.head);
     if (config.seedSavedAt) params.set("ts", String(config.seedSavedAt));
+    if (turnShareToken) params.set("turn", turnShareToken);
     url.hash = params.toString();
     window.history.replaceState(null, "", url.href);
   }
@@ -3928,7 +4041,16 @@ Every collaborator keeps browser-local history.
   }
 
   async function initializeTurnConfiguration() {
-    const config = window.MarkdownRelayTURN;
+    let config = window.MarkdownRelayTURN;
+    if (turnShareToken) {
+      try {
+        config = {turnServers: decodeTurnShareToken(turnShareToken)};
+      } catch (error) {
+        turnShareToken = "";
+        turnConfigurationError = "The link contains invalid TURN credentials";
+        console.warn("Embedded TURN relay configuration is invalid", error);
+      }
+    }
     if (!config) return;
 
     try {
@@ -3942,13 +4064,23 @@ Every collaborator keeps browser-local history.
           throw new Error("The TURN credential endpoint must use HTTPS");
         }
 
-        const response = await fetch(endpoint.href, {
-          method: "GET",
-          cache: "no-store",
-          credentials: "omit",
-          referrerPolicy: "no-referrer",
-          headers: {Accept: "application/json"}
-        });
+        const controller = new AbortController();
+        const timeout = window.setTimeout(function () {
+          controller.abort();
+        }, TURN_CREDENTIAL_TIMEOUT);
+        let response;
+        try {
+          response = await fetch(endpoint.href, {
+            method: "GET",
+            cache: "no-store",
+            credentials: "omit",
+            referrerPolicy: "no-referrer",
+            headers: {Accept: "application/json"},
+            signal: controller.signal
+          });
+        } finally {
+          window.clearTimeout(timeout);
+        }
         if (!response.ok) {
           throw new Error("The TURN credential endpoint returned HTTP " + response.status);
         }
@@ -3963,6 +4095,7 @@ Every collaborator keeps browser-local history.
       if (!turnServers.length) {
         throw new Error("No valid TURN servers were supplied");
       }
+      if (!turnShareToken) turnShareToken = encodeTurnShareToken(turnServers);
     } catch (error) {
       turnServers = [];
       turnConfigurationError = error && error.message
@@ -4013,6 +4146,127 @@ Every collaborator keeps browser-local history.
       if (server.credentialType === "password") normalized.credentialType = "password";
       return normalized;
     });
+  }
+
+  function readTurnShareToken() {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const value = params.get("turn") || "";
+    return value.length <= 12000 && /^[A-Za-z0-9_-]*$/.test(value) ? value : "";
+  }
+
+  function encodeTurnShareToken(servers) {
+    const bytes = new TextEncoder().encode(JSON.stringify(servers));
+    return bytesToBase64Url(bytes);
+  }
+
+  function decodeTurnShareToken(token) {
+    const bytes = base64UrlToBytes(token);
+    const payload = JSON.parse(new TextDecoder().decode(bytes));
+    return normalizeTurnServers(payload);
+  }
+
+  function openTurnDialog() {
+    lastDialogFocus = document.activeElement;
+    const server = turnServers[0] || null;
+    const urls = server
+      ? (Array.isArray(server.urls) ? server.urls : [server.urls])
+      : ["turns:"];
+    turnUrlsInput.value = urls.join("\n");
+    turnUsernameInput.value = server ? server.username : "";
+    turnCredentialInput.value = server ? server.credential : "";
+    turnDisableButton.disabled = !turnServers.length;
+    turnDialog.hidden = false;
+    document.body.classList.add("dialog-open");
+    turnUrlsInput.focus();
+    turnUrlsInput.select();
+  }
+
+  function closeTurnDialog() {
+    turnDialog.hidden = true;
+    document.body.classList.toggle(
+      "dialog-open",
+      !conflictDialog.hidden || !historyDialog.hidden
+    );
+    if (lastDialogFocus && typeof lastDialogFocus.focus === "function") lastDialogFocus.focus();
+    lastDialogFocus = null;
+  }
+
+  function enableTurnRelay(event) {
+    event.preventDefault();
+    turnEnableButton.disabled = true;
+    turnEnableButton.textContent = "Connecting…";
+    try {
+      const urls = turnUrlsInput.value
+        .split(/\r?\n/)
+        .map(function (value) { return value.trim(); })
+        .filter(Boolean);
+      turnServers = normalizeTurnServers([{
+        urls: urls,
+        username: turnUsernameInput.value.trim(),
+        credential: turnCredentialInput.value
+      }]);
+      turnShareToken = encodeTurnShareToken(turnServers);
+      turnConfigurationError = "";
+      replaceAddressHash(roomConfig);
+      closeTurnDialog();
+      reconnectPeerRoom();
+      updateTurnUi();
+      showMessage(
+        "TURN enabled. Copied collaboration links will include the temporary relay credentials.",
+        "warning",
+        9000
+      );
+    } catch (error) {
+      console.warn("Could not enable TURN relay", error);
+      showMessage(
+        error && error.message ? error.message : "The TURN settings are invalid.",
+        "error",
+        7000
+      );
+    } finally {
+      turnEnableButton.disabled = false;
+      turnEnableButton.textContent = "Enable and reconnect";
+    }
+  }
+
+  function disableTurnRelay() {
+    turnServers = [];
+    turnShareToken = "";
+    turnConfigurationError = "";
+    replaceAddressHash(roomConfig);
+    closeTurnDialog();
+    reconnectPeerRoom();
+    updateTurnUi();
+    showMessage("TURN disabled and removed from copied links.", "info", 6500);
+  }
+
+  function updateTurnUi() {
+    const enabled = turnServers.length > 0;
+    turnButton.textContent = enabled ? "TURN enabled" : "TURN relay";
+    turnButton.classList.toggle("warning", enabled);
+    turnButton.title = enabled
+      ? "TURN credentials are active and will be included in copied links."
+      : "Configure temporary TURN credentials for restrictive networks.";
+    turnDisableButton.disabled = !enabled;
+  }
+
+  function reconnectPeerRoom() {
+    leaveRoom();
+    networkError = null;
+    peerIds.clear();
+    activePeers.clear();
+    locallyApprovedPeers.clear();
+    remotelyApprovedPeers.clear();
+    peerPresence.clear();
+    peerManifests.clear();
+    peerSnapshots.clear();
+    peerStateEnvelopes.clear();
+    processingPeers.clear();
+    lastSentStateHash.clear();
+    renderParticipants();
+    renderRemoteCursors();
+    connectPeerRoom();
+    updateNetworkStatus();
   }
 
   function connectPeerRoom() {
@@ -4911,7 +5165,10 @@ Every collaborator keeps browser-local history.
   function closeConflictDialog() {
     conflictDialog.hidden = true;
     currentConflict = null;
-    document.body.classList.toggle("dialog-open", !historyDialog.hidden);
+    document.body.classList.toggle(
+      "dialog-open",
+      !historyDialog.hidden || !turnDialog.hidden
+    );
     if (lastDialogFocus && typeof lastDialogFocus.focus === "function") lastDialogFocus.focus();
     lastDialogFocus = null;
     setConflictButtonsBusy(null);
@@ -4978,6 +5235,10 @@ Every collaborator keeps browser-local history.
           : "Read-only live-room link copied. Keep an editor online for the first sync; viewers cannot publish accepted changes.";
         if (!result.includesSnapshot) tone = "warning";
       }
+      if (turnShareToken) {
+        message += " The link includes temporary TURN credentials.";
+        tone = "warning";
+      }
       showMessage(message, tone, 8000);
     } catch (error) {
       console.warn("Could not copy the sharing link", error);
@@ -5042,6 +5303,7 @@ Every collaborator keeps browser-local history.
     if (config.publicKey) params.set("pub", config.publicKey);
     if (settings.includeWrite && config.writeKey) params.set("write", config.writeKey);
     params.set("flavor", editor.getFlavor());
+    if (turnShareToken) params.set("turn", turnShareToken);
     url.hash = params.toString();
     return url;
   }
@@ -5607,7 +5869,10 @@ Every collaborator keeps browser-local history.
 
   function closeHistoryDialog() {
     historyDialog.hidden = true;
-    document.body.classList.toggle("dialog-open", !conflictDialog.hidden);
+    document.body.classList.toggle(
+      "dialog-open",
+      !conflictDialog.hidden || !turnDialog.hidden
+    );
     if (lastDialogFocus && typeof lastDialogFocus.focus === "function") lastDialogFocus.focus();
     lastDialogFocus = null;
   }
