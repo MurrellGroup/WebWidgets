@@ -2336,6 +2336,340 @@
       .dm-compose { grid-template-columns: 1fr; }
     }
 
+    /*
+      Stable workspace geometry. Pane tracks only change in response to the
+      explicit splitters (or an actual viewport breakpoint), never because a
+      status label or rendered document changed size.
+    */
+    .collaboration-bar {
+      height: 56px;
+      min-height: 56px;
+      align-items: center !important;
+      flex-direction: row !important;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: thin;
+    }
+
+    .collaboration-summary,
+    .collaboration-actions {
+      width: auto !important;
+      flex-wrap: nowrap !important;
+    }
+
+    .workspace {
+      grid-template-columns:
+        minmax(18rem, var(--source-pane-width, 1fr))
+        0.65rem
+        minmax(18rem, 1fr)
+        0.65rem
+        var(--chat-panel-width);
+      transition: none;
+    }
+
+    body.chat-panel-collapsed .workspace {
+      grid-template-columns:
+        minmax(18rem, var(--source-pane-width, 1fr))
+        0.65rem
+        minmax(18rem, 1fr)
+        0.65rem
+        var(--chat-panel-collapsed-width);
+    }
+
+    .workspace-resizer {
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+      z-index: 6;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      cursor: col-resize;
+      touch-action: none;
+    }
+
+    .workspace-resizer::before {
+      content: "";
+      width: 3px;
+      height: 3.5rem;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      border-radius: 999px;
+      background: #aeb8c7;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+      transform: translate(-50%, -50%);
+      transition: background 120ms ease, width 120ms ease;
+    }
+
+    .workspace-resizer:hover::before,
+    .workspace-resizer:focus-visible::before,
+    .workspace-resizer[data-dragging="true"]::before {
+      width: 5px;
+      background: var(--ui-accent);
+    }
+
+    .workspace-resizer:focus-visible {
+      outline: 3px solid rgba(91, 91, 214, 0.24);
+      outline-offset: -2px;
+    }
+
+    body.workspace-resizing,
+    body.workspace-resizing * {
+      cursor: col-resize !important;
+      user-select: none !important;
+    }
+
+    .manager-card {
+      width: min(66rem, calc(100vw - 2rem));
+      height: min(46rem, calc(100vh - 2rem));
+    }
+
+    .manager-body {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr);
+      gap: 0.85rem;
+    }
+
+    .storage-panel,
+    .documents-panel {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      padding: 0.8rem;
+      background: #fff;
+      border: 1px solid var(--ui-border);
+      border-radius: 9px;
+    }
+
+    .storage-panel h3,
+    .documents-panel h3 {
+      margin: 0 0 0.65rem;
+      color: var(--ui-text);
+      font-size: 0.78rem;
+    }
+
+    .storage-usage {
+      margin: 0 0 0.8rem;
+      padding: 0.65rem 0.7rem;
+      color: #4e5a6e;
+      background: #f5f7fa;
+      border-radius: 7px;
+      font-size: 0.66rem;
+      line-height: 1.45;
+    }
+
+    .storage-preferences {
+      display: grid;
+      gap: 0.55rem;
+    }
+
+    .storage-note {
+      margin: 0.7rem 0 0;
+      color: var(--ui-muted);
+      font-size: 0.59rem;
+      line-height: 1.45;
+    }
+
+    .storage-preference {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: start;
+      gap: 0.5rem;
+      color: #344054;
+      font-size: 0.68rem;
+      line-height: 1.4;
+    }
+
+    .storage-preference input {
+      margin: 0.18rem 0 0;
+      accent-color: var(--ui-accent);
+    }
+
+    .storage-preference small {
+      display: block;
+      color: var(--ui-muted);
+      font-size: 0.59rem;
+    }
+
+    .storage-actions {
+      margin-top: 0.9rem;
+      display: grid;
+      gap: 0.45rem;
+    }
+
+    .storage-actions .action-button {
+      width: 100%;
+      text-align: left;
+    }
+
+    .storage-actions .danger {
+      color: #922f39;
+      background: #fff2f3;
+      border-color: #e9a8ae;
+    }
+
+    .storage-actions .danger:hover {
+      color: #fff;
+      background: var(--ui-danger);
+      border-color: var(--ui-danger);
+    }
+
+    .document-manager-list {
+      display: grid;
+      gap: 0.55rem;
+    }
+
+    .managed-document {
+      padding: 0.65rem 0.7rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 0.65rem;
+      border: 1px solid var(--ui-border);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .managed-document[data-current="true"] {
+      border-color: #b8b8f0;
+      background: #f7f7ff;
+      box-shadow: inset 3px 0 0 var(--ui-accent);
+    }
+
+    .managed-document-main {
+      min-width: 0;
+    }
+
+    .managed-document-name {
+      overflow: hidden;
+      color: var(--ui-text);
+      font-size: 0.72rem;
+      font-weight: 750;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .managed-document-meta {
+      margin-top: 0.15rem;
+      overflow: hidden;
+      color: var(--ui-muted);
+      font-size: 0.59rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .managed-document-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.3rem;
+      flex-wrap: wrap;
+    }
+
+    .managed-document-actions button {
+      padding: 0.28rem 0.42rem;
+      color: #455064;
+      background: #fff;
+      border: 1px solid var(--ui-border-strong);
+      border-radius: 6px;
+      font-size: 0.6rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .managed-document-actions button:hover {
+      color: var(--ui-accent-dark);
+      background: var(--ui-accent-soft);
+      border-color: #b8b8f0;
+    }
+
+    .managed-document-actions button:disabled {
+      cursor: default;
+      opacity: 0.5;
+    }
+
+    .manager-empty {
+      margin: 0;
+      padding: 1rem;
+      color: var(--ui-muted);
+      background: #f7f8fb;
+      border: 1px dashed var(--ui-border-strong);
+      border-radius: 8px;
+      font-size: 0.68rem;
+      line-height: 1.45;
+      text-align: center;
+    }
+
+    @media (max-width: 1040px) {
+      .workspace,
+      body.chat-panel-collapsed .workspace {
+        grid-template-columns:
+          minmax(14rem, var(--source-pane-width, 1fr))
+          0.65rem
+          minmax(14rem, 1fr);
+      }
+
+      #audience-splitter {
+        display: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .workspace,
+      body.chat-panel-collapsed .workspace {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows:
+          minmax(260px, var(--source-pane-height, 1fr))
+          0.65rem
+          minmax(260px, 1fr);
+      }
+
+      #source-pane { grid-row: 1; }
+      #source-splitter {
+        grid-row: 2;
+        cursor: row-resize;
+      }
+      #rendered-pane { grid-row: 3; }
+
+      #source-splitter::before {
+        width: 3.5rem;
+        height: 3px;
+      }
+
+      #source-splitter:hover::before,
+      #source-splitter:focus-visible::before,
+      #source-splitter[data-dragging="true"]::before {
+        width: 3.5rem;
+        height: 5px;
+      }
+
+      body.workspace-resizing,
+      body.workspace-resizing * {
+        cursor: row-resize !important;
+      }
+
+      .manager-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .manager-card {
+        width: calc(100vw - 0.5rem);
+        height: calc(100vh - 0.5rem);
+      }
+
+      .managed-document {
+        grid-template-columns: 1fr;
+      }
+
+      .managed-document-actions {
+        justify-content: flex-start;
+      }
+    }
+
   </style>
 
   <script>
@@ -2449,13 +2783,14 @@
           <button id="share-chat-button" class="action-button secondary" type="button" title="Copy a scalable audience link with live preview and chat." disabled>Copy chat link</button>
           <button id="share-read-button" class="action-button secondary" type="button" title="Copy a cryptographically read-only link without audience chat." disabled>Copy read-only link</button>
         </div>
+        <button id="document-manager-button" class="action-button secondary" type="button" disabled>Documents</button>
         <button id="history-button" class="action-button secondary" type="button" disabled>History</button>
-        <button id="new-room-button" class="action-button secondary" type="button">New document</button>
+        <button id="new-room-button" class="action-button secondary" type="button">New</button>
       </div>
     </section>
 
     <main class="workspace">
-      <section class="pane" aria-labelledby="write-title">
+      <section id="source-pane" class="pane" aria-labelledby="write-title">
         <header class="pane-header">
           <h2 id="write-title" class="pane-title">Source</h2>
           <div class="editor-tools">
@@ -2477,7 +2812,16 @@
         </div>
       </section>
 
-      <section class="pane" aria-labelledby="view-title">
+      <div
+        id="source-splitter"
+        class="workspace-resizer"
+        role="separator"
+        aria-label="Resize source and rendered panes"
+        aria-orientation="vertical"
+        tabindex="0"
+      ></div>
+
+      <section id="rendered-pane" class="pane" aria-labelledby="view-title">
         <header class="pane-header rendered-header">
           <h2 id="view-title" class="pane-title">Rendered</h2>
           <div class="render-tools">
@@ -2501,6 +2845,15 @@
           </div>
         </section>
       </section>
+
+      <div
+        id="audience-splitter"
+        class="workspace-resizer"
+        role="separator"
+        aria-label="Resize rendered and audience panes"
+        aria-orientation="vertical"
+        tabindex="0"
+      ></div>
 
       <aside id="audience-panel" class="audience-panel" aria-labelledby="audience-title">
         <header class="audience-header">
@@ -2612,6 +2965,63 @@
       </div>
       <footer class="dialog-actions">
         <button id="history-footer-close-button" class="action-button secondary" type="button">Close</button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="document-manager-dialog" class="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="document-manager-title" hidden>
+    <section class="dialog-card manager-card">
+      <header class="dialog-header">
+        <div class="dialog-heading">
+          <h2 id="document-manager-title">Documents &amp; local data</h2>
+          <p>Manage browser-local documents, choose what this page keeps, or remove its stored data.</p>
+        </div>
+        <button id="document-manager-close-button" class="dialog-close" type="button" aria-label="Close document manager">×</button>
+      </header>
+      <div class="dialog-body manager-body">
+        <section class="storage-panel" aria-labelledby="storage-settings-title">
+          <h3 id="storage-settings-title">Storage settings</h3>
+          <p id="storage-usage" class="storage-usage">Calculating browser storage…</p>
+          <div class="storage-preferences">
+            <label class="storage-preference">
+              <input id="store-documents-preference" type="checkbox">
+              <span>
+                Keep document snapshots
+                <small>Reopen documents from this browser after the page closes.</small>
+              </span>
+            </label>
+            <label class="storage-preference">
+              <input id="store-history-preference" type="checkbox">
+              <span>
+                Keep automatic history
+                <small>Save recoverable checkpoints while editing.</small>
+              </span>
+            </label>
+            <label class="storage-preference">
+              <input id="store-audience-preference" type="checkbox">
+              <span>
+                Cache audience messages
+                <small>Keep comments and direct messages available offline.</small>
+              </span>
+            </label>
+          </div>
+          <p class="storage-note">Turning a category off stops future local writes. It does not delete existing data; use the controls below when you want it removed.</p>
+          <div class="storage-actions">
+            <button id="download-document-button" class="action-button secondary" type="button">Download current Markdown</button>
+            <button id="clear-current-history-button" class="action-button secondary" type="button">Clear current document history</button>
+            <button id="clear-audience-cache-button" class="action-button secondary" type="button">Clear audience cache</button>
+            <button id="clear-current-document-button" class="action-button danger" type="button">Remove current local document</button>
+            <button id="clear-all-data-button" class="action-button danger" type="button">Clear all Parasocial data on this site</button>
+          </div>
+        </section>
+        <section class="documents-panel" aria-labelledby="local-documents-title">
+          <h3 id="local-documents-title">Local documents</h3>
+          <div id="document-manager-list" class="document-manager-list" aria-live="polite"></div>
+        </section>
+      </div>
+      <footer class="dialog-actions">
+        <button id="document-manager-new-button" class="action-button" type="button">New document</button>
+        <button id="document-manager-footer-close-button" class="action-button secondary" type="button">Close</button>
       </footer>
     </section>
   </div>
@@ -3399,7 +3809,41 @@ Every collaborator keeps browser-local history.
         input: input,
         getText: function () { return input.value; },
         setText: function (value) {
-          input.value = value;
+          var nextValue = value == null ? "" : String(value);
+          var scrollTop = input.scrollTop;
+          var scrollLeft = input.scrollLeft;
+
+          if (input.value !== nextValue) {
+            var previousValue = input.value;
+            var start = 0;
+            while (
+              start < previousValue.length &&
+              start < nextValue.length &&
+              previousValue.charCodeAt(start) === nextValue.charCodeAt(start)
+            ) {
+              start += 1;
+            }
+
+            var previousEnd = previousValue.length;
+            var nextEnd = nextValue.length;
+            while (
+              previousEnd > start &&
+              nextEnd > start &&
+              previousValue.charCodeAt(previousEnd - 1) === nextValue.charCodeAt(nextEnd - 1)
+            ) {
+              previousEnd -= 1;
+              nextEnd -= 1;
+            }
+
+            try {
+              input.setRangeText(nextValue.slice(start, nextEnd), start, previousEnd, "preserve");
+            } catch (_error) {
+              input.value = nextValue;
+            }
+          }
+
+          input.scrollTop = scrollTop;
+          input.scrollLeft = scrollLeft;
           updateCharacterCount();
           scheduleRender();
         },
@@ -3435,6 +3879,195 @@ Every collaborator keeps browser-local history.
     })();
   </script>
 
+  <script>
+    (function () {
+      "use strict";
+
+      var workspace = document.querySelector(".workspace");
+      var sourceSplitter = document.getElementById("source-splitter");
+      var audienceSplitter = document.getElementById("audience-splitter");
+      var sourcePane = document.getElementById("source-pane");
+      var renderedPane = document.getElementById("rendered-pane");
+      var audiencePanel = document.getElementById("audience-panel");
+      var layoutKey = "parasocial-layout-v1:" + window.location.pathname;
+      var state = loadState();
+      var drag = null;
+
+      applyState();
+      installSplitter(sourceSplitter, "source");
+      installSplitter(audienceSplitter, "audience");
+
+      function loadState() {
+        try {
+          var parsed = JSON.parse(window.localStorage.getItem(layoutKey) || "null");
+          if (!parsed || typeof parsed !== "object") return {};
+          return {
+            sourceWidth: validSize(parsed.sourceWidth, 240, 2400) ? Number(parsed.sourceWidth) : null,
+            sourceHeight: validSize(parsed.sourceHeight, 220, 2400) ? Number(parsed.sourceHeight) : null,
+            audienceWidth: validSize(parsed.audienceWidth, 240, 1000) ? Number(parsed.audienceWidth) : null
+          };
+        } catch (_error) {
+          return {};
+        }
+      }
+
+      function validSize(value, minimum, maximum) {
+        var number = Number(value);
+        return Number.isFinite(number) && number >= minimum && number <= maximum;
+      }
+
+      function applyState() {
+        if (!workspace) return;
+        if (state.sourceWidth) workspace.style.setProperty("--source-pane-width", state.sourceWidth + "px");
+        if (state.sourceHeight) workspace.style.setProperty("--source-pane-height", state.sourceHeight + "px");
+        if (state.audienceWidth) workspace.style.setProperty("--chat-panel-width", state.audienceWidth + "px");
+      }
+
+      function saveState() {
+        try {
+          window.localStorage.setItem(layoutKey, JSON.stringify(state));
+        } catch (_error) {}
+      }
+
+      function isStacked() {
+        return window.matchMedia("(max-width: 900px)").matches;
+      }
+
+      function installSplitter(splitter, kind) {
+        if (!splitter) return;
+        splitter.addEventListener("pointerdown", function (event) {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          drag = {
+            kind: kind,
+            pointerId: event.pointerId,
+            stacked: isStacked()
+          };
+          splitter.dataset.dragging = "true";
+          document.body.classList.add("workspace-resizing");
+          try { splitter.setPointerCapture(event.pointerId); } catch (_error) {}
+        });
+
+        splitter.addEventListener("pointermove", function (event) {
+          if (!drag || drag.pointerId !== event.pointerId || drag.kind !== kind) return;
+          resizeFromPointer(kind, event.clientX, event.clientY, drag.stacked);
+        });
+
+        function finish(event) {
+          if (!drag || drag.pointerId !== event.pointerId || drag.kind !== kind) return;
+          resizeFromPointer(kind, event.clientX, event.clientY, drag.stacked);
+          splitter.dataset.dragging = "false";
+          document.body.classList.remove("workspace-resizing");
+          try { splitter.releasePointerCapture(event.pointerId); } catch (_error) {}
+          drag = null;
+          saveState();
+        }
+
+        splitter.addEventListener("pointerup", finish);
+        splitter.addEventListener("pointercancel", finish);
+        splitter.addEventListener("keydown", function (event) {
+          var amount = event.shiftKey ? 40 : 12;
+          var handled = false;
+          if (kind === "source" && isStacked() && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+            state.sourceHeight = clamp(
+              (state.sourceHeight || sourcePane.getBoundingClientRect().height) +
+                (event.key === "ArrowDown" ? amount : -amount),
+              260,
+              Math.max(260, workspace.clientHeight - 270)
+            );
+            handled = true;
+          } else if (kind === "source" && !isStacked() && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+            state.sourceWidth = clamp(
+              (state.sourceWidth || sourcePane.getBoundingClientRect().width) +
+                (event.key === "ArrowRight" ? amount : -amount),
+              288,
+              maximumSourceWidth()
+            );
+            handled = true;
+          } else if (kind === "audience" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+            state.audienceWidth = clamp(
+              (state.audienceWidth || audiencePanel.getBoundingClientRect().width) +
+                (event.key === "ArrowLeft" ? amount : -amount),
+              240,
+              maximumAudienceWidth()
+            );
+            handled = true;
+          }
+          if (!handled) return;
+          event.preventDefault();
+          applyState();
+          saveState();
+          updateSeparatorValues();
+        });
+      }
+
+      function resizeFromPointer(kind, clientX, clientY, stacked) {
+        var bounds = workspace.getBoundingClientRect();
+        if (kind === "source" && stacked) {
+          state.sourceHeight = clamp(clientY - bounds.top, 260, Math.max(260, bounds.height - 270));
+        } else if (kind === "source") {
+          state.sourceWidth = clamp(clientX - bounds.left, 288, maximumSourceWidth());
+        } else {
+          state.audienceWidth = clamp(bounds.right - clientX, 240, maximumAudienceWidth());
+        }
+        applyState();
+        updateSeparatorValues();
+      }
+
+      function maximumSourceWidth() {
+        if (window.matchMedia("(max-width: 1040px)").matches) {
+          return Math.max(288, workspace.clientWidth - 320);
+        }
+        var audienceWidth = document.body.classList.contains("chat-panel-collapsed")
+          ? 55
+          : (state.audienceWidth || audiencePanel.getBoundingClientRect().width || 320);
+        return Math.max(288, workspace.clientWidth - audienceWidth - 320);
+      }
+
+      function maximumAudienceWidth() {
+        return Math.max(240, Math.min(700, workspace.clientWidth - 640));
+      }
+
+      function updateSeparatorValues() {
+        if (sourceSplitter) {
+          sourceSplitter.setAttribute(
+            "aria-orientation",
+            isStacked() ? "horizontal" : "vertical"
+          );
+          sourceSplitter.setAttribute(
+            "aria-valuenow",
+            String(Math.round(isStacked()
+              ? (state.sourceHeight || sourcePane.getBoundingClientRect().height)
+              : (state.sourceWidth || sourcePane.getBoundingClientRect().width)))
+          );
+        }
+        if (audienceSplitter) {
+          audienceSplitter.setAttribute(
+            "aria-valuenow",
+            String(Math.round(state.audienceWidth || audiencePanel.getBoundingClientRect().width))
+          );
+        }
+      }
+
+      function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, Number(value) || minimum));
+      }
+
+      window.addEventListener("resize", updateSeparatorValues);
+      window.requestAnimationFrame(updateSeparatorValues);
+      window.ParasocialLayout = {
+        reset: function () {
+          state = {};
+          workspace.style.removeProperty("--source-pane-width");
+          workspace.style.removeProperty("--source-pane-height");
+          workspace.style.removeProperty("--chat-panel-width");
+          try { window.localStorage.removeItem(layoutKey); } catch (_error) {}
+          updateSeparatorValues();
+        }
+      };
+    })();
+  </script>
+
   <script type="module">
 
 (async function () {
@@ -3453,6 +4086,10 @@ Every collaborator keeps browser-local history.
   const PROFILE_KEY = "markdown-relay-profile-v1";
   const FORK_NOTICE_KEY = "markdown-relay-fork-notice-v1";
   const DB_NAME = "openreview-markdown-collab-v1";
+  const AUDIENCE_DB_NAME = "parasocial-audience-v1";
+  const PAGE_STORAGE_SCOPE = window.location.pathname || "/";
+  const DOCUMENT_MANAGER_KEY = "parasocial-document-manager-v1:" + PAGE_STORAGE_SCOPE;
+  const STORAGE_PREFERENCES_KEY = "parasocial-storage-preferences-v1:" + PAGE_STORAGE_SCOPE;
   const SIGNATURE_PROTOCOL = 3;
   const SIGNATURE_CONTEXT = "MarkdownRelay/document-capability/v3";
   const SIGNED_STATE_DELAY = 2800;
@@ -3486,6 +4123,7 @@ Every collaborator keeps browser-local history.
   const accessBadge = document.getElementById("access-badge");
   const reviewConflictButton = document.getElementById("review-conflict-button");
   const historyButton = document.getElementById("history-button");
+  const documentManagerButton = document.getElementById("document-manager-button");
   const newRoomButton = document.getElementById("new-room-button");
   const cursorOverlay = document.getElementById("cursor-overlay");
 
@@ -3510,6 +4148,21 @@ Every collaborator keeps browser-local history.
   const historyPreviewMeta = document.getElementById("history-preview-meta");
   const historyCloseButton = document.getElementById("history-close-button");
   const historyFooterCloseButton = document.getElementById("history-footer-close-button");
+
+  const documentManagerDialog = document.getElementById("document-manager-dialog");
+  const documentManagerList = document.getElementById("document-manager-list");
+  const documentManagerCloseButton = document.getElementById("document-manager-close-button");
+  const documentManagerFooterCloseButton = document.getElementById("document-manager-footer-close-button");
+  const documentManagerNewButton = document.getElementById("document-manager-new-button");
+  const storageUsage = document.getElementById("storage-usage");
+  const storeDocumentsPreference = document.getElementById("store-documents-preference");
+  const storeHistoryPreference = document.getElementById("store-history-preference");
+  const storeAudiencePreference = document.getElementById("store-audience-preference");
+  const downloadDocumentButton = document.getElementById("download-document-button");
+  const clearCurrentHistoryButton = document.getElementById("clear-current-history-button");
+  const clearAudienceCacheButton = document.getElementById("clear-audience-cache-button");
+  const clearCurrentDocumentButton = document.getElementById("clear-current-document-button");
+  const clearAllDataButton = document.getElementById("clear-all-data-button");
 
   let Y;
   let joinRoom;
@@ -3543,6 +4196,9 @@ Every collaborator keeps browser-local history.
   let latestSignedStateEnvelope = null;
   let verifiedUpdateLog = [];
   let capabilityWarning = "";
+  let storagePreferences = loadStoragePreferences();
+  let storageSuspended = false;
+  let documentManagerFocus = null;
 
   const peerIds = new Set();
   const activePeers = new Set();
@@ -3569,6 +4225,7 @@ Every collaborator keeps browser-local history.
 
   newRoomButton.addEventListener("click", createNewDocument);
   historyButton.addEventListener("click", openHistoryDialog);
+  documentManagerButton.addEventListener("click", openDocumentManager);
   reviewConflictButton.addEventListener("click", openOldestConflict);
   conflictMergeButton.addEventListener("click", mergeCurrentConflict);
   conflictForkButton.addEventListener("click", forkCurrentConflict);
@@ -3576,6 +4233,17 @@ Every collaborator keeps browser-local history.
   conflictCloseButton.addEventListener("click", deferCurrentConflict);
   historyCloseButton.addEventListener("click", closeHistoryDialog);
   historyFooterCloseButton.addEventListener("click", closeHistoryDialog);
+  documentManagerCloseButton.addEventListener("click", closeDocumentManager);
+  documentManagerFooterCloseButton.addEventListener("click", closeDocumentManager);
+  documentManagerNewButton.addEventListener("click", createNewDocument);
+  downloadDocumentButton.addEventListener("click", downloadCurrentDocument);
+  clearCurrentHistoryButton.addEventListener("click", clearCurrentDocumentHistory);
+  clearAudienceCacheButton.addEventListener("click", clearAudienceCache);
+  clearCurrentDocumentButton.addEventListener("click", clearCurrentLocalDocument);
+  clearAllDataButton.addEventListener("click", clearAllLocalData);
+  storeDocumentsPreference.addEventListener("change", updateStoragePreferencesFromDialog);
+  storeHistoryPreference.addEventListener("change", updateStoragePreferencesFromDialog);
+  storeAudiencePreference.addEventListener("change", updateStoragePreferencesFromDialog);
 
   conflictDialog.addEventListener("click", function (event) {
     if (event.target === conflictDialog) deferCurrentConflict();
@@ -3583,9 +4251,15 @@ Every collaborator keeps browser-local history.
   historyDialog.addEventListener("click", function (event) {
     if (event.target === historyDialog) closeHistoryDialog();
   });
+  documentManagerDialog.addEventListener("click", function (event) {
+    if (event.target === documentManagerDialog) closeDocumentManager();
+  });
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
-    if (!historyDialog.hidden) {
+    if (!documentManagerDialog.hidden) {
+      event.preventDefault();
+      closeDocumentManager();
+    } else if (!historyDialog.hidden) {
       event.preventDefault();
       closeHistoryDialog();
     } else if (!conflictDialog.hidden) {
@@ -3618,6 +4292,7 @@ Every collaborator keeps browser-local history.
     shareChatButton.disabled = true;
     shareReadButton.disabled = true;
     historyButton.disabled = true;
+    documentManagerButton.disabled = false;
     updateAccessUi();
     setNetworkState("error", "Collaboration unavailable");
     setPersistenceState("error", "Local history unavailable");
@@ -3635,23 +4310,36 @@ Every collaborator keeps browser-local history.
     ydoc = new Y.Doc();
     ytext = ydoc.getText("markdown");
 
-    database = await openDatabase().catch(function (error) {
-      console.warn("Browser-local document persistence is unavailable", error);
-      return null;
-    });
+    database = storagePreferences.documents || storagePreferences.history
+      ? await openDatabase().catch(function (error) {
+          console.warn("Browser-local document persistence is unavailable", error);
+          return null;
+        })
+      : null;
 
     if (database) {
-      setPersistenceState("ready", "Local history ready");
-      historyButton.disabled = false;
+      setPersistenceState(
+        "ready",
+        storagePreferences.documents ? "Local documents ready" : "Local history ready"
+      );
+      historyButton.disabled = !storagePreferences.history;
     } else {
-      setPersistenceState("error", "Local history unavailable");
+      setPersistenceState(
+        storagePreferences.documents || storagePreferences.history ? "error" : "ready",
+        storagePreferences.documents || storagePreferences.history
+          ? "Local storage unavailable"
+          : "Local storage paused"
+      );
       historyButton.disabled = true;
     }
+    documentManagerButton.disabled = false;
 
-    const storedDocument = await loadStoredDocument().catch(function (error) {
+    const storedDocument = storagePreferences.documents
+      ? await loadStoredDocument().catch(function (error) {
       console.warn("Could not load the browser-local document", error);
       return null;
-    });
+        })
+      : null;
 
     if (storedDocument) {
       latestSavedAt = Number(storedDocument.savedAt) || 0;
@@ -3776,6 +4464,7 @@ Every collaborator keeps browser-local history.
     if (canEdit) await refreshSignedStateEnvelope();
     await saveSnapshot();
     await saveCheckpoint("Opened document", {important: false});
+    registerManagedDocument(ytext.toString(), latestSavedAt || Date.now());
     showForkNotice();
 
     if (startupConflict) {
@@ -4611,8 +5300,16 @@ Every collaborator keeps browser-local history.
     ytext.observe(function (_event, transaction) {
       if (transaction.origin === LOCAL_ORIGIN) return;
 
+      const scrollTop = input.scrollTop;
+      const scrollLeft = input.scrollLeft;
       editor.setText(ytext.toString());
       restoreRelativeSelection(savedSelection);
+      input.scrollTop = scrollTop;
+      input.scrollLeft = scrollLeft;
+      window.requestAnimationFrame(function () {
+        input.scrollTop = scrollTop;
+        input.scrollLeft = scrollLeft;
+      });
       savedSelection = null;
       queuePresenceUpdate(0);
       renderRemoteCursors();
@@ -5114,6 +5811,9 @@ Every collaborator keeps browser-local history.
       candidate.mergedText !== candidate.incomingText;
     if (!mergeChangesText && candidate.localText === candidate.incomingText) return false;
     if (candidate.lineageMismatch || candidate.branchMismatch) return true;
+    // Peers in the same room and branch are live CRDT replicas. Concurrent
+    // typing is an expected merge, not an offline-version conflict.
+    if (candidate.sourceType === "peer") return false;
     return candidate.relation === "concurrent";
   }
 
@@ -5852,9 +6552,9 @@ Every collaborator keeps browser-local history.
     return url;
   }
 
-  async function forkUpdate(updateValue, label) {
+  async function forkUpdate(updateValue, label, sourceLineageId) {
     const update = new Uint8Array(toUint8Array(updateValue));
-    const forkConfig = await createFreshDocumentConfig(roomConfig.lineageId);
+    const forkConfig = await createFreshDocumentConfig(sourceLineageId || roomConfig.lineageId);
     const forkStorageId = storageIdFor(forkConfig);
     const forkDoc = new Y.Doc();
     let text = "";
@@ -5876,7 +6576,7 @@ Every collaborator keeps browser-local history.
     const textHash = await hashText(text);
     const savedAt = signedState.savedAt;
 
-    if (database) {
+    if (database && storagePreferences.documents) {
       await queuePersistence(function () {
         return putDocumentRecord(forkStorageId, {
           update: arrayBufferCopy(update),
@@ -5892,6 +6592,8 @@ Every collaborator keeps browser-local history.
           sourceRoomId: roomConfig.roomId
         });
       });
+    }
+    if (database && storagePreferences.history) {
       await queuePersistence(function () {
         return putVersionRecord({
           docKey: forkStorageId,
@@ -6031,6 +6733,572 @@ Every collaborator keeps browser-local history.
     return hashBytes(new TextEncoder().encode(text));
   }
 
+  function loadStoragePreferences() {
+    let stored = null;
+    try {
+      stored = JSON.parse(window.localStorage.getItem(STORAGE_PREFERENCES_KEY) || "null");
+    } catch (_error) {}
+    return {
+      documents: !stored || stored.documents !== false,
+      history: !stored || stored.history !== false,
+      audience: !stored || stored.audience !== false
+    };
+  }
+
+  function saveStoragePreferences() {
+    try {
+      window.localStorage.setItem(
+        STORAGE_PREFERENCES_KEY,
+        JSON.stringify(storagePreferences)
+      );
+    } catch (_error) {}
+  }
+
+  function loadDocumentManagerState() {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(DOCUMENT_MANAGER_KEY) || "null");
+      if (!parsed || !Array.isArray(parsed.documents)) return {version: 1, documents: []};
+      return {
+        version: 1,
+        documents: parsed.documents.filter(function (item) {
+          return Boolean(
+            item &&
+            typeof item.storageId === "string" &&
+            typeof item.roomId === "string" &&
+            typeof item.url === "string"
+          );
+        }).slice(0, 200)
+      };
+    } catch (_error) {
+      return {version: 1, documents: []};
+    }
+  }
+
+  function saveDocumentManagerState(state) {
+    try {
+      window.localStorage.setItem(
+        DOCUMENT_MANAGER_KEY,
+        JSON.stringify({version: 1, documents: state.documents.slice(0, 200)})
+      );
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function registerManagedDocument(text, savedAt, byteLength) {
+    if (!database || !storagePreferences.documents || storageSuspended) return;
+    const state = loadDocumentManagerState();
+    const existing = state.documents.find(function (item) {
+      return item.storageId === storageId;
+    });
+    const now = Number(savedAt) || Date.now();
+    const generatedName = documentNameFromText(text);
+    const url = urlForConfig(roomConfig, {
+      mode: canEdit ? "edit" : roomConfig.accessMode,
+      includeWrite: canEdit
+    });
+    const entry = {
+      storageId: storageId,
+      roomId: roomConfig.roomId,
+      lineageId: roomConfig.lineageId,
+      branchId: roomConfig.branchId,
+      name: existing && existing.customName
+        ? existing.name
+        : generatedName,
+      customName: Boolean(existing && existing.customName),
+      createdAt: existing ? Number(existing.createdAt) || now : now,
+      modifiedAt: now,
+      bytes: Number(byteLength) || (existing ? Number(existing.bytes) || 0 : 0),
+      accessMode: canEdit ? "edit" : roomConfig.accessMode,
+      url: url.href
+    };
+
+    if (existing) {
+      Object.assign(existing, entry);
+    } else {
+      state.documents.unshift(entry);
+    }
+    state.documents.sort(function (a, b) {
+      return (Number(b.modifiedAt) || 0) - (Number(a.modifiedAt) || 0);
+    });
+    saveDocumentManagerState(state);
+  }
+
+  function documentNameFromText(value) {
+    const text = String(value || "");
+    const heading = text.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m);
+    const firstLine = text.split(/\n/).map(function (line) {
+      return line
+        .replace(/^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+|>\s*)/, "")
+        .replace(/[*_`~\[\]]/g, "")
+        .trim();
+    }).find(Boolean);
+    const candidate = (heading ? heading[1] : firstLine) || "Untitled document";
+    return candidate.replace(/\s+/g, " ").slice(0, 80);
+  }
+
+  async function openDocumentManager() {
+    documentManagerFocus = document.activeElement;
+    if (!historyDialog.hidden) closeHistoryDialog();
+    storeDocumentsPreference.checked = storagePreferences.documents;
+    storeHistoryPreference.checked = storagePreferences.history;
+    storeAudiencePreference.checked = storagePreferences.audience;
+    documentManagerDialog.hidden = false;
+    document.body.classList.add("dialog-open");
+    renderManagedDocuments();
+    updateStorageUsage();
+    documentManagerCloseButton.focus();
+  }
+
+  function closeDocumentManager() {
+    documentManagerDialog.hidden = true;
+    document.body.classList.toggle(
+      "dialog-open",
+      !historyDialog.hidden || !conflictDialog.hidden
+    );
+    if (documentManagerFocus && typeof documentManagerFocus.focus === "function") {
+      documentManagerFocus.focus();
+    }
+    documentManagerFocus = null;
+  }
+
+  function renderManagedDocuments() {
+    const state = loadDocumentManagerState();
+    documentManagerList.replaceChildren();
+    if (!state.documents.length) {
+      const empty = document.createElement("p");
+      empty.className = "manager-empty";
+      empty.textContent = storagePreferences.documents
+        ? "No local documents have been saved yet."
+        : "Local document snapshots are turned off.";
+      documentManagerList.appendChild(empty);
+      return;
+    }
+
+    state.documents.forEach(function (item) {
+      const current = item.storageId === storageId;
+      const row = document.createElement("article");
+      row.className = "managed-document";
+      row.dataset.current = current ? "true" : "false";
+
+      const main = document.createElement("div");
+      main.className = "managed-document-main";
+      const name = document.createElement("div");
+      name.className = "managed-document-name";
+      name.textContent = item.name || "Untitled document";
+      const meta = document.createElement("div");
+      meta.className = "managed-document-meta";
+      meta.textContent = [
+        current ? "Current" : accessModeLabel(item.accessMode),
+        item.modifiedAt ? "edited " + relativeManagerTime(item.modifiedAt) : "time unknown",
+        item.bytes ? formatBytes(item.bytes) : ""
+      ].filter(Boolean).join(" · ");
+      main.append(name, meta);
+
+      const actions = document.createElement("div");
+      actions.className = "managed-document-actions";
+      const openButton = managerActionButton(current ? "Open" : "Open", function () {
+        openManagedDocument(item);
+      });
+      openButton.disabled = current;
+      const renameButton = managerActionButton("Rename", function () {
+        renameManagedDocument(item.storageId);
+      });
+      const duplicateButton = managerActionButton("Duplicate", function () {
+        duplicateManagedDocument(item, duplicateButton);
+      });
+      const removeButton = managerActionButton("Remove", function () {
+        removeManagedDocument(item, removeButton);
+      });
+      actions.append(openButton, renameButton, duplicateButton, removeButton);
+      row.append(main, actions);
+      documentManagerList.appendChild(row);
+    });
+  }
+
+  function managerActionButton(label, listener) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", listener);
+    return button;
+  }
+
+  function accessModeLabel(mode) {
+    if (mode === "edit") return "Editable";
+    if (mode === "chat") return "Audience";
+    return "Read only";
+  }
+
+  function relativeManagerTime(timestamp) {
+    const time = Number(timestamp) || 0;
+    const delta = Math.max(0, Date.now() - time);
+    if (delta < 60000) return "just now";
+    if (delta < 3600000) return Math.floor(delta / 60000) + "m ago";
+    if (delta < 86400000) return Math.floor(delta / 3600000) + "h ago";
+    return new Date(time).toLocaleDateString();
+  }
+
+  function formatBytes(value) {
+    const bytes = Math.max(0, Number(value) || 0);
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(bytes < 10240 ? 1 : 0) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function openManagedDocument(item) {
+    try {
+      const url = new URL(item.url, window.location.href);
+      if (
+        url.origin !== window.location.origin ||
+        url.pathname !== window.location.pathname ||
+        !url.hash
+      ) throw new Error("Stored document URL is outside this page");
+      closeDocumentManager();
+      reloadAtDocumentUrl(url);
+    } catch (_error) {
+      showMessage("That local document entry is invalid and could not be opened.", "error", 6500);
+    }
+  }
+
+  function renameManagedDocument(documentStorageId) {
+    const state = loadDocumentManagerState();
+    const item = state.documents.find(function (entry) {
+      return entry.storageId === documentStorageId;
+    });
+    if (!item) return;
+    const next = window.prompt("Document name", item.name || "Untitled document");
+    if (next === null) return;
+    const clean = next.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+    if (!clean) return;
+    item.name = clean.slice(0, 80);
+    item.customName = true;
+    saveDocumentManagerState(state);
+    renderManagedDocuments();
+  }
+
+  async function duplicateManagedDocument(item, button) {
+    if (!database) {
+      showMessage("This document has no available local snapshot to duplicate.", "warning", 6500);
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Duplicating…";
+    try {
+      const record = await getDocumentRecord(item.storageId);
+      if (!record || !record.update) throw new Error("Local snapshot is missing");
+      await forkUpdate(
+        toUint8Array(record.update),
+        "Duplicated from: " + (item.name || "local document"),
+        item.lineageId || record.lineageId
+      );
+    } catch (error) {
+      console.warn("Could not duplicate local document", error);
+      button.disabled = false;
+      button.textContent = "Duplicate";
+      showMessage("That local document could not be duplicated.", "error", 6500);
+    }
+  }
+
+  async function removeManagedDocument(item, button) {
+    const current = item.storageId === storageId;
+    const prompt = current
+      ? "Remove the current document and all of its browser-local history? The shared document is not deleted from other browsers."
+      : "Remove “" + (item.name || "this document") + "” and its browser-local history?";
+    if (!window.confirm(prompt)) return;
+    button.disabled = true;
+    button.textContent = "Removing…";
+    try {
+      if (current) storageSuspended = true;
+      await deleteDocumentData(item.storageId);
+      removeManagedDocumentEntry(item.storageId);
+      if (current) {
+        const config = await createFreshDocumentConfig();
+        reloadAtDocumentUrl(urlForConfig(config, {mode: "edit", includeWrite: true}));
+        return;
+      }
+      renderManagedDocuments();
+      updateStorageUsage();
+    } catch (error) {
+      storageSuspended = false;
+      button.disabled = false;
+      button.textContent = "Remove";
+      console.warn("Could not remove local document", error);
+      showMessage("The local document could not be removed.", "error", 6500);
+    }
+  }
+
+  function removeManagedDocumentEntry(documentStorageId) {
+    const state = loadDocumentManagerState();
+    state.documents = state.documents.filter(function (item) {
+      return item.storageId !== documentStorageId;
+    });
+    saveDocumentManagerState(state);
+  }
+
+  function updateStorageUsage() {
+    storageUsage.textContent = "Calculating browser storage…";
+    if (!navigator.storage || typeof navigator.storage.estimate !== "function") {
+      storageUsage.textContent =
+        "Browser storage usage is not reported here. You can still clear each category below.";
+      return;
+    }
+    navigator.storage.estimate().then(function (estimate) {
+      const usage = formatBytes(estimate.usage || 0);
+      const quota = estimate.quota ? formatBytes(estimate.quota) : "an unknown limit";
+      storageUsage.textContent =
+        "This site is using about " + usage + " of " + quota +
+        ". Document snapshots and history use browser storage; settings use localStorage.";
+    }).catch(function () {
+      storageUsage.textContent =
+        "Browser storage usage could not be measured. You can still clear each category below.";
+    });
+  }
+
+  async function updateStoragePreferencesFromDialog() {
+    storagePreferences = {
+      documents: storeDocumentsPreference.checked,
+      history: storeHistoryPreference.checked,
+      audience: storeAudiencePreference.checked
+    };
+    saveStoragePreferences();
+
+    if (!storagePreferences.documents) window.clearTimeout(saveTimer);
+    if (!storagePreferences.history) window.clearTimeout(checkpointTimer);
+    if (
+      !database &&
+      (storagePreferences.documents || storagePreferences.history)
+    ) {
+      database = await openDatabase().catch(function () { return null; });
+    }
+
+    historyButton.disabled = !database || !storagePreferences.history;
+    if (storagePreferences.documents && database) {
+      await saveSnapshot();
+      registerManagedDocument(ytext ? ytext.toString() : editor.getText(), Date.now());
+    }
+    setPersistenceState(
+      database || (!storagePreferences.documents && !storagePreferences.history)
+        ? "ready"
+        : "error",
+      storagePreferences.documents
+        ? (database ? "Local documents ready" : "Local storage unavailable")
+        : (storagePreferences.history
+            ? (database ? "History only" : "Local storage unavailable")
+            : "Local document storage paused")
+    );
+    window.dispatchEvent(new CustomEvent("parasocial-storage-preferences-changed", {
+      detail: Object.assign({}, storagePreferences)
+    }));
+    renderManagedDocuments();
+    updateStorageUsage();
+  }
+
+  function downloadCurrentDocument() {
+    const state = loadDocumentManagerState();
+    const item = state.documents.find(function (entry) {
+      return entry.storageId === storageId;
+    });
+    const name = safeDownloadName(item ? item.name : documentNameFromText(editor.getText()));
+    const blob = new Blob([editor.getText()], {type: "text/markdown;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name + ".md";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+
+  function safeDownloadName(value) {
+    const clean = String(value || "document")
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[.\s]+$/, "");
+    return (clean || "document").slice(0, 80);
+  }
+
+  async function clearCurrentDocumentHistory() {
+    if (!database) {
+      showMessage("There is no local history database to clear.", "info", 4500);
+      return;
+    }
+    if (!window.confirm("Clear every saved checkpoint for the current document? The latest local document snapshot will be kept.")) return;
+    try {
+      await deleteVersionsForDocument(storageId);
+      renderManagedDocuments();
+      updateStorageUsage();
+      showMessage("Current document history cleared.", "info", 4500);
+    } catch (error) {
+      console.warn("Could not clear current history", error);
+      showMessage("The current document history could not be cleared.", "error", 6500);
+    }
+  }
+
+  async function clearAudienceCache() {
+    if (!window.confirm("Clear cached audience comments and direct messages for all local documents on this site?")) return;
+    try {
+      window.dispatchEvent(new CustomEvent("parasocial-clear-audience-cache"));
+      await clearDatabaseStores(AUDIENCE_DB_NAME);
+      updateStorageUsage();
+      showMessage("Audience cache cleared.", "info", 4500);
+    } catch (error) {
+      console.warn("Could not clear audience cache", error);
+      showMessage("The audience cache could not be cleared.", "error", 6500);
+    }
+  }
+
+  async function clearCurrentLocalDocument() {
+    const state = loadDocumentManagerState();
+    const item = state.documents.find(function (entry) {
+      return entry.storageId === storageId;
+    }) || {
+      storageId: storageId,
+      name: documentNameFromText(editor.getText())
+    };
+    const fakeButton = clearCurrentDocumentButton;
+    await removeManagedDocument(item, fakeButton);
+  }
+
+  async function clearAllLocalData() {
+    if (!window.confirm(
+      "Clear all Parasocial documents, history, audience cache, identity, preferences, and pane sizes stored on this site? This cannot be undone."
+    )) return;
+
+    clearAllDataButton.disabled = true;
+    clearAllDataButton.textContent = "Clearing…";
+    storageSuspended = true;
+    window.clearTimeout(saveTimer);
+    window.clearTimeout(checkpointTimer);
+    leaveRoom();
+    window.dispatchEvent(new CustomEvent("parasocial-before-clear-all"));
+    if (database) {
+      try { database.close(); } catch (_error) {}
+      database = null;
+    }
+
+    try {
+      removeAllAppLocalStorage();
+      try { window.sessionStorage.removeItem(FORK_NOTICE_KEY); } catch (_error) {}
+      await Promise.all([
+        deleteIndexedDatabase(DB_NAME),
+        deleteIndexedDatabase(AUDIENCE_DB_NAME)
+      ]);
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.hash = "";
+      window.location.replace(cleanUrl.href);
+    } catch (error) {
+      storageSuspended = false;
+      clearAllDataButton.disabled = false;
+      clearAllDataButton.textContent = "Clear all Parasocial data on this site";
+      console.warn("Could not clear all local data", error);
+      showMessage("Some local data could not be cleared.", "error", 7000);
+    }
+  }
+
+  function removeAllAppLocalStorage() {
+    try {
+      const remove = [];
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index);
+        if (
+          key &&
+          (key.indexOf("parasocial-") === 0 || key.indexOf("markdown-relay-") === 0)
+        ) remove.push(key);
+      }
+      remove.forEach(function (key) { window.localStorage.removeItem(key); });
+    } catch (_error) {}
+  }
+
+  function deleteDocumentData(documentStorageId) {
+    if (!database) return Promise.resolve();
+    return Promise.all([
+      new Promise(function (resolve, reject) {
+        const transaction = database.transaction(DB_DOCUMENTS, "readwrite");
+        transaction.objectStore(DB_DOCUMENTS).delete(documentStorageId);
+        transaction.oncomplete = function () { resolve(); };
+        transaction.onerror = function () {
+          reject(transaction.error || new Error("Document deletion failed"));
+        };
+      }),
+      deleteVersionsForDocument(documentStorageId)
+    ]);
+  }
+
+  function deleteVersionsForDocument(documentStorageId) {
+    if (!database) return Promise.resolve();
+    return new Promise(function (resolve, reject) {
+      const transaction = database.transaction(DB_VERSIONS, "readwrite");
+      const store = transaction.objectStore(DB_VERSIONS);
+      const index = store.index("docKey");
+      const request = index.openKeyCursor(IDBKeyRange.only(documentStorageId));
+      request.onsuccess = function () {
+        const cursor = request.result;
+        if (!cursor) return;
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      };
+      transaction.oncomplete = function () { resolve(); };
+      transaction.onerror = function () {
+        reject(transaction.error || new Error("History deletion failed"));
+      };
+    });
+  }
+
+  function clearDatabaseStores(name) {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) {
+        resolve();
+        return;
+      }
+      const request = window.indexedDB.open(name);
+      request.onsuccess = function () {
+        const db = request.result;
+        const names = Array.from(db.objectStoreNames);
+        if (!names.length) {
+          db.close();
+          resolve();
+          return;
+        }
+        const transaction = db.transaction(names, "readwrite");
+        names.forEach(function (storeName) {
+          transaction.objectStore(storeName).clear();
+        });
+        transaction.oncomplete = function () {
+          db.close();
+          resolve();
+        };
+        transaction.onerror = function () {
+          db.close();
+          reject(transaction.error || new Error("Database clear failed"));
+        };
+      };
+      request.onerror = function () {
+        reject(request.error || new Error("Database open failed"));
+      };
+    });
+  }
+
+  function deleteIndexedDatabase(name) {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) {
+        resolve();
+        return;
+      }
+      const request = window.indexedDB.deleteDatabase(name);
+      request.onsuccess = function () { resolve(); };
+      request.onerror = function () {
+        reject(request.error || new Error("Database deletion failed"));
+      };
+      request.onblocked = function () {
+        reject(new Error("Database deletion was blocked by another page"));
+      };
+    });
+  }
+
   function openDatabase() {
     return new Promise(function (resolve, reject) {
       if (!window.indexedDB) {
@@ -6071,7 +7339,7 @@ Every collaborator keeps browser-local history.
   }
 
   async function loadStoredDocument() {
-    if (!database) return null;
+    if (!database || !storagePreferences.documents || storageSuspended) return null;
     const current = await getDocumentRecord(storageId);
     if (current) return current;
     const legacy = await getDocumentRecord(roomConfig.roomId);
@@ -6122,7 +7390,7 @@ Every collaborator keeps browser-local history.
   }
 
   function scheduleSnapshotSave(delay) {
-    if (!database) return;
+    if (!database || !storagePreferences.documents || storageSuspended) return;
     setPersistenceState("saving", "Saving locally…");
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(function () {
@@ -6131,7 +7399,7 @@ Every collaborator keeps browser-local history.
   }
 
   function scheduleAutoCheckpoint() {
-    if (!database) return;
+    if (!database || !storagePreferences.history || storageSuspended) return;
     window.clearTimeout(checkpointTimer);
     checkpointTimer = window.setTimeout(function () {
       saveCheckpoint("Autosave", {important: false}).catch(function () {});
@@ -6139,7 +7407,12 @@ Every collaborator keeps browser-local history.
   }
 
   function saveSnapshot() {
-    if (!database || !ydoc) return Promise.resolve();
+    if (
+      !database ||
+      !ydoc ||
+      !storagePreferences.documents ||
+      storageSuspended
+    ) return Promise.resolve();
     const update = Y.encodeStateAsUpdate(ydoc);
     const text = ytext.toString();
     const savedAt = Date.now();
@@ -6159,13 +7432,19 @@ Every collaborator keeps browser-local history.
       });
       if (wrote) {
         latestSavedAt = Math.max(latestSavedAt, savedAt);
+        registerManagedDocument(text, savedAt, update.byteLength);
         setPersistenceState("ready", "Saved locally · " + formatClock(savedAt), savedAt);
       }
     });
   }
 
   function quickSaveSnapshot() {
-    if (!database || !ydoc) return;
+    if (
+      !database ||
+      !ydoc ||
+      !storagePreferences.documents ||
+      storageSuspended
+    ) return;
     try {
       const update = Y.encodeStateAsUpdate(ydoc);
       const savedAt = Date.now();
@@ -6194,7 +7473,12 @@ Every collaborator keeps browser-local history.
   }
 
   function saveCheckpoint(label, options) {
-    if (!database || !ydoc) return Promise.resolve(null);
+    if (
+      !database ||
+      !ydoc ||
+      !storagePreferences.history ||
+      storageSuspended
+    ) return Promise.resolve(null);
     const settings = options || {};
     const update = Y.encodeStateAsUpdate(ydoc);
     const text = ytext.toString();
@@ -6224,7 +7508,7 @@ Every collaborator keeps browser-local history.
   }
 
   function saveExternalCheckpoint(candidate, label) {
-    if (!database) return Promise.resolve(null);
+    if (!database || !storagePreferences.history || storageSuspended) return Promise.resolve(null);
     const update = new Uint8Array(candidate.incomingUpdate);
     return queuePersistence(async function () {
       const textHash = await hashText(candidate.incomingText);
@@ -6312,8 +7596,8 @@ Every collaborator keeps browser-local history.
   }
 
   async function openHistoryDialog() {
-    if (!database) {
-      showMessage("Local history is unavailable in this browser.", "warning", 6000);
+    if (!database || !storagePreferences.history) {
+      showMessage("Automatic history is turned off. Enable it in Documents.", "warning", 6000);
       return;
     }
 
@@ -6485,6 +7769,8 @@ Every collaborator keeps browser-local history.
   const RELAY_OPERATION_TIMEOUT = 8000;
   const IDENTITY_KEY = "parasocial-identity-v1";
   const PANEL_KEY = "parasocial-panel-collapsed-v1";
+  const STORAGE_PREFERENCES_KEY =
+    "parasocial-storage-preferences-v1:" + (window.location.pathname || "/");
   const DB_NAME = "parasocial-audience-v1";
   const DB_VERSION = 1;
   const EVENT_STORE = "events";
@@ -6560,6 +7846,7 @@ Every collaborator keeps browser-local history.
   let initialized = false;
   let commentSending = false;
   let dmSending = false;
+  let cacheWritesDisabled = false;
 
   const seenEventIds = new Set();
   const comments = new Map();
@@ -6571,6 +7858,7 @@ Every collaborator keeps browser-local history.
   let localBlocks = new Set();
 
   installPanelControls();
+  installLocalStorageControls();
 
   try {
     collaboration = await waitForCollaboration();
@@ -6601,10 +7889,12 @@ Every collaborator keeps browser-local history.
     identity = await loadOrCreateIdentity();
     profiles.set(identity.pubkey, localProfile());
     localBlocks = loadLocalBlocks();
-    database = await openDatabase().catch(function (error) {
-      console.warn("Audience cache unavailable", error);
-      return null;
-    });
+    database = audienceCacheEnabled()
+      ? await openDatabase().catch(function (error) {
+          console.warn("Audience cache unavailable", error);
+          return null;
+        })
+      : null;
     await loadCachedState();
 
     if (collaboration.canEdit) {
@@ -6690,6 +7980,48 @@ Every collaborator keeps browser-local history.
       try { if (dmSubscription && dmSubscription.close) dmSubscription.close(); } catch (_error) {}
       try { if (pool && pool.close) pool.close(RELAYS); } catch (_error) {}
     });
+  }
+
+  function installLocalStorageControls() {
+    window.addEventListener("parasocial-storage-preferences-changed", function (event) {
+      const enabled = !event.detail || event.detail.audience !== false;
+      cacheWritesDisabled = !enabled;
+      if (enabled && !database) {
+        openDatabase().then(function (opened) {
+          database = opened;
+        }).catch(function () {});
+      }
+    });
+
+    window.addEventListener("parasocial-clear-audience-cache", function () {
+      if (!database) return;
+      try {
+        const names = Array.from(database.objectStoreNames);
+        if (!names.length) return;
+        const transaction = database.transaction(names, "readwrite");
+        names.forEach(function (name) {
+          transaction.objectStore(name).clear();
+        });
+      } catch (_error) {}
+    });
+
+    window.addEventListener("parasocial-before-clear-all", function () {
+      cacheWritesDisabled = true;
+      if (database) {
+        try { database.close(); } catch (_error) {}
+      }
+      database = null;
+    });
+  }
+
+  function audienceCacheEnabled() {
+    if (cacheWritesDisabled) return false;
+    try {
+      const value = JSON.parse(localStorage.getItem(STORAGE_PREFERENCES_KEY) || "null");
+      return !value || value.audience !== false;
+    } catch (_error) {
+      return true;
+    }
   }
 
   function setPanelCollapsed(collapsed) {
@@ -7933,7 +9265,7 @@ Every collaborator keeps browser-local history.
   }
 
   async function loadCachedState() {
-    if (!database) return;
+    if (!database || !audienceCacheEnabled()) return;
     const cachedEvents = await getAllRecords(EVENT_STORE).catch(function () { return []; });
     const relevant = cachedEvents.filter(function (record) { return record.topic === topic; }).sort(compareRecords).slice(-800);
     for (const record of relevant) {
@@ -7973,7 +9305,7 @@ Every collaborator keeps browser-local history.
 
   function saveAudienceRecord(storeName, record) {
     return new Promise(function (resolve) {
-      if (!database) { resolve(); return; }
+      if (!database || !audienceCacheEnabled()) { resolve(); return; }
       try {
         const tx = database.transaction(storeName, "readwrite");
         tx.objectStore(storeName).put(record);
