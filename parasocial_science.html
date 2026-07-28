@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -2434,13 +2434,13 @@
           <span class="storage-dot" aria-hidden="true"></span>
           <span id="local-save-status">Opening local history…</span>
         </span>
-        <div id="peer-list" class="peer-list" aria-label="Participants in this room"></div>
+        <div id="peer-list" class="peer-list" role="group" aria-label="Participants in this room"></div>
       </div>
       <div class="collaboration-actions">
         <span id="collaboration-message" class="collaboration-message" aria-live="polite" hidden></span>
-        <label class="name-field" for="display-name">
+        <label class="name-field">
           <span>Your name</span>
-          <input id="display-name" type="text" maxlength="40" autocomplete="name" aria-label="Your collaborator name">
+          <input id="display-name" type="text" maxlength="40" autocomplete="name">
         </label>
         <span id="access-badge" class="access-badge" data-access="loading">Checking access…</span>
         <button id="review-conflict-button" class="action-button warning" type="button" hidden>Review conflict</button>
@@ -2481,9 +2481,9 @@
         <header class="pane-header rendered-header">
           <h2 id="view-title" class="pane-title">Rendered</h2>
           <div class="render-tools">
-            <label class="flavor-control" for="flavor-select">
+            <label class="flavor-control">
               <span>Flavor</span>
-              <select id="flavor-select" aria-label="Markdown rendering flavor">
+              <select id="flavor-select">
                 <option value="openreview">OpenReview</option>
                 <option value="github">GitHub</option>
                 <option value="commonmark">CommonMark</option>
@@ -2493,13 +2493,13 @@
             <span id="render-status" class="pane-meta">Waiting for input</span>
           </div>
         </header>
-        <div class="preview-scroll" role="region" aria-labelledby="view-title" tabindex="0">
+        <section class="preview-scroll" aria-label="Rendered document preview" tabindex="0">
           <div id="load-error" class="load-error" role="alert" hidden></div>
           <div id="tex-warning" class="tex-warning" role="status" hidden></div>
           <div id="preview-frame" class="preview-frame preview-frame-openreview">
             <div id="markdown-view" class="note-content-value preview-openreview"></div>
           </div>
-        </div>
+        </section>
       </section>
 
       <aside id="audience-panel" class="audience-panel" aria-labelledby="audience-title">
@@ -2540,7 +2540,7 @@
             </div>
           </footer>
         </div>
-        <div class="audience-collapsed" aria-hidden="true">
+        <div class="audience-collapsed">
           <button id="chat-expand-button" class="icon-button" type="button" aria-label="Expand audience panel" title="Expand audience panel">←</button>
           <span id="collapsed-chat-unread" class="unread-badge" hidden>0</span>
           <span class="collapsed-label">Audience</span>
@@ -2603,7 +2603,7 @@
       </header>
       <div class="dialog-body">
         <div class="history-layout">
-          <div id="history-list" class="history-list" aria-label="Saved document versions"></div>
+          <nav id="history-list" class="history-list" aria-label="Saved document versions"></nav>
           <section class="history-preview-panel" aria-label="Saved version preview">
             <div id="history-preview-meta" class="history-preview-meta"></div>
             <pre id="history-preview" class="history-preview"></pre>
@@ -2628,7 +2628,7 @@
         <button id="dm-close-button" class="dialog-close" type="button" aria-label="Close direct messages">×</button>
       </header>
       <div class="dialog-body dm-layout">
-        <div id="dm-thread-list" class="dm-thread-list" aria-label="Direct message conversations"></div>
+        <nav id="dm-thread-list" class="dm-thread-list" aria-label="Direct message conversations"></nav>
         <section class="dm-conversation" aria-label="Selected direct message conversation">
           <header class="dm-conversation-header">
             <h3 id="dm-conversation-title" class="dm-conversation-title">Choose someone from chat</h3>
@@ -3441,12 +3441,12 @@ Every collaborator keeps browser-local history.
   "use strict";
 
   const YJS_URLS = [
-    "https://esm.run/yjs@13.6.31",
-    "https://cdn.jsdelivr.net/npm/yjs@13.6.31/+esm"
+    "https://cdn.jsdelivr.net/npm/yjs@13.6.31/+esm",
+    "https://esm.run/yjs@13.6.31"
   ];
   const TRYSTERO_URLS = [
-    "https://esm.run/trystero@0.25.3",
-    "https://cdn.jsdelivr.net/npm/trystero@0.25.3/+esm"
+    "https://cdn.jsdelivr.net/npm/trystero@0.25.3/+esm",
+    "https://esm.run/trystero@0.25.3"
   ];
   const MODULE_LOAD_TIMEOUT = 15000;
   const APP_ID = "parasocial-editor-collab-v1";
@@ -6454,14 +6454,14 @@ Every collaborator keeps browser-local history.
 
   const NOSTR_VERSION = "2.24.1";
   const NOSTR_PURE_URLS = [
+    "https://cdn.jsdelivr.net/npm/nostr-tools@" + NOSTR_VERSION + "/pure/+esm",
     "https://esm.run/nostr-tools@" + NOSTR_VERSION + "/pure",
-    "https://esm.sh/nostr-tools@" + NOSTR_VERSION + "/pure",
-    "https://cdn.jsdelivr.net/npm/nostr-tools@" + NOSTR_VERSION + "/+esm"
+    "https://esm.sh/nostr-tools@" + NOSTR_VERSION + "/pure"
   ];
   const NOSTR_POOL_URLS = [
+    "https://cdn.jsdelivr.net/npm/nostr-tools@" + NOSTR_VERSION + "/pool/+esm",
     "https://esm.run/nostr-tools@" + NOSTR_VERSION + "/pool",
-    "https://esm.sh/nostr-tools@" + NOSTR_VERSION + "/pool",
-    "https://cdn.jsdelivr.net/npm/nostr-tools@" + NOSTR_VERSION + "/+esm"
+    "https://esm.sh/nostr-tools@" + NOSTR_VERSION + "/pool"
   ];
   const RELAYS = [
     "wss://relay.damus.io",
@@ -6482,6 +6482,7 @@ Every collaborator keeps browser-local history.
   const MESSAGE_MAX = 500;
   const DM_MAX = 1500;
   const PUBLISH_DOCUMENT_DELAY = 1250;
+  const RELAY_OPERATION_TIMEOUT = 8000;
   const IDENTITY_KEY = "parasocial-identity-v1";
   const PANEL_KEY = "parasocial-panel-collapsed-v1";
   const DB_NAME = "parasocial-audience-v1";
@@ -6557,6 +6558,8 @@ Every collaborator keeps browser-local history.
   let editorProof = "";
   let olderCursor = 0;
   let initialized = false;
+  let commentSending = false;
+  let dmSending = false;
 
   const seenEventIds = new Set();
   const comments = new Map();
@@ -6571,6 +6574,7 @@ Every collaborator keeps browser-local history.
 
   try {
     collaboration = await waitForCollaboration();
+    setChatStatus("Loading encrypted audience chat…", "loading");
     nostr = await loadNostr();
     await ensureChannelCapabilities();
     channel = collaboration.channel;
@@ -6664,6 +6668,7 @@ Every collaborator keeps browser-local history.
       if (event.target === dmDialog) closeDmDialog();
     });
     dmForm.addEventListener("submit", sendDirectMessageFromForm);
+    dmInput.addEventListener("input", updateDmComposerAvailability);
     sendEditInviteButton.addEventListener("click", sendEditInvite);
 
     blockedUsersButton.addEventListener("click", openBlockedDialog);
@@ -7051,13 +7056,14 @@ Every collaborator keeps browser-local history.
 
   async function sendComment(event) {
     event.preventDefault();
-    if (!initialized || chatSendButton.disabled) return;
+    if (!initialized || commentSending || chatSendButton.disabled) return;
     const now = Date.now();
     if (now - lastCommentSentAt < 900) {
       showBanner("Please leave a moment between comments.", "warning");
       return;
     }
-    const text = cleanText(chatInput.value, MESSAGE_MAX);
+    const draftValue = chatInput.value;
+    const text = cleanText(draftValue, MESSAGE_MAX);
     if (!text) return;
     if (globalBlocks.has(identity.pubkey)) {
       showBanner("An editor has blocked this identity from the shared room view.", "error");
@@ -7065,7 +7071,10 @@ Every collaborator keeps browser-local history.
       return;
     }
     lastCommentSentAt = now;
+    commentSending = true;
     chatSendButton.disabled = true;
+    chatSendButton.textContent = "Sending…";
+    chatSendButton.setAttribute("aria-busy", "true");
     const profile = localProfile();
     const payload = {
       type: "comment",
@@ -7086,7 +7095,7 @@ Every collaborator keeps browser-local history.
       }, identity.secret);
       await publishEvent(signed);
       await processRoomEvent(signed, false);
-      chatInput.value = "";
+      if (chatInput.value === draftValue) chatInput.value = "";
       updateComposerCount();
       jumpToLatest();
       showBanner("Comment sent.", "info", 1800);
@@ -7094,6 +7103,9 @@ Every collaborator keeps browser-local history.
       console.warn("Could not send audience comment", error);
       showBanner("The relays did not accept that comment. Try again.", "error");
     } finally {
+      commentSending = false;
+      chatSendButton.textContent = "Send";
+      chatSendButton.removeAttribute("aria-busy");
       updateComposerAvailability();
     }
   }
@@ -7283,7 +7295,11 @@ Every collaborator keeps browser-local history.
     try {
       const filter = {kinds: [CHAT_KIND, MODERATION_KIND], "#e": [topic], limit: OLDER_RELAY_LIMIT};
       if (olderCursor) filter.until = Math.max(0, olderCursor - 1);
-      const events = await pool.querySync(RELAYS, filter);
+      const events = await withTimeout(
+        pool.querySync(RELAYS, filter, {maxWait: RELAY_OPERATION_TIMEOUT - 1000}),
+        RELAY_OPERATION_TIMEOUT,
+        "Audience history request timed out"
+      );
       const ordered = Array.from(events || []).sort(function (a, b) {
         return Number(a.created_at) - Number(b.created_at) || String(a.id).localeCompare(String(b.id));
       });
@@ -7343,7 +7359,7 @@ Every collaborator keeps browser-local history.
   function updateComposerAvailability() {
     const available = initialized && navigator.onLine && !globalBlocks.has(identity && identity.pubkey);
     chatInput.disabled = !available;
-    chatSendButton.disabled = !available || !cleanText(chatInput.value, MESSAGE_MAX);
+    chatSendButton.disabled = commentSending || !available || !cleanText(chatInput.value, MESSAGE_MAX);
     if (identity && globalBlocks.has(identity.pubkey)) {
       chatInput.placeholder = "An editor blocked this identity from the shared room view.";
     } else {
@@ -7435,11 +7451,38 @@ Every collaborator keeps browser-local history.
   }
 
   async function publishEvent(event) {
-    const attempts = pool.publish(RELAYS, event);
+    const attempts = pool.publish(RELAYS, event, {maxWait: RELAY_OPERATION_TIMEOUT - 1000});
     const list = Array.isArray(attempts) ? attempts : [attempts];
-    await Promise.any(list.map(function (value) { return Promise.resolve(value); }));
+    const accepted = list.map(function (value) {
+      return Promise.resolve(value).then(function (reason) {
+        const message = String(reason || "");
+        if (/^(connection failure|connection skipped|duplicate url)/i.test(message)) {
+          throw new Error(message);
+        }
+        return reason;
+      });
+    });
+    await withTimeout(
+      Promise.any(accepted),
+      RELAY_OPERATION_TIMEOUT,
+      "No audience relay acknowledged the event"
+    );
     relayStatus.textContent = "Room chat live · " + RELAYS.length + " relays";
     return event;
+  }
+
+  function withTimeout(promise, timeout, message) {
+    let timer = null;
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise(function (_resolve, reject) {
+        timer = window.setTimeout(function () {
+          reject(new Error(message || "The operation timed out"));
+        }, timeout);
+      })
+    ]).finally(function () {
+      if (timer) window.clearTimeout(timer);
+    });
   }
 
   function openDirectMessage(pubkey) {
@@ -7527,7 +7570,6 @@ Every collaborator keeps browser-local history.
     dmConversationTitle.textContent = profile.name + " · " + shortKey(selectedDmPubkey);
     const canMessage = Boolean(profile.ecdhPublicJwk) && !localBlocks.has(selectedDmPubkey) && !globalBlocks.has(selectedDmPubkey);
     dmInput.disabled = !canMessage;
-    dmSendButton.disabled = !canMessage;
     sendEditInviteButton.hidden = !collaboration.canEdit || !canMessage;
     const messages = (directMessages.get(selectedDmPubkey) || []).slice().sort(compareRecords);
     if (!messages.length) {
@@ -7565,23 +7607,45 @@ Every collaborator keeps browser-local history.
         dmTranscript.appendChild(bubble);
       });
     }
+    updateDmComposerAvailability();
     requestAnimationFrame(function () { dmTranscript.scrollTop = dmTranscript.scrollHeight; });
+  }
+
+  function updateDmComposerAvailability() {
+    const profile = profiles.get(selectedDmPubkey);
+    const canMessage = Boolean(
+      selectedDmPubkey &&
+      profile &&
+      profile.ecdhPublicJwk &&
+      !localBlocks.has(selectedDmPubkey) &&
+      !globalBlocks.has(selectedDmPubkey)
+    );
+    dmInput.disabled = !canMessage;
+    dmSendButton.disabled = dmSending || !canMessage || !cleanText(dmInput.value, DM_MAX);
   }
 
   async function sendDirectMessageFromForm(event) {
     event.preventDefault();
-    const text = cleanText(dmInput.value, DM_MAX);
+    if (dmSending) return;
+    const draftValue = dmInput.value;
+    const text = cleanText(draftValue, DM_MAX);
     if (!selectedDmPubkey || !text) return;
+    dmSending = true;
     dmSendButton.disabled = true;
+    dmSendButton.textContent = "Sending…";
+    dmSendButton.setAttribute("aria-busy", "true");
     try {
       await sendDirectPayload(selectedDmPubkey, {kind: "text", text: text});
-      dmInput.value = "";
+      if (dmInput.value === draftValue) dmInput.value = "";
       renderDmConversation();
     } catch (error) {
       console.warn("Direct message failed", error);
       showBanner("The direct message could not be delivered.", "error");
     } finally {
-      dmSendButton.disabled = false;
+      dmSending = false;
+      dmSendButton.textContent = "Send";
+      dmSendButton.removeAttribute("aria-busy");
+      updateDmComposerAvailability();
     }
   }
 
