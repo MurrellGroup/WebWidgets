@@ -1,0 +1,5646 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#202744">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="A serverless, peer-to-peer collaborative Markdown editor with selectable rendering flavors, browser-local history, cryptographic read-only links, and conflict-safe forks.">
+  <title>Markdown Relay — Collaborative Editor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='8' y1='6' x2='58' y2='60' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%236366f1'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='4' y='4' width='56' height='56' rx='15' fill='url(%23g)'/%3E%3Cpath d='M17 20h8l7 13 7-13h8v25h-7V31l-8 14-8-14v14h-7V20Z' fill='white'/%3E%3Ccircle cx='49' cy='16' r='5' fill='%23fbbf24'/%3E%3C/svg%3E">
+
+  <!--
+    The OpenReview rendering flavor and its scoped preview styles are adapted
+    from openreview/openreview-web (AGPL-3.0), repository snapshot inspected
+    2026-07-27. The surrounding application is neutral. This file is its own source code.
+
+
+    Capability boundary:
+      Read-only links contain the ECDSA verification capability, but not the
+      private signing capability. A recipient may alter their own DOM or code,
+      but conforming peers reject document states and updates without a valid
+      signature for this room and branch. The served HTML and its pinned runtime
+      dependencies remain part of the trusted computing base.
+
+    Runtime libraries:
+      marked 15.0.6 (MIT)
+      commonmark.js 0.31.2 (BSD-2-Clause)
+      DOMPurify 3.4.12 (Apache-2.0 OR MPL-2.0)
+      Bootstrap 3.4.1 CSS (MIT)
+      MathJax 3.2.2 (Apache-2.0)
+      Yjs 13.6.31 (MIT)
+      Trystero 0.25.3 (MIT)
+  -->
+
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css"
+    integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu"
+    crossorigin="anonymous"
+  >
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,700;1,400;1,700&display=fallback"
+  >
+
+  <style>
+    :root {
+      --or-background-white: #fffdfa;
+      --or-input-white: #fffaf4;
+      --or-medium-blue: #3e6775;
+      --or-medium-dark-blue: #3f6978;
+      --or-dark-blue: #2c3a4a;
+      --or-red: #8c1b13;
+      --or-sandy-brown: #efece3;
+      --or-subtle-gray: #616161;
+      --or-light-gray: #c6c6c6;
+      --or-background-gray: #dddddd;
+      --or-border-gray: rgba(0, 0, 0, 0.1);
+      --or-input-border: #659aae;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      height: 100%;
+      font-size: 16px;
+      scrollbar-gutter: stable;
+    }
+
+    body {
+      min-height: 100%;
+      margin: 0;
+      color: #333;
+      background: var(--or-sandy-brown);
+      font-family: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+    }
+
+    .app-header {
+      min-height: 64px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: #fff;
+      background: var(--or-dark-blue);
+      border-bottom: 4px solid var(--or-red);
+    }
+
+    .brand {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-mark {
+      width: 2.5rem;
+      height: 2.5rem;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(255, 255, 255, 0.7);
+      font-weight: 700;
+      letter-spacing: -0.08em;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-copy h1 {
+      margin: 0;
+      overflow: hidden;
+      color: #fff;
+      font-size: 1.125rem;
+      font-weight: 700;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand-copy p {
+      margin: 0.125rem 0 0;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 0.75rem;
+      line-height: 1.25;
+    }
+
+    .engine-state {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .state-dot {
+      width: 0.5rem;
+      height: 0.5rem;
+      display: inline-block;
+      border-radius: 50%;
+      background: #f0ad4e;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+    }
+
+    .engine-state[data-state="ready"] .state-dot {
+      background: #7fb77e;
+    }
+
+    .engine-state[data-state="error"] .state-dot {
+      background: #ee8a83;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1px;
+      background: var(--or-light-gray);
+    }
+
+    .pane {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: var(--or-background-white);
+    }
+
+    .pane-header {
+      min-height: 42px;
+      padding: 0.625rem 0.875rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-dark-blue);
+      background: var(--or-background-white);
+      border-bottom: 1px solid var(--or-border-gray);
+    }
+
+    .pane-title {
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .pane-meta {
+      overflow: hidden;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .editor-tools {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.625rem;
+    }
+
+    .copy-button {
+      flex: 0 0 auto;
+      padding: 0.3rem 0.625rem;
+      color: #fff;
+      background: var(--or-medium-blue);
+      border: 1px solid var(--or-medium-dark-blue);
+      border-radius: 3px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      line-height: 1.25;
+      cursor: pointer;
+    }
+
+    .copy-button:hover {
+      background: var(--or-medium-dark-blue);
+    }
+
+    .copy-button:focus-visible {
+      outline: 2px solid var(--or-red);
+      outline-offset: 2px;
+    }
+
+    .copy-button:disabled {
+      cursor: default;
+      opacity: 0.7;
+    }
+
+    #markdown-input {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      margin: 0;
+      padding: 1rem;
+      resize: none;
+      color: #333;
+      background: var(--or-input-white);
+      border: 0;
+      border-top: 2px solid var(--or-input-border);
+      border-radius: 0;
+      outline: none;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      tab-size: 4;
+    }
+
+    #markdown-input:focus {
+      border-top-color: var(--or-medium-dark-blue);
+      box-shadow: inset 0 0 0 2px var(--or-medium-dark-blue);
+    }
+
+    #markdown-input::selection {
+      color: inherit;
+      background: rgba(62, 103, 117, 0.22);
+    }
+
+    .preview-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding: 0.75rem 1rem;
+      background: var(--or-background-white);
+    }
+
+    .load-error {
+      margin: 0 0 0.75rem;
+      padding: 0.75rem;
+      color: #8a1f11;
+      background: #f2dede;
+      border: 1px solid #ebccd1;
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+
+    .load-error[hidden] {
+      display: none;
+    }
+
+    .tex-warning {
+      margin: 0 0 0.75rem;
+      padding: 0.65rem 0.75rem;
+      color: #6f4b00;
+      background: #fcf8e3;
+      border: 1px solid #faebcc;
+      font-size: 0.75rem;
+      line-height: 1.45;
+    }
+
+    .tex-warning code {
+      color: #8c1b13;
+      background: rgba(255, 255, 255, 0.55);
+    }
+
+    .tex-warning[hidden] {
+      display: none;
+    }
+
+    .app-footer {
+      min-height: 32px;
+      padding: 0.45rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-subtle-gray);
+      background: var(--or-sandy-brown);
+      border-top: 1px solid var(--or-border-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+    }
+
+    .app-footer span:last-child {
+      text-align: right;
+    }
+
+    .header-statuses {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 1rem;
+    }
+
+    .collaboration-bar {
+      min-height: 52px;
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--or-dark-blue);
+      background: var(--or-background-white);
+      border-bottom: 1px solid var(--or-light-gray);
+    }
+
+    .collaboration-summary,
+    .collaboration-actions {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .collaboration-summary {
+      flex: 1 1 auto;
+    }
+
+    .collaboration-actions {
+      flex: 0 0 auto;
+      justify-content: flex-end;
+    }
+
+    .network-state {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: var(--or-subtle-gray);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .network-state .state-dot {
+      background: #f0ad4e;
+      box-shadow: 0 0 0 2px rgba(44, 58, 74, 0.08);
+    }
+
+    .network-state[data-state="ready"] .state-dot {
+      background: #5d9f63;
+    }
+
+    .network-state[data-state="waiting"] .state-dot {
+      background: #5f8ba0;
+    }
+
+    .network-state[data-state="offline"] .state-dot,
+    .network-state[data-state="error"] .state-dot {
+      background: #c95b52;
+    }
+
+    .room-label {
+      flex: 0 0 auto;
+      padding: 0.2rem 0.45rem;
+      color: var(--or-subtle-gray);
+      background: var(--or-sandy-brown);
+      border: 1px solid var(--or-border-gray);
+      border-radius: 999px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .peer-list {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      overflow: hidden;
+    }
+
+    .peer-chip {
+      min-width: 0;
+      max-width: 9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.15rem 0.45rem 0.15rem 0.2rem;
+      color: var(--or-dark-blue);
+      background: #fff;
+      border: 1px solid var(--or-border-gray);
+      border-radius: 999px;
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .peer-chip-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .peer-avatar {
+      width: 1.35rem;
+      height: 1.35rem;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      border-radius: 50%;
+      font-size: 0.55rem;
+      font-weight: 700;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .peer-overflow {
+      flex: 0 0 auto;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .name-field {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .name-field input {
+      width: 9rem;
+      padding: 0.3rem 0.45rem;
+      color: #333;
+      background: var(--or-input-white);
+      border: 1px solid var(--or-input-border);
+      border-radius: 3px;
+      outline: none;
+      font-size: 0.75rem;
+    }
+
+    .name-field input:focus {
+      border-color: var(--or-medium-dark-blue);
+      box-shadow: 0 0 0 2px rgba(63, 105, 120, 0.18);
+    }
+
+    .action-button {
+      flex: 0 0 auto;
+      padding: 0.35rem 0.65rem;
+      color: #fff;
+      background: var(--or-medium-blue);
+      border: 1px solid var(--or-medium-dark-blue);
+      border-radius: 3px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      line-height: 1.25;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .action-button:hover {
+      background: var(--or-medium-dark-blue);
+    }
+
+    .action-button.secondary {
+      color: var(--or-medium-dark-blue);
+      background: transparent;
+    }
+
+    .action-button.secondary:hover {
+      color: #fff;
+      background: var(--or-medium-dark-blue);
+    }
+
+    .action-button:focus-visible {
+      outline: 2px solid var(--or-red);
+      outline-offset: 2px;
+    }
+
+    .action-button:disabled {
+      cursor: default;
+      opacity: 0.55;
+    }
+
+    .collaboration-message {
+      max-width: 23rem;
+      overflow: hidden;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .collaboration-message[data-tone="warning"] {
+      color: #7d5100;
+    }
+
+    .collaboration-message[data-tone="error"] {
+      color: var(--or-red);
+    }
+
+    .collaboration-message[hidden] {
+      display: none;
+    }
+
+    .editor-shell {
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      background: var(--or-input-white);
+    }
+
+    #markdown-input {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+
+    .cursor-overlay {
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 2;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .remote-cursor-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      min-height: 100%;
+      padding: 1rem;
+      color: transparent;
+      border-top: 2px solid transparent;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      overflow-wrap: break-word;
+      tab-size: 4;
+      white-space: pre-wrap;
+      word-break: normal;
+    }
+
+    .remote-selection {
+      color: transparent;
+      border-radius: 2px;
+    }
+
+    .remote-caret {
+      width: 0;
+      height: 1.5em;
+      position: relative;
+      display: inline-block;
+      margin-left: -1px;
+      border-left: 2px solid;
+      vertical-align: text-bottom;
+    }
+
+    .remote-caret::after {
+      content: attr(data-name);
+      max-width: 10rem;
+      position: absolute;
+      left: -2px;
+      bottom: calc(100% - 1px);
+      z-index: 3;
+      overflow: hidden;
+      padding: 0.12rem 0.3rem;
+      color: #fff;
+      background: var(--peer-color);
+      border-radius: 2px 2px 2px 0;
+      font-family: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.55rem;
+      font-weight: 700;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Current OpenReview note-content wrapper, active only for that flavor. */
+    .preview-frame-openreview {
+      margin-top: 0.125rem;
+      margin-bottom: 0.125rem;
+      font-size: 0.75rem;
+      line-height: 1.125rem;
+    }
+
+    .preview-frame-openreview li {
+      padding: 0.125rem 0;
+    }
+
+    .preview-frame-openreview strong {
+      padding-right: 0.25rem;
+      color: var(--or-red);
+      font-weight: 700;
+    }
+
+    .preview-frame-openreview .note-content-value {
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+
+    /* OpenReview's markdown-content-styles mixin, scoped to the View block. */
+    .preview-frame-openreview .note-content-value.preview-openreview {
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview h1,
+    .preview-frame-openreview .note-content-value.preview-openreview h2,
+    .preview-frame-openreview .note-content-value.preview-openreview h3,
+    .preview-frame-openreview .note-content-value.preview-openreview h4,
+    .preview-frame-openreview .note-content-value.preview-openreview h5,
+    .preview-frame-openreview .note-content-value.preview-openreview h6 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      color: var(--or-dark-blue);
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview h1 {
+      font-size: 1.375rem;
+      font-weight: 700;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview h2 {
+      font-size: 1.25rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview h3 {
+      font-size: 1rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview h4,
+    .preview-frame-openreview .note-content-value.preview-openreview h5,
+    .preview-frame-openreview .note-content-value.preview-openreview h6 {
+      font-size: 0.75rem;
+      font-weight: 400;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview p {
+      margin-bottom: 0.5rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview strong {
+      padding-right: 0;
+      color: var(--or-dark-blue);
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview ol,
+    .preview-frame-openreview .note-content-value.preview-openreview ul {
+      padding-left: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview ol li,
+    .preview-frame-openreview .note-content-value.preview-openreview ul li {
+      padding: 0;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview ol li p,
+    .preview-frame-openreview .note-content-value.preview-openreview ul li p {
+      margin-bottom: 0.125rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview ol ol,
+    .preview-frame-openreview .note-content-value.preview-openreview ol ul,
+    .preview-frame-openreview .note-content-value.preview-openreview ul ol,
+    .preview-frame-openreview .note-content-value.preview-openreview ul ul {
+      margin-bottom: 0.125rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview hr {
+      margin: 0.5rem 0;
+      border: 0;
+      border-top: 1px solid var(--or-border-gray);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview a {
+      color: var(--or-medium-blue);
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview a:focus,
+    .preview-frame-openreview .note-content-value.preview-openreview a:hover {
+      color: var(--or-medium-dark-blue);
+      text-decoration: none;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview code {
+      color: var(--or-red);
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview pre {
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.5rem;
+      border-radius: 0;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview pre code {
+      color: #333;
+      font-size: 0.75rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview img.icon {
+      width: 1rem;
+      height: 1rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview blockquote {
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.5rem;
+      border-left-color: #ccc;
+      font-size: 0.75rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview blockquote p {
+      margin-bottom: 0;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview table {
+      max-width: 100%;
+      margin-bottom: 0.5rem;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview table thead > tr > th {
+      vertical-align: bottom;
+      border-top: 0;
+      border-bottom: 2px solid #ddd;
+    }
+
+    .preview-frame-openreview .note-content-value.preview-openreview table tr > td,
+    .preview-frame-openreview .note-content-value.preview-openreview table tr > th {
+      padding: 0.25rem;
+      vertical-align: top;
+      border-top: 1px solid #ddd;
+    }
+
+    /* Current OpenReview MathJax overflow behavior. */
+    .note-content-value mjx-container[jax="CHTML"][display="true"] {
+      overflow-x: scroll;
+      margin-bottom: 0;
+    }
+
+    .note-content-value mjx-container[jax="CHTML"][display="true"]:last-child {
+      margin-bottom: 1em;
+    }
+
+    .note-content-value mjx-container[jax="CHTML"][display="true"] mjx-math {
+      padding: 1px 0;
+    }
+
+
+    .local-save-state {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--or-subtle-gray);
+      font-size: 0.6875rem;
+      white-space: nowrap;
+    }
+
+    .storage-dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      display: inline-block;
+      border-radius: 50%;
+      background: #f0ad4e;
+      box-shadow: 0 0 0 2px rgba(44, 58, 74, 0.08);
+    }
+
+    .local-save-state[data-state="ready"] .storage-dot {
+      background: #5d9f63;
+    }
+
+    .local-save-state[data-state="saving"] .storage-dot,
+    .network-state[data-state="warning"] .state-dot {
+      background: #d89614;
+    }
+
+    .local-save-state[data-state="error"] .storage-dot {
+      background: #c95b52;
+    }
+
+    .action-button.warning {
+      color: #5b3a00;
+      background: #fff3cf;
+      border-color: #d89614;
+    }
+
+    .action-button.warning:hover {
+      color: #fff;
+      background: #a66a00;
+      border-color: #8d5900;
+    }
+
+    body.dialog-open {
+      overflow: hidden;
+    }
+
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      padding: 1rem;
+      background: rgba(24, 31, 39, 0.72);
+    }
+
+    .dialog-backdrop[hidden] {
+      display: none;
+    }
+
+    .dialog-card {
+      width: min(1180px, 100%);
+      max-height: calc(100vh - 2rem);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      color: #333;
+      background: var(--or-background-white);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 5px;
+      box-shadow: 0 1.25rem 4rem rgba(0, 0, 0, 0.36);
+    }
+
+    .dialog-card.history-card {
+      width: min(1040px, 100%);
+    }
+
+    .dialog-header {
+      padding: 0.9rem 1rem;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      background: #fff;
+      border-bottom: 1px solid var(--or-border-gray);
+    }
+
+    .dialog-heading h2 {
+      margin: 0;
+      color: var(--or-dark-blue);
+      font-size: 1.05rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .dialog-heading p {
+      max-width: 62rem;
+      margin: 0.35rem 0 0;
+      color: var(--or-subtle-gray);
+      font-size: 0.75rem;
+      line-height: 1.45;
+    }
+
+    .dialog-close {
+      width: 2rem;
+      height: 2rem;
+      flex: 0 0 auto;
+      padding: 0;
+      color: var(--or-subtle-gray);
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      font-size: 1.3rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .dialog-close:hover {
+      color: var(--or-dark-blue);
+      background: var(--or-sandy-brown);
+      border-color: var(--or-border-gray);
+    }
+
+    .dialog-close:focus-visible {
+      outline: 2px solid var(--or-red);
+      outline-offset: 2px;
+    }
+
+    .dialog-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 1rem;
+    }
+
+    .version-comparison {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    .version-card {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(11rem, 1fr);
+      overflow: hidden;
+      background: #fff;
+      border: 1px solid var(--or-light-gray);
+      border-radius: 4px;
+    }
+
+    .version-card.merge-preview {
+      border-color: var(--or-input-border);
+    }
+
+    .version-card h3 {
+      margin: 0;
+      padding: 0.65rem 0.75rem 0.15rem;
+      color: var(--or-dark-blue);
+      font-size: 0.8125rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .version-meta {
+      min-height: 2.3rem;
+      padding: 0 0.75rem 0.55rem;
+      color: var(--or-subtle-gray);
+      font-size: 0.625rem;
+      line-height: 1.35;
+    }
+
+    .version-card pre,
+    .history-preview {
+      min-height: 0;
+      margin: 0;
+      padding: 0.75rem;
+      overflow: auto;
+      color: #333;
+      background: var(--or-input-white);
+      border: 0;
+      border-top: 1px solid var(--or-border-gray);
+      border-radius: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.6875rem;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .dialog-note {
+      margin: 0.8rem 0 0;
+      padding: 0.65rem 0.75rem;
+      color: #5b3a00;
+      background: #fff8e4;
+      border-left: 3px solid #d89614;
+      font-size: 0.6875rem;
+      line-height: 1.45;
+    }
+
+    .dialog-actions {
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.55rem;
+      background: #fff;
+      border-top: 1px solid var(--or-border-gray);
+    }
+
+    .dialog-actions .action-button {
+      font-size: 0.75rem;
+    }
+
+    .history-layout {
+      min-height: 22rem;
+      display: grid;
+      grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+      gap: 0.75rem;
+    }
+
+    .history-list {
+      min-height: 0;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid var(--or-light-gray);
+      border-radius: 4px;
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: stretch;
+      border-bottom: 1px solid var(--or-border-gray);
+    }
+
+    .history-row:last-child {
+      border-bottom: 0;
+    }
+
+    .history-row.selected {
+      background: #f1f6f8;
+      box-shadow: inset 3px 0 0 var(--or-medium-blue);
+    }
+
+    .history-version-button,
+    .history-fork-button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .history-version-button {
+      min-width: 0;
+      padding: 0.65rem 0.7rem;
+      display: grid;
+      gap: 0.2rem;
+      text-align: left;
+      color: #333;
+      background: transparent;
+    }
+
+    .history-version-button strong {
+      overflow: hidden;
+      color: var(--or-dark-blue);
+      font-size: 0.72rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .history-version-button span {
+      color: var(--or-subtle-gray);
+      font-size: 0.6rem;
+      line-height: 1.35;
+    }
+
+    .history-version-button:hover {
+      background: rgba(62, 103, 117, 0.07);
+    }
+
+    .history-fork-button {
+      align-self: center;
+      margin-right: 0.55rem;
+      padding: 0.3rem 0.45rem;
+      color: var(--or-medium-dark-blue);
+      background: transparent;
+      border: 1px solid var(--or-input-border);
+      border-radius: 3px;
+      font-size: 0.625rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .history-fork-button:hover {
+      color: #fff;
+      background: var(--or-medium-dark-blue);
+    }
+
+    .history-fork-button:disabled {
+      cursor: default;
+      opacity: 0.55;
+    }
+
+    .history-preview-panel {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      background: #fff;
+      border: 1px solid var(--or-light-gray);
+      border-radius: 4px;
+    }
+
+    .history-preview-meta {
+      min-height: 2.4rem;
+      padding: 0.55rem 0.7rem;
+      color: var(--or-subtle-gray);
+      border-bottom: 1px solid var(--or-border-gray);
+      font-size: 0.65rem;
+      line-height: 1.35;
+    }
+
+    .history-preview {
+      border-top: 0;
+    }
+
+    .history-empty {
+      margin: 0;
+      padding: 1rem;
+      color: var(--or-subtle-gray);
+      font-size: 0.75rem;
+    }
+
+    @media (max-width: 1100px) {
+      .collaboration-bar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .collaboration-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .collaboration-message {
+        max-width: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .version-comparison {
+        grid-template-columns: 1fr;
+      }
+
+      .version-card {
+        grid-template-rows: auto auto minmax(9rem, 16rem);
+      }
+
+      .history-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(12rem, 18rem) minmax(14rem, 1fr);
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(320px, 1fr) minmax(320px, 1fr);
+      }
+
+      .app-footer {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+
+      .app-footer span:last-child {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 767px) {
+      html {
+        font-size: 14px;
+      }
+
+      .app-header {
+        align-items: flex-start;
+      }
+
+      .brand-copy p,
+      .engine-state,
+      .room-label,
+      .local-save-state,
+      .name-field span {
+        display: none;
+      }
+
+      .header-statuses {
+        gap: 0.4rem;
+      }
+
+      .collaboration-bar {
+        padding: 0.5rem 0.75rem;
+      }
+
+      .collaboration-summary,
+      .collaboration-actions {
+        gap: 0.45rem;
+      }
+
+      .name-field input {
+        width: 7.5rem;
+      }
+
+      .peer-chip {
+        max-width: 6.5rem;
+      }
+
+      .preview-scroll,
+      #markdown-input {
+        padding: 0.75rem;
+      }
+    }
+
+
+    /* Neutral application chrome. OpenReview styling remains confined to its preview. */
+    :root {
+      --ui-bg: #f3f5f9;
+      --ui-surface: #ffffff;
+      --ui-surface-muted: #f8fafc;
+      --ui-border: #dbe1ea;
+      --ui-border-strong: #c7d0dd;
+      --ui-text: #172033;
+      --ui-muted: #657084;
+      --ui-accent: #5b5bd6;
+      --ui-accent-dark: #4646b8;
+      --ui-accent-soft: #eeeeff;
+      --ui-success: #22835f;
+      --ui-warning: #a46107;
+      --ui-danger: #bd3d47;
+      --ui-shadow: 0 12px 32px rgba(30, 41, 59, 0.08);
+    }
+
+    body {
+      color: var(--ui-text);
+      background: var(--ui-bg);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .app-header {
+      min-height: 68px;
+      padding: 0.85rem 1.15rem;
+      color: #fff;
+      background: linear-gradient(118deg, #111827 0%, #222b45 60%, #312e81 100%);
+      border-bottom: 0;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    .brand-mark {
+      width: 2.65rem;
+      height: 2.65rem;
+      border: 0;
+      border-radius: 12px;
+      background: linear-gradient(145deg, #7373f1, #8b5cf6);
+      box-shadow: 0 8px 18px rgba(91, 91, 214, 0.35);
+    }
+
+    .brand-mark svg {
+      width: 2rem;
+      height: 2rem;
+      overflow: visible;
+    }
+
+    .brand-mark path { fill: #fff; }
+    .brand-mark circle { fill: #fbbf24; }
+
+    .brand-copy h1 {
+      color: #fff;
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+    }
+
+    .brand-copy p { color: rgba(255, 255, 255, 0.68); }
+    .engine-state { color: rgba(255, 255, 255, 0.78); }
+    .engine-state .state-dot { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.10); }
+
+    .collaboration-bar {
+      min-height: 56px;
+      padding: 0.55rem 1rem;
+      color: var(--ui-text);
+      background: rgba(255, 255, 255, 0.96);
+      border-bottom: 1px solid var(--ui-border);
+      box-shadow: 0 4px 18px rgba(30, 41, 59, 0.04);
+    }
+
+    .network-state,
+    .local-save-state,
+    .name-field,
+    .pane-meta,
+    .collaboration-message,
+    .peer-overflow { color: var(--ui-muted); }
+
+    .network-state .state-dot,
+    .storage-dot { box-shadow: 0 0 0 2px rgba(30, 41, 59, 0.07); }
+
+    .room-label {
+      color: #4f5b70;
+      background: #f1f4f8;
+      border-color: var(--ui-border);
+    }
+
+    .peer-chip {
+      color: var(--ui-text);
+      background: #fff;
+      border-color: var(--ui-border);
+      box-shadow: 0 1px 2px rgba(30, 41, 59, 0.04);
+    }
+
+    .name-field input,
+    .flavor-control select {
+      color: var(--ui-text);
+      background: #fff;
+      border: 1px solid var(--ui-border-strong);
+      border-radius: 7px;
+    }
+
+    .name-field input:focus,
+    .flavor-control select:focus {
+      border-color: var(--ui-accent);
+      box-shadow: 0 0 0 3px rgba(91, 91, 214, 0.14);
+      outline: none;
+    }
+
+    .action-button,
+    .copy-button {
+      color: #fff;
+      background: var(--ui-accent);
+      border: 1px solid var(--ui-accent);
+      border-radius: 7px;
+      box-shadow: 0 1px 2px rgba(30, 41, 59, 0.08);
+    }
+
+    .action-button:hover,
+    .copy-button:hover {
+      color: #fff;
+      background: var(--ui-accent-dark);
+      border-color: var(--ui-accent-dark);
+    }
+
+    .action-button.secondary {
+      color: #454f63;
+      background: #fff;
+      border-color: var(--ui-border-strong);
+    }
+
+    .action-button.secondary:hover {
+      color: var(--ui-accent-dark);
+      background: var(--ui-accent-soft);
+      border-color: #b8b8f0;
+    }
+
+    .action-button:focus-visible,
+    .copy-button:focus-visible {
+      outline: 3px solid rgba(91, 91, 214, 0.28);
+      outline-offset: 2px;
+    }
+
+    .action-button.warning {
+      color: #754209;
+      background: #fff7e6;
+      border-color: #edc57e;
+    }
+
+    .action-button.warning:hover {
+      color: #fff;
+      background: var(--ui-warning);
+      border-color: var(--ui-warning);
+    }
+
+    .share-buttons {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .access-badge {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.22rem 0.5rem;
+      color: #596579;
+      background: #f2f4f8;
+      border: 1px solid var(--ui-border);
+      border-radius: 999px;
+      font-size: 0.675rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .access-badge::before {
+      content: "";
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .access-badge[data-access="edit"] {
+      color: #176b4d;
+      background: #ecf9f3;
+      border-color: #a9ddc8;
+    }
+
+    .access-badge[data-access="edit"]::before { background: var(--ui-success); }
+
+    .access-badge[data-access="read"] {
+      color: #765111;
+      background: #fff8e8;
+      border-color: #ecd39d;
+    }
+
+    .access-badge[data-access="read"]::before { background: #d18a16; }
+
+    .workspace {
+      gap: 0.85rem;
+      padding: 0.85rem;
+      background: var(--ui-bg);
+    }
+
+    .pane {
+      overflow: hidden;
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-border);
+      border-radius: 12px;
+      box-shadow: var(--ui-shadow);
+    }
+
+    .pane-header {
+      min-height: 48px;
+      padding: 0.65rem 0.85rem;
+      color: var(--ui-text);
+      background: var(--ui-surface);
+      border-bottom: 1px solid var(--ui-border);
+    }
+
+    .pane-title {
+      color: var(--ui-text);
+      font-size: 0.8rem;
+      letter-spacing: 0.055em;
+      text-transform: uppercase;
+    }
+
+    .render-tools,
+    .flavor-control {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .render-tools { justify-content: flex-end; }
+
+    .flavor-control {
+      color: var(--ui-muted);
+      font-size: 0.7rem;
+      white-space: nowrap;
+    }
+
+    .flavor-control select {
+      min-width: 8.25rem;
+      padding: 0.28rem 1.6rem 0.28rem 0.5rem;
+      font-size: 0.72rem;
+    }
+
+    .editor-shell,
+    #markdown-input {
+      background: #fff;
+    }
+
+    #markdown-input {
+      color: #172033;
+      border: 0;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      caret-color: var(--ui-accent);
+    }
+
+    #markdown-input:focus {
+      border: 0;
+      box-shadow: inset 0 0 0 2px rgba(91, 91, 214, 0.72);
+    }
+
+    #markdown-input::selection { background: rgba(91, 91, 214, 0.18); }
+
+    body[data-access="read"] #markdown-input {
+      color: #3d4758;
+      background: var(--ui-surface-muted);
+      cursor: default;
+    }
+
+    body[data-access="read"] #markdown-input:focus {
+      box-shadow: inset 0 0 0 1px var(--ui-border-strong);
+    }
+
+    body[data-access="read"] .cursor-overlay { display: none; }
+
+    .preview-scroll {
+      padding: 1.1rem 1.25rem;
+      background: #fff;
+    }
+
+    .preview-frame {
+      max-width: 100%;
+      margin: 0;
+      color: #24292f;
+      overflow-wrap: anywhere;
+    }
+
+    .preview-frame-openreview {
+      margin-top: 0.125rem;
+      margin-bottom: 0.125rem;
+      font-family: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    .preview-github,
+    .preview-commonmark {
+      color: #24292f;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.875rem;
+      line-height: 1.55;
+      white-space: normal;
+    }
+
+    .preview-github > :first-child,
+    .preview-commonmark > :first-child { margin-top: 0 !important; }
+    .preview-github > :last-child,
+    .preview-commonmark > :last-child { margin-bottom: 0 !important; }
+
+    .preview-github h1,
+    .preview-github h2,
+    .preview-commonmark h1,
+    .preview-commonmark h2 {
+      padding-bottom: 0.3em;
+      border-bottom: 1px solid #d8dee4;
+    }
+
+    .preview-github h1,
+    .preview-github h2,
+    .preview-github h3,
+    .preview-github h4,
+    .preview-github h5,
+    .preview-github h6,
+    .preview-commonmark h1,
+    .preview-commonmark h2,
+    .preview-commonmark h3,
+    .preview-commonmark h4,
+    .preview-commonmark h5,
+    .preview-commonmark h6 {
+      margin: 1.25em 0 0.55em;
+      color: #1f2328;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+
+    .preview-github h1,
+    .preview-commonmark h1 { font-size: 2em; }
+    .preview-github h2,
+    .preview-commonmark h2 { font-size: 1.5em; }
+    .preview-github h3,
+    .preview-commonmark h3 { font-size: 1.25em; }
+    .preview-github h4,
+    .preview-commonmark h4 { font-size: 1em; }
+
+    .preview-github p,
+    .preview-github blockquote,
+    .preview-github ul,
+    .preview-github ol,
+    .preview-github dl,
+    .preview-github table,
+    .preview-github pre,
+    .preview-commonmark p,
+    .preview-commonmark blockquote,
+    .preview-commonmark ul,
+    .preview-commonmark ol,
+    .preview-commonmark dl,
+    .preview-commonmark table,
+    .preview-commonmark pre { margin: 0 0 1em; }
+
+    .preview-github ul,
+    .preview-github ol,
+    .preview-commonmark ul,
+    .preview-commonmark ol { padding-left: 2em; }
+
+    .preview-github blockquote,
+    .preview-commonmark blockquote {
+      padding: 0 1em;
+      color: #57606a;
+      border-left: 0.25em solid #d0d7de;
+    }
+
+    .preview-github blockquote > :last-child,
+    .preview-commonmark blockquote > :last-child { margin-bottom: 0; }
+
+    .preview-github code,
+    .preview-commonmark code {
+      padding: 0.15em 0.35em;
+      color: #24292f;
+      background: rgba(175, 184, 193, 0.2);
+      border-radius: 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 85%;
+    }
+
+    .preview-github pre,
+    .preview-commonmark pre {
+      overflow: auto;
+      padding: 1em;
+      background: #f6f8fa;
+      border: 0;
+      border-radius: 7px;
+      line-height: 1.45;
+    }
+
+    .preview-github pre code,
+    .preview-commonmark pre code {
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+      font-size: 100%;
+    }
+
+    .preview-github table,
+    .preview-commonmark table {
+      display: block;
+      width: max-content;
+      max-width: 100%;
+      overflow: auto;
+      border-spacing: 0;
+      border-collapse: collapse;
+    }
+
+    .preview-github th,
+    .preview-github td,
+    .preview-commonmark th,
+    .preview-commonmark td {
+      padding: 0.45em 0.8em;
+      border: 1px solid #d0d7de;
+    }
+
+    .preview-github tr:nth-child(2n),
+    .preview-commonmark tr:nth-child(2n) { background: #f6f8fa; }
+
+    .preview-github img,
+    .preview-commonmark img { max-width: 100%; }
+
+    .preview-github a,
+    .preview-commonmark a { color: #0969da; text-decoration: none; }
+    .preview-github a:hover,
+    .preview-commonmark a:hover { text-decoration: underline; }
+
+    .preview-github input[type="checkbox"] {
+      margin: 0 0.35em 0.15em -1.4em;
+      vertical-align: middle;
+    }
+
+    .preview-plaintext {
+      min-height: 1.5em;
+      color: #263244;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.84rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+      tab-size: 4;
+    }
+
+    .empty-preview {
+      color: var(--ui-muted);
+      font-style: italic;
+    }
+
+    .app-footer {
+      min-height: 34px;
+      color: var(--ui-muted);
+      background: var(--ui-bg);
+      border-top: 1px solid var(--ui-border);
+    }
+
+    .load-error {
+      color: #8e2832;
+      background: #fff0f1;
+      border-color: #f1bbc0;
+      border-radius: 8px;
+    }
+
+    .tex-warning {
+      color: #74460a;
+      background: #fff8e8;
+      border-color: #ecd39d;
+      border-radius: 8px;
+    }
+
+    .tex-warning code { color: #8a3c0f; }
+
+    @media (max-width: 980px) {
+      .collaboration-bar { align-items: flex-start; }
+      .collaboration-actions { flex-wrap: wrap; }
+      .share-buttons { order: 2; }
+      .workspace { padding: 0.6rem; gap: 0.6rem; }
+    }
+
+    @media (max-width: 680px) {
+      .app-header { padding: 0.7rem 0.8rem; }
+      .brand-copy p { display: none; }
+      .workspace { padding: 0; gap: 1px; }
+      .pane { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; }
+      .rendered-header { align-items: flex-start; }
+      .render-tools { align-items: flex-end; flex-direction: column; gap: 0.25rem; }
+      .flavor-control span { display: none; }
+      .share-buttons { width: 100%; }
+      .share-buttons .action-button { flex: 1 1 0; }
+    }
+
+  </style>
+
+  <script>
+    window.__openReviewLoadErrors = [];
+    window.__openReviewDependencyError = function (name) {
+      window.__openReviewLoadErrors.push(name);
+      window.dispatchEvent(new CustomEvent("openreview-dependency-error", { detail: name }));
+    };
+
+    // OpenReview's MathJax configuration. Explicit CDN roots keep auxiliary
+    // modules and CHTML fonts stable on a static host.
+    window.MathJax = {
+      loader: {
+        paths: {
+          mathjax: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5"
+        },
+        load: ["ui/safe"]
+      },
+      options: {
+        ignoreHtmlClass: "disable-tex-rendering"
+      },
+      tex: {
+        inlineMath: [
+          ["$", "$"],
+          ["\\(", "\\)"]
+        ]
+      },
+      chtml: {
+        scale: 1,
+        minScale: 0.5,
+        matchFontHeight: true,
+        mtextInheritFont: false,
+        merrorInheritFont: true,
+        mathmlSpacing: false,
+        skipAttributes: {},
+        exFactor: 0.5,
+        displayAlign: "left",
+        displayIndent: "0",
+        fontURL: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/output/chtml/fonts/woff-v2"
+      },
+      startup: {
+        typeset: false,
+        ready: function () {
+          MathJax.startup.defaultReady();
+          var safe = MathJax.startup.document.safe;
+          safe.filterAttributes.set("fontfamily", "filterFamily");
+          safe.filterMethods.filterFamily = function (_safe, family) {
+            return family.split(/;/)[0];
+          };
+        }
+      }
+    };
+  </script>
+  <script
+    id="MathJax-script"
+    defer
+    src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml-full.js"
+    crossorigin="anonymous"
+    onload="window.dispatchEvent(new Event('openreview-mathjax-ready'))"
+    onerror="window.__openReviewDependencyError('MathJax 3.2.2')"
+  ></script>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" role="img" aria-hidden="true">
+            <path d="M8 10h7l5 10 5-10h7v20h-6V19l-6 11-6-11v11H8V10Z"></path>
+            <circle cx="32" cy="8" r="4"></circle>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <h1>Markdown Relay</h1>
+          <p>Serverless collaborative writing with local history</p>
+        </div>
+      </div>
+      <div class="header-statuses">
+        <div id="engine-state" class="engine-state" data-state="loading" aria-live="polite">
+          <span class="state-dot" aria-hidden="true"></span>
+          <span id="engine-status">Loading renderer…</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="collaboration-bar" aria-label="Collaboration controls">
+      <div class="collaboration-summary">
+        <div id="network-state" class="network-state" data-state="loading" aria-live="polite">
+          <span class="state-dot" aria-hidden="true"></span>
+          <span id="network-status">Starting peer network…</span>
+        </div>
+        <span id="room-label" class="room-label">Room —</span>
+        <span id="local-save-state" class="local-save-state" data-state="loading" aria-live="polite">
+          <span class="storage-dot" aria-hidden="true"></span>
+          <span id="local-save-status">Opening local history…</span>
+        </span>
+        <div id="peer-list" class="peer-list" aria-label="Participants in this room"></div>
+      </div>
+      <div class="collaboration-actions">
+        <span id="collaboration-message" class="collaboration-message" aria-live="polite" hidden></span>
+        <label class="name-field" for="display-name">
+          <span>Your name</span>
+          <input id="display-name" type="text" maxlength="40" autocomplete="name" aria-label="Your collaborator name">
+        </label>
+        <span id="access-badge" class="access-badge" data-access="loading">Checking access…</span>
+        <button id="review-conflict-button" class="action-button warning" type="button" hidden>Review conflict</button>
+        <div class="share-buttons" role="group" aria-label="Share document">
+          <button id="share-edit-button" class="action-button" type="button" title="Copy a capability link that can publish signed edits." disabled>Copy edit link</button>
+          <button id="share-read-button" class="action-button secondary" type="button" title="Copy a cryptographically read-only link." disabled>Copy read-only link</button>
+        </div>
+        <button id="history-button" class="action-button secondary" type="button" disabled>History</button>
+        <button id="new-room-button" class="action-button secondary" type="button">New document</button>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <section class="pane" aria-labelledby="write-title">
+        <header class="pane-header">
+          <h2 id="write-title" class="pane-title">Source</h2>
+          <div class="editor-tools">
+            <span id="character-count" class="pane-meta" aria-live="polite">0 characters</span>
+            <button id="copy-button" class="copy-button" type="button">Copy text</button>
+          </div>
+        </header>
+        <div id="editor-shell" class="editor-shell">
+          <textarea
+            id="markdown-input"
+            aria-label="Collaborative document source"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="true"
+            wrap="soft"
+          ></textarea>
+          <div id="cursor-overlay" class="cursor-overlay" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section class="pane" aria-labelledby="view-title">
+        <header class="pane-header rendered-header">
+          <h2 id="view-title" class="pane-title">Rendered</h2>
+          <div class="render-tools">
+            <label class="flavor-control" for="flavor-select">
+              <span>Flavor</span>
+              <select id="flavor-select" aria-label="Markdown rendering flavor">
+                <option value="openreview">OpenReview</option>
+                <option value="github">GitHub</option>
+                <option value="commonmark">CommonMark</option>
+                <option value="plaintext">Plain text</option>
+              </select>
+            </label>
+            <span id="render-status" class="pane-meta">Waiting for input</span>
+          </div>
+        </header>
+        <div class="preview-scroll" role="region" aria-labelledby="view-title" tabindex="0">
+          <div id="load-error" class="load-error" role="alert" hidden></div>
+          <div id="tex-warning" class="tex-warning" role="status" hidden></div>
+          <div id="preview-frame" class="preview-frame preview-frame-openreview">
+            <div id="markdown-view" class="note-content-value preview-openreview"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span>Peer-to-peer CRDT sync · versioned browser-local history · signed access capabilities</span>
+      <span>OpenReview · GitHub · CommonMark · plain text</span>
+    </footer>
+  </div>
+
+
+  <div id="conflict-dialog" class="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="conflict-title" hidden>
+    <section class="dialog-card">
+      <header class="dialog-header">
+        <div class="dialog-heading">
+          <h2 id="conflict-title">Two offline versions need a choice</h2>
+          <p id="conflict-description"></p>
+        </div>
+        <button id="conflict-close-button" class="dialog-close" type="button" aria-label="Decide later">×</button>
+      </header>
+      <div class="dialog-body">
+        <div class="version-comparison">
+          <section class="version-card">
+            <h3>Your browser copy</h3>
+            <div id="conflict-local-meta" class="version-meta"></div>
+            <pre id="conflict-local-preview"></pre>
+          </section>
+          <section class="version-card">
+            <h3 id="conflict-incoming-title">Incoming copy</h3>
+            <div id="conflict-incoming-meta" class="version-meta"></div>
+            <pre id="conflict-incoming-preview"></pre>
+          </section>
+          <section class="version-card merge-preview">
+            <h3>Automatic CRDT merge</h3>
+            <div id="conflict-merged-meta" class="version-meta"></div>
+            <pre id="conflict-merged-preview"></pre>
+          </section>
+        </div>
+        <p id="conflict-note" class="dialog-note"></p>
+      </div>
+      <footer class="dialog-actions">
+        <button id="conflict-later-button" class="action-button secondary" type="button">Decide later</button>
+        <button id="conflict-fork-button" class="action-button secondary" type="button">Fork my copy</button>
+        <button id="conflict-merge-button" class="action-button" type="button">Merge and continue</button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="history-dialog" class="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="history-title" hidden>
+    <section class="dialog-card history-card">
+      <header class="dialog-header">
+        <div class="dialog-heading">
+          <h2 id="history-title">Browser-local history</h2>
+          <p>Checkpoints stay in this browser and this site origin. Opening an older version always creates a new fork; it never replaces the live shared document.</p>
+        </div>
+        <button id="history-close-button" class="dialog-close" type="button" aria-label="Close history">×</button>
+      </header>
+      <div class="dialog-body">
+        <div class="history-layout">
+          <div id="history-list" class="history-list" aria-label="Saved document versions"></div>
+          <section class="history-preview-panel" aria-label="Saved version preview">
+            <div id="history-preview-meta" class="history-preview-meta"></div>
+            <pre id="history-preview" class="history-preview"></pre>
+          </section>
+        </div>
+      </div>
+      <footer class="dialog-actions">
+        <button id="history-footer-close-button" class="action-button secondary" type="button">Close</button>
+      </footer>
+    </section>
+  </div>
+
+  <noscript>
+    <div class="load-error">JavaScript is required to render the preview.</div>
+  </noscript>
+
+  <script type="text/plain" id="example-markdown">
+# Shared document
+
+Write together in the **Source** pane. The preview flavor is local to your browser and is carried in links you copy.
+
+## Markdown features
+
+- Lists and nested content
+- [x] Task markers in GitHub and OpenReview modes
+- Tables in GitHub and OpenReview modes
+- Safe links such as https://example.com
+
+| Flavor | Intended use |
+| --- | --- |
+| OpenReview | Reviews, comments, and venue text |
+| GitHub | READMEs, issues, and pull requests |
+| CommonMark | Portable standards-based Markdown |
+| Plain text | Exact text with no formatting |
+
+## Mathematics
+
+OpenReview source uses doubled TeX backslashes:
+
+$$
+\int_0^1 x^2\,dx = \frac{1}{3}
+$$
+
+GitHub mode also renders ordinary TeX such as $\alpha + \beta$.
+
+> Read-only links can follow live edits but cannot publish an accepted document update without the edit capability.
+
+```text
+Every collaborator keeps browser-local history.
+```
+  </script>
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/marked@15.0.6/lib/marked.umd.min.js"
+    onerror="window.__openReviewDependencyError('marked 15.0.6')"
+  ></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/dompurify@3.4.12/dist/purify.min.js"
+    onerror="window.__openReviewDependencyError('DOMPurify 3.4.12')"
+  ></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/commonmark@0.31.2/dist/commonmark.min.js"
+    onerror="window.__commonMarkLoadError = true"
+  ></script>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var STORAGE_KEY = "markdown-relay-standalone-draft-v1";
+      var FLAVOR_KEY = "markdown-relay-flavor-v1";
+      var OPENREVIEW_ORIGIN = "https://openreview.net";
+      var VALID_FLAVORS = ["openreview", "github", "commonmark", "plaintext"];
+      var FLAVOR_LABELS = {
+        openreview: "OpenReview",
+        github: "GitHub",
+        commonmark: "CommonMark",
+        plaintext: "Plain text"
+      };
+
+      var input = document.getElementById("markdown-input");
+      var view = document.getElementById("markdown-view");
+      var previewFrame = document.getElementById("preview-frame");
+      var flavorSelect = document.getElementById("flavor-select");
+      var renderStatus = document.getElementById("render-status");
+      var characterCount = document.getElementById("character-count");
+      var copyButton = document.getElementById("copy-button");
+      var engineState = document.getElementById("engine-state");
+      var engineStatus = document.getElementById("engine-status");
+      var loadError = document.getElementById("load-error");
+      var texWarning = document.getElementById("tex-warning");
+      var exampleNode = document.getElementById("example-markdown");
+
+      var renderTimer = null;
+      var saveTimer = null;
+      var renderQueue = Promise.resolve();
+      var renderRevision = 0;
+      var rendererReady = false;
+      var mathReady = false;
+      var mathStartupPending = false;
+      var markedParse = null;
+      var Renderer = null;
+      var openReviewRenderer = null;
+      var commonMarkReader = null;
+      var commonMarkWriter = null;
+      var collaborationActive = false;
+      var localInputListeners = [];
+      var flavorListeners = [];
+      var storage = getStorage();
+      var currentFlavor = initialFlavor();
+
+      function setEngineState(state, message) {
+        engineState.dataset.state = state;
+        engineStatus.textContent = message;
+      }
+
+      function showError(message) {
+        loadError.hidden = false;
+        loadError.textContent = message;
+        setEngineState("error", "Renderer error");
+      }
+
+      function hideError() {
+        loadError.hidden = true;
+        loadError.textContent = "";
+      }
+
+      function encodeAsText(value) {
+        var holder = document.createElement("div");
+        holder.textContent = value == null ? "" : String(value);
+        return holder.innerHTML;
+      }
+
+      function toOpenReviewUrl(value) {
+        return typeof value === "string" && /^\/(?!\/)/.test(value)
+          ? OPENREVIEW_ORIGIN + value
+          : value;
+      }
+
+      function getStorage() {
+        if (window.location.protocol === "file:") return null;
+        try {
+          var testKey = "__markdown_relay_storage_test__";
+          window.localStorage.setItem(testKey, "1");
+          window.localStorage.removeItem(testKey);
+          return window.localStorage;
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      function validFlavor(value) {
+        return VALID_FLAVORS.indexOf(value) !== -1;
+      }
+
+      function initialFlavor() {
+        try {
+          var params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+          var linked = params.get("flavor");
+          if (validFlavor(linked)) return linked;
+        } catch (_error) {}
+
+        if (storage) {
+          try {
+            var stored = storage.getItem(FLAVOR_KEY);
+            if (validFlavor(stored)) return stored;
+          } catch (_error) {}
+        }
+        return "openreview";
+      }
+
+      function persistFlavor(value) {
+        if (!storage) return;
+        try { storage.setItem(FLAVOR_KEY, value); } catch (_error) {}
+      }
+
+      function putFlavorInAddress(value) {
+        try {
+          var url = new URL(window.location.href);
+          var params = new URLSearchParams(url.hash.replace(/^#/, ""));
+          params.set("flavor", value);
+          url.hash = params.toString();
+          window.history.replaceState(null, "", url.href);
+        } catch (_error) {}
+      }
+
+      function getMarkedApi() {
+        var api = window.marked;
+        if (!api) return null;
+        var parse = typeof api.parse === "function"
+          ? api.parse.bind(api)
+          : typeof api.marked === "function"
+            ? api.marked
+            : typeof api === "function"
+              ? api
+              : null;
+        var RendererCtor = api.Renderer || (api.marked && api.marked.Renderer);
+        if (typeof parse !== "function" || typeof RendererCtor !== "function") return null;
+        return {parse: parse, Renderer: RendererCtor};
+      }
+
+      function configureRenderers() {
+        var api = getMarkedApi();
+        if (!api || !window.DOMPurify) {
+          var missing = [];
+          if (!api) missing.push("marked 15.0.6");
+          if (!window.DOMPurify) missing.push("DOMPurify 3.4.12");
+          showError(
+            "Could not load " + missing.join(" and ") +
+            ". This HTML file needs internet access for its pinned runtime libraries."
+          );
+          return false;
+        }
+
+        markedParse = api.parse;
+        Renderer = api.Renderer;
+        openReviewRenderer = new Renderer();
+
+        openReviewRenderer.image = function (token) {
+          var href = typeof token.href === "string" ? token.href : "";
+          var title = token.title == null ? null : String(token.title);
+          var text = token.text == null ? "" : String(token.text);
+          if (href.indexOf("/images/") === 0) {
+            var titleAttr = title ? " title=\"" + encodeAsText(title) + "\"" : "";
+            var classAttr = href.endsWith("_icon.svg") ? " class=\"icon\"" : "";
+            return "<img src=\"" + encodeAsText(toOpenReviewUrl(href)) + "\" alt=\"" +
+              encodeAsText(text) + "\"" + titleAttr + classAttr + ">";
+          }
+          return encodeAsText(
+            "<img src=\"" + href + "\" alt=\"" + text + "\" title=\"" +
+            (title == null ? "null" : title) + "\">"
+          );
+        };
+        openReviewRenderer.checkbox = function (token) {
+          return token.checked ? "[x]" : "[ ]";
+        };
+        openReviewRenderer.html = function (token) {
+          return encodeAsText(token.text);
+        };
+
+        if (
+          window.commonmark &&
+          typeof window.commonmark.Parser === "function" &&
+          typeof window.commonmark.HtmlRenderer === "function"
+        ) {
+          commonMarkReader = new window.commonmark.Parser();
+          commonMarkWriter = new window.commonmark.HtmlRenderer();
+        }
+
+        rendererReady = true;
+        return true;
+      }
+
+      function markedOptions(flavor) {
+        return {
+          baseUrl: null,
+          breaks: false,
+          gfm: flavor !== "commonmark",
+          headerIds: false,
+          langPrefix: "language-",
+          mangle: false,
+          renderer: flavor === "openreview" ? openReviewRenderer : new Renderer()
+        };
+      }
+
+      function sanitizeAndHarden(html, flavor) {
+        var clean = window.DOMPurify.sanitize(html, {
+          USE_PROFILES: {html: true}
+        });
+        var template = document.createElement("template");
+        template.innerHTML = clean;
+
+        template.content.querySelectorAll("a").forEach(function (node) {
+          var href = node.getAttribute("href");
+          if (flavor === "openreview" && href) node.setAttribute("href", toOpenReviewUrl(href));
+          node.setAttribute("target", "_blank");
+          node.setAttribute("rel", "noopener noreferrer");
+        });
+        template.content.querySelectorAll("img").forEach(function (node) {
+          var src = node.getAttribute("src");
+          if (flavor === "openreview" && src) node.setAttribute("src", toOpenReviewUrl(src));
+          node.setAttribute("loading", "lazy");
+          node.setAttribute("decoding", "async");
+        });
+        return template.innerHTML;
+      }
+
+      function placeholderToken(nonce, index) {
+        return "MDRELAYMATH" + nonce + "X" + index + "X";
+      }
+
+      function protectGitHubMath(source) {
+        var nonce = Math.random().toString(36).slice(2, 10).toUpperCase();
+        var values = [];
+        var output = "";
+        var index = 0;
+
+        function protect(value) {
+          var token = placeholderToken(nonce, values.length);
+          values.push({token: token, value: value});
+          return token;
+        }
+
+        function lineStartAt(position) {
+          return position === 0 || source.charAt(position - 1) === "\n";
+        }
+
+        while (index < source.length) {
+          if (lineStartAt(index)) {
+            var lineEnd = source.indexOf("\n", index);
+            if (lineEnd === -1) lineEnd = source.length;
+            var line = source.slice(index, lineEnd);
+            var fenceMatch = line.match(/^( {0,3})(`{3,}|~{3,})([^\n]*)$/);
+            if (fenceMatch) {
+              var fence = fenceMatch[2];
+              var fenceChar = fence.charAt(0);
+              var fenceLength = fence.length;
+              var info = fenceMatch[3].trim().toLowerCase();
+              var searchAt = lineEnd < source.length ? lineEnd + 1 : lineEnd;
+              var closeStart = -1;
+              var closeEnd = -1;
+              while (searchAt <= source.length) {
+                var candidateEnd = source.indexOf("\n", searchAt);
+                if (candidateEnd === -1) candidateEnd = source.length;
+                var candidate = source.slice(searchAt, candidateEnd);
+                var closePattern = new RegExp("^ {0,3}" +
+                  (fenceChar === "`" ? "`" : "~") + "{" + fenceLength + ",}[ \\t]*$");
+                if (closePattern.test(candidate)) {
+                  closeStart = searchAt;
+                  closeEnd = candidateEnd;
+                  break;
+                }
+                if (candidateEnd === source.length) break;
+                searchAt = candidateEnd + 1;
+              }
+              if (closeStart !== -1) {
+                var wholeEnd = closeEnd < source.length ? closeEnd + 1 : closeEnd;
+                if (/^math(?:\s|$)/.test(info)) {
+                  var contentStart = lineEnd < source.length ? lineEnd + 1 : lineEnd;
+                  var content = source.slice(contentStart, closeStart).replace(/\n$/, "");
+                  output += protect("$$\n" + content + "\n$$");
+                } else {
+                  output += source.slice(index, wholeEnd);
+                }
+                index = wholeEnd;
+                continue;
+              }
+            }
+          }
+
+          var char = source.charAt(index);
+          if (char === "`") {
+            var runEnd = index;
+            while (source.charAt(runEnd) === "`") runEnd += 1;
+            var run = source.slice(index, runEnd);
+            var close = source.indexOf(run, runEnd);
+            if (close !== -1) {
+              output += source.slice(index, close + run.length);
+              index = close + run.length;
+              continue;
+            }
+          }
+
+          if (source.slice(index, index + 2) === "$$") {
+            var displayClose = source.indexOf("$$", index + 2);
+            if (displayClose !== -1) {
+              output += protect(source.slice(index, displayClose + 2));
+              index = displayClose + 2;
+              continue;
+            }
+          }
+
+          if (source.slice(index, index + 2) === "\\[" || source.slice(index, index + 2) === "\\(") {
+            var opening = source.slice(index, index + 2);
+            var closing = opening === "\\[" ? "\\]" : "\\)";
+            var texClose = source.indexOf(closing, index + 2);
+            if (texClose !== -1) {
+              output += protect(source.slice(index, texClose + 2));
+              index = texClose + 2;
+              continue;
+            }
+          }
+
+          if (char === "$" && (index === 0 || source.charAt(index - 1) !== "\\")) {
+            var inlineEnd = index + 1;
+            while (inlineEnd < source.length && source.charAt(inlineEnd) !== "\n") {
+              if (source.charAt(inlineEnd) === "$" && source.charAt(inlineEnd - 1) !== "\\") break;
+              inlineEnd += 1;
+            }
+            if (
+              inlineEnd < source.length &&
+              source.charAt(inlineEnd) === "$" &&
+              inlineEnd > index + 1
+            ) {
+              output += protect(source.slice(index, inlineEnd + 1));
+              index = inlineEnd + 1;
+              continue;
+            }
+          }
+
+          output += char;
+          index += 1;
+        }
+
+        return {source: output, values: values};
+      }
+
+      function restoreProtectedMath(html, protectedMath) {
+        var output = html;
+        protectedMath.values.forEach(function (entry) {
+          output = output.split(entry.token).join(encodeAsText(entry.value));
+        });
+        return output;
+      }
+
+      function sourceContainsOpenReviewMath(source) {
+        return /(^|[^\\])\$[^$\n]+\$|\$\$[\s\S]*?\$\$|\\\\\(|\\\\\[/.test(source);
+      }
+
+      function sourceContainsGitHubMath(source) {
+        return /(^|[^\\])\$[^$\n]+\$|\$\$[\s\S]*?\$\$|\\\(|\\\[|^ {0,3}(`{3,}|~{3,})math(?:\s|$)/m.test(source);
+      }
+
+      function sourceUsesMath(source, flavor) {
+        if (flavor === "openreview") return sourceContainsOpenReviewMath(source);
+        if (flavor === "github") return sourceContainsGitHubMath(source);
+        return false;
+      }
+
+      function sourceMayNeedEscaping(source) {
+        var dollarBlocks = source.match(/\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])*\$/g) || [];
+        return dollarBlocks.some(function (block) {
+          return /(^|[^\\])\\[A-Za-z,;:!{}[\]()]/.test(block);
+        });
+      }
+
+      function sourceHasUnescapedTexLineBreak(source) {
+        var dollarBlocks = source.match(/\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])*\$/g) || [];
+        return dollarBlocks.some(function (block) {
+          return /(^|[^\\])\\\\(?!\\)(?=\s|\[|$)/m.test(block);
+        });
+      }
+
+      function updateTexWarning(source, flavor) {
+        if (flavor !== "openreview" || !sourceContainsOpenReviewMath(source)) {
+          texWarning.hidden = true;
+          texWarning.textContent = "";
+          return;
+        }
+
+        var messages = [];
+        if (sourceMayNeedEscaping(source)) {
+          messages.push(
+            "OpenReview Markdown consumes TeX backslashes. Double each command slash: write ",
+            codeNode("\\\\frac"),
+            " rather than ",
+            codeNode("\\frac"),
+            "."
+          );
+        } else if (sourceHasUnescapedTexLineBreak(source)) {
+          messages.push(
+            "A TeX line break needs four backslashes in OpenReview source: ",
+            codeNode("\\\\\\\\"),
+            "."
+          );
+        }
+
+        if (!messages.length) {
+          texWarning.hidden = true;
+          texWarning.textContent = "";
+          return;
+        }
+        texWarning.replaceChildren.apply(texWarning, messages);
+        texWarning.hidden = false;
+      }
+
+      function codeNode(text) {
+        var code = document.createElement("code");
+        code.textContent = text;
+        return code;
+      }
+
+      function buildPreviewHtml(source, flavor) {
+        if (flavor === "plaintext") {
+          return source ? encodeAsText(source) : "<span class=\"empty-preview\">Nothing to preview</span>";
+        }
+        if (!source) return "<em class=\"empty-preview\">Nothing to preview</em>";
+
+        if (flavor === "github") {
+          var protectedMath = protectGitHubMath(source);
+          var githubHtml = markedParse(protectedMath.source, markedOptions(flavor));
+          var safeGithub = sanitizeAndHarden(githubHtml, flavor);
+          return restoreProtectedMath(safeGithub, protectedMath);
+        }
+
+        if (flavor === "commonmark") {
+          if (!commonMarkReader || !commonMarkWriter) {
+            throw new Error(
+              "The CommonMark 0.31.2 reference renderer did not load. Check this page's internet access."
+            );
+          }
+          return sanitizeAndHarden(
+            commonMarkWriter.render(commonMarkReader.parse(source)),
+            flavor
+          );
+        }
+
+        return sanitizeAndHarden(markedParse(source, markedOptions(flavor)), flavor);
+      }
+
+      function queueRender(source, html, flavor, revision) {
+        renderQueue = renderQueue
+          .catch(function () {})
+          .then(function () {
+            if (revision !== renderRevision) return null;
+            var usesMath = sourceUsesMath(source, flavor);
+
+            if (!usesMath || flavor === "plaintext" || flavor === "commonmark") {
+              if (mathReady && typeof window.MathJax.typesetClear === "function") {
+                window.MathJax.typesetClear([view]);
+              }
+              view.innerHTML = html;
+              if (revision === renderRevision) {
+                renderStatus.textContent = FLAVOR_LABELS[flavor] + " rendered";
+              }
+              return null;
+            }
+
+            if (!mathReady) {
+              view.innerHTML = html;
+              if (revision === renderRevision) renderStatus.textContent = "Markdown rendered · TeX loading";
+              return null;
+            }
+
+            return window.MathJax.startup.promise
+              .then(function () {
+                if (revision !== renderRevision) return false;
+                if (typeof window.MathJax.typesetClear === "function") {
+                  window.MathJax.typesetClear([view]);
+                }
+                view.innerHTML = html;
+                return window.MathJax.typesetPromise([view]).then(function () { return true; });
+              })
+              .then(function (didTypeset) {
+                if (!didTypeset || revision !== renderRevision) return;
+                var mathRendered = view.querySelector("mjx-container") !== null;
+                renderStatus.textContent = mathRendered
+                  ? FLAVOR_LABELS[flavor] + " · MathJax"
+                  : FLAVOR_LABELS[flavor] + " rendered · no TeX delimiter survived";
+              });
+          })
+          .catch(function (error) {
+            if (revision !== renderRevision) return;
+            renderStatus.textContent = FLAVOR_LABELS[flavor] + " rendered; TeX failed";
+            console.warn("Could not typeset TeX content", error);
+          });
+      }
+
+      function applyFlavorClasses(flavor) {
+        flavorSelect.value = flavor;
+        previewFrame.className = "preview-frame preview-frame-" + flavor;
+        view.className = "note-content-value preview-" + flavor;
+        document.body.dataset.flavor = flavor;
+      }
+
+      function renderNow() {
+        if (!rendererReady) return;
+        var source = input.value;
+        var flavor = currentFlavor;
+        var html;
+        var revision = ++renderRevision;
+        renderStatus.textContent = "Rendering…";
+        hideError();
+        updateTexWarning(source, flavor);
+        applyFlavorClasses(flavor);
+
+        try {
+          html = buildPreviewHtml(source, flavor);
+          queueRender(source, html, flavor, revision);
+        } catch (error) {
+          showError("Rendering failed: " + (error && error.message ? error.message : String(error)));
+          renderStatus.textContent = "Render failed";
+        }
+      }
+
+      function scheduleRender() {
+        window.clearTimeout(renderTimer);
+        renderTimer = window.setTimeout(renderNow, 70);
+      }
+
+      function setFlavor(value, options) {
+        var flavor = validFlavor(value) ? value : "openreview";
+        var changed = flavor !== currentFlavor;
+        currentFlavor = flavor;
+        applyFlavorClasses(flavor);
+        if (!options || options.persist !== false) persistFlavor(flavor);
+        if (!options || options.updateUrl !== false) putFlavorInAddress(flavor);
+        scheduleRender();
+        if (changed) {
+          flavorListeners.slice().forEach(function (listener) {
+            try { listener(flavor); } catch (error) { console.error("Flavor listener failed", error); }
+          });
+        }
+      }
+
+      function updateCharacterCount() {
+        var count = Array.from(input.value).length;
+        characterCount.textContent = count.toLocaleString() + (count === 1 ? " character" : " characters");
+      }
+
+      function updateDraftStatus(_saved) { updateCharacterCount(); }
+
+      function copyString(text) {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          return navigator.clipboard.writeText(text);
+        }
+        return new Promise(function (resolve, reject) {
+          var helper = document.createElement("textarea");
+          helper.value = text;
+          helper.setAttribute("readonly", "");
+          helper.style.position = "fixed";
+          helper.style.opacity = "0";
+          helper.style.pointerEvents = "none";
+          document.body.appendChild(helper);
+          helper.select();
+          try {
+            if (!document.execCommand("copy")) throw new Error("Copy command was rejected");
+            resolve();
+          } catch (error) {
+            reject(error);
+          } finally {
+            helper.remove();
+          }
+        });
+      }
+
+      function copyText() {
+        var originalLabel = "Copy text";
+        copyButton.disabled = true;
+        copyString(input.value).then(
+          function () { finish("Copied"); },
+          function () { finish("Copy failed"); }
+        );
+        function finish(label) {
+          copyButton.textContent = label;
+          window.setTimeout(function () {
+            copyButton.textContent = originalLabel;
+            copyButton.disabled = false;
+          }, 1200);
+        }
+      }
+
+      function saveDraft() {
+        if (collaborationActive || !storage) {
+          updateDraftStatus(false);
+          return;
+        }
+        try {
+          storage.setItem(STORAGE_KEY, input.value);
+          updateDraftStatus(true);
+        } catch (_error) {
+          storage = null;
+          updateDraftStatus(false);
+        }
+      }
+
+      function scheduleSave() {
+        if (collaborationActive) return;
+        updateDraftStatus(false);
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(saveDraft, 250);
+      }
+
+      function loadInitialDraft() {
+        var example = exampleNode.textContent.replace(/^\s*\n/, "").replace(/\s+$/, "");
+        var stored = null;
+        if (storage) {
+          try { stored = storage.getItem(STORAGE_KEY); } catch (_error) { storage = null; }
+        }
+        input.value = stored === null ? example : stored;
+        updateDraftStatus(stored !== null);
+      }
+
+      function markMathReady() {
+        if (mathReady || mathStartupPending) return;
+        if (!(window.MathJax && window.MathJax.startup && window.MathJax.startup.promise)) return;
+        mathStartupPending = true;
+        Promise.resolve(window.MathJax.startup.promise)
+          .then(function () {
+            if (typeof window.MathJax.typesetPromise !== "function") {
+              throw new Error("MathJax startup completed without typesetPromise");
+            }
+            mathReady = true;
+            mathStartupPending = false;
+            setEngineState("ready", "Renderer ready");
+            renderNow();
+          })
+          .catch(function (error) {
+            mathStartupPending = false;
+            showError("MathJax failed to initialize: " + (error && error.message ? error.message : String(error)));
+            console.warn("MathJax startup failed", error);
+          });
+      }
+
+      function notifyLocalInput() {
+        localInputListeners.slice().forEach(function (listener) {
+          try { listener(input.value); } catch (error) { console.error("Collaborative input listener failed", error); }
+        });
+      }
+
+      window.addEventListener("openreview-mathjax-ready", markMathReady);
+      window.addEventListener("openreview-dependency-error", function (event) {
+        showError("Could not load " + event.detail + ". This HTML file needs internet access for its pinned runtime libraries.");
+      });
+
+      loadInitialDraft();
+      applyFlavorClasses(currentFlavor);
+
+      if (configureRenderers()) {
+        hideError();
+        setEngineState("loading", "Markdown ready · TeX loading");
+        renderNow();
+      }
+
+      input.addEventListener("input", function () {
+        updateCharacterCount();
+        scheduleRender();
+        scheduleSave();
+        notifyLocalInput();
+      });
+
+      flavorSelect.addEventListener("change", function () { setFlavor(flavorSelect.value); });
+      copyButton.addEventListener("click", copyText);
+      markMathReady();
+
+      if (window.__openReviewLoadErrors.length) {
+        showError("Could not load " + window.__openReviewLoadErrors.join(", ") +
+          ". This HTML file needs internet access for its pinned runtime libraries.");
+      }
+
+      var api = {
+        input: input,
+        getText: function () { return input.value; },
+        setText: function (value) {
+          input.value = value;
+          updateCharacterCount();
+          scheduleRender();
+        },
+        refresh: function () {
+          updateCharacterCount();
+          scheduleRender();
+        },
+        getFlavor: function () { return currentFlavor; },
+        setFlavor: setFlavor,
+        onFlavorChange: function (listener) {
+          flavorListeners.push(listener);
+          return function () {
+            var index = flavorListeners.indexOf(listener);
+            if (index !== -1) flavorListeners.splice(index, 1);
+          };
+        },
+        onLocalInput: function (listener) {
+          localInputListeners.push(listener);
+          return function () {
+            var index = localInputListeners.indexOf(listener);
+            if (index !== -1) localInputListeners.splice(index, 1);
+          };
+        },
+        setCollaborationActive: function (active) {
+          collaborationActive = Boolean(active);
+          if (collaborationActive) window.clearTimeout(saveTimer);
+        },
+        copyString: copyString,
+        flavors: VALID_FLAVORS.slice()
+      };
+      window.MarkdownRelayEditor = api;
+      window.OpenReviewEditor = api;
+    })();
+  </script>
+
+  <script>
+    /*
+      Optional TURN relay configuration for restrictive networks.
+
+      Prefer a credential endpoint that returns short-lived credentials:
+        window.MarkdownRelayTURN = {
+          credentialUrl: "https://example.com/api/turn"
+        };
+
+      The endpoint may return an array, {turnServers: [...]}, or
+      {iceServers: [...]}. For a static authenticated relay, configure:
+        window.MarkdownRelayTURN = {
+          turnServers: [{
+            urls: ["turns:turn.example.com:443?transport=tcp"],
+            username: "temporary-user",
+            credential: "temporary-password"
+          }]
+        };
+
+      TURN credentials are used only for RTCPeerConnection setup. Markdown
+      Relay does not put them in document links or browser storage.
+    */
+    window.MarkdownRelayTURN = window.MarkdownRelayTURN || null;
+  </script>
+
+  <script type="module">
+
+(async function () {
+  "use strict";
+
+  const YJS_URLS = [
+    "https://esm.run/yjs@13.6.31",
+    "https://cdn.jsdelivr.net/npm/yjs@13.6.31/+esm"
+  ];
+  const TRYSTERO_URLS = [
+    "https://esm.run/trystero@0.25.3",
+    "https://cdn.jsdelivr.net/npm/trystero@0.25.3/+esm"
+  ];
+  const MODULE_LOAD_TIMEOUT = 15000;
+  const APP_ID = "markdown-relay-collab-v4";
+  const PROFILE_KEY = "markdown-relay-profile-v1";
+  const FORK_NOTICE_KEY = "markdown-relay-fork-notice-v1";
+  const DB_NAME = "openreview-markdown-collab-v1";
+  const SIGNATURE_PROTOCOL = 3;
+  const SIGNATURE_CONTEXT = "MarkdownRelay/document-capability/v3";
+  const SIGNED_STATE_DELAY = 2800;
+  const MAX_VERIFIED_UPDATE_LOG = 300;
+  const DB_VERSION = 2;
+  const DB_DOCUMENTS = "documents";
+  const DB_VERSIONS = "versions";
+  const MAX_INVITE_URL_LENGTH = 60000;
+  const MAX_LOCAL_FORK_URL_LENGTH = 1500000;
+  const MAX_SYNC_BYTES = 8 * 1024 * 1024;
+  const MAX_HISTORY_ENTRIES = 50;
+  const AUTO_CHECKPOINT_DELAY = 2600;
+  const LOCAL_ORIGIN = {kind: "textarea"};
+  const REMOTE_ORIGIN = {kind: "peer"};
+  const LOAD_ORIGIN = {kind: "local-load"};
+  const MERGE_ORIGIN = {kind: "approved-merge"};
+
+  const editor = window.MarkdownRelayEditor || window.OpenReviewEditor;
+  const input = editor.input;
+  const networkState = document.getElementById("network-state");
+  const networkStatus = document.getElementById("network-status");
+  const localSaveState = document.getElementById("local-save-state");
+  const localSaveStatus = document.getElementById("local-save-status");
+  const roomLabel = document.getElementById("room-label");
+  const peerList = document.getElementById("peer-list");
+  const collaborationMessage = document.getElementById("collaboration-message");
+  const displayName = document.getElementById("display-name");
+  const shareEditButton = document.getElementById("share-edit-button");
+  const shareReadButton = document.getElementById("share-read-button");
+  const accessBadge = document.getElementById("access-badge");
+  const reviewConflictButton = document.getElementById("review-conflict-button");
+  const historyButton = document.getElementById("history-button");
+  const newRoomButton = document.getElementById("new-room-button");
+  const cursorOverlay = document.getElementById("cursor-overlay");
+
+  const conflictDialog = document.getElementById("conflict-dialog");
+  const conflictDescription = document.getElementById("conflict-description");
+  const conflictLocalMeta = document.getElementById("conflict-local-meta");
+  const conflictIncomingTitle = document.getElementById("conflict-incoming-title");
+  const conflictIncomingMeta = document.getElementById("conflict-incoming-meta");
+  const conflictMergedMeta = document.getElementById("conflict-merged-meta");
+  const conflictLocalPreview = document.getElementById("conflict-local-preview");
+  const conflictIncomingPreview = document.getElementById("conflict-incoming-preview");
+  const conflictMergedPreview = document.getElementById("conflict-merged-preview");
+  const conflictNote = document.getElementById("conflict-note");
+  const conflictMergeButton = document.getElementById("conflict-merge-button");
+  const conflictForkButton = document.getElementById("conflict-fork-button");
+  const conflictLaterButton = document.getElementById("conflict-later-button");
+  const conflictCloseButton = document.getElementById("conflict-close-button");
+
+  const historyDialog = document.getElementById("history-dialog");
+  const historyList = document.getElementById("history-list");
+  const historyPreview = document.getElementById("history-preview");
+  const historyPreviewMeta = document.getElementById("history-preview-meta");
+  const historyCloseButton = document.getElementById("history-close-button");
+  const historyFooterCloseButton = document.getElementById("history-footer-close-button");
+
+  let Y;
+  let joinRoom;
+  let selfId;
+  let room = null;
+  let updateAction = null;
+  let presenceAction = null;
+  let requestAction = null;
+  let snapshotAction = null;
+  let decisionAction = null;
+  let ydoc = null;
+  let ytext = null;
+  let undoManager = null;
+  let database = null;
+  let saveTimer = null;
+  let checkpointTimer = null;
+  let presenceTimer = null;
+  let heartbeatTimer = null;
+  let messageTimer = null;
+  let savedSelection = null;
+  let networkError = null;
+  let latestSavedAt = 0;
+  let currentConflict = null;
+  let lastDialogFocus = null;
+  let persistenceChain = Promise.resolve();
+  let roomConnected = false;
+  let verifyKey = null;
+  let signKey = null;
+  let canEdit = false;
+  let signedStateTimer = null;
+  let latestSignedStateEnvelope = null;
+  let verifiedUpdateLog = [];
+  let capabilityWarning = "";
+  let turnServers = [];
+  let turnConfigurationError = "";
+
+  const peerIds = new Set();
+  const activePeers = new Set();
+  const locallyApprovedPeers = new Set();
+  const remotelyApprovedPeers = new Set();
+  const peerPresence = new Map();
+  const peerManifests = new Map();
+  const peerSnapshots = new Map();
+  const peerStateEnvelopes = new Map();
+  const processingPeers = new Set();
+  const lastSentStateHash = new Map();
+  const conflictByKey = new Map();
+  const conflictOrder = [];
+
+  const initialStandaloneText = editor.getText();
+  const roomConfig = readOrCreateRoomConfig();
+  const storageId = storageIdFor(roomConfig);
+
+  input.readOnly = true;
+  input.setAttribute("aria-busy", "true");
+  roomLabel.textContent = "Room " + shortRoomName(roomConfig.roomId);
+  roomLabel.title = "Document room identifier: " + roomConfig.roomId;
+  setPersistenceState("loading", "Opening local history…");
+
+  newRoomButton.addEventListener("click", createNewDocument);
+  historyButton.addEventListener("click", openHistoryDialog);
+  reviewConflictButton.addEventListener("click", openOldestConflict);
+  conflictMergeButton.addEventListener("click", mergeCurrentConflict);
+  conflictForkButton.addEventListener("click", forkCurrentConflict);
+  conflictLaterButton.addEventListener("click", deferCurrentConflict);
+  conflictCloseButton.addEventListener("click", deferCurrentConflict);
+  historyCloseButton.addEventListener("click", closeHistoryDialog);
+  historyFooterCloseButton.addEventListener("click", closeHistoryDialog);
+
+  conflictDialog.addEventListener("click", function (event) {
+    if (event.target === conflictDialog) deferCurrentConflict();
+  });
+  historyDialog.addEventListener("click", function (event) {
+    if (event.target === historyDialog) closeHistoryDialog();
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    if (!historyDialog.hidden) {
+      event.preventDefault();
+      closeHistoryDialog();
+    } else if (!conflictDialog.hidden) {
+      event.preventDefault();
+      deferCurrentConflict();
+    }
+  });
+
+  try {
+    const modules = await Promise.all([
+      importFirst(YJS_URLS, "Yjs"),
+      importFirst(TRYSTERO_URLS, "Trystero")
+    ]);
+    Y = modules[0];
+    joinRoom = modules[1].joinRoom;
+    selfId = modules[1].selfId;
+
+    if (!Y || typeof Y.Doc !== "function" || typeof joinRoom !== "function") {
+      throw new Error("The collaboration modules loaded without their expected APIs");
+    }
+
+    await initializeTurnConfiguration();
+    await initializeCapabilities();
+    await initializeCollaboration();
+  } catch (error) {
+    console.error("Could not initialize collaboration", error);
+    input.readOnly = !canEdit;
+    input.removeAttribute("aria-busy");
+    editor.setCollaborationActive(false);
+    shareEditButton.disabled = true;
+    shareReadButton.disabled = true;
+    historyButton.disabled = true;
+    updateAccessUi();
+    setNetworkState("error", "Collaboration unavailable");
+    setPersistenceState("error", "Local history unavailable");
+    showMessage(
+      "The peer-to-peer libraries failed to load. The editor still works locally.",
+      "error",
+      0
+    );
+  }
+
+  async function initializeCollaboration() {
+    editor.setCollaborationActive(true);
+    setNetworkState("loading", "Loading shared document…");
+
+    ydoc = new Y.Doc();
+    ytext = ydoc.getText("markdown");
+
+    database = await openDatabase().catch(function (error) {
+      console.warn("Browser-local document persistence is unavailable", error);
+      return null;
+    });
+
+    if (database) {
+      setPersistenceState("ready", "Local history ready");
+      historyButton.disabled = false;
+    } else {
+      setPersistenceState("error", "Local history unavailable");
+      historyButton.disabled = true;
+    }
+
+    const storedDocument = await loadStoredDocument().catch(function (error) {
+      console.warn("Could not load the browser-local document", error);
+      return null;
+    });
+
+    if (storedDocument) {
+      latestSavedAt = Number(storedDocument.savedAt) || 0;
+      if (!roomConfig.explicitLineage && isToken(storedDocument.lineageId, 8, 128)) {
+        roomConfig.lineageId = storedDocument.lineageId;
+      }
+      if (!roomConfig.explicitBranch && isToken(storedDocument.branchId, 8, 128)) {
+        roomConfig.branchId = storedDocument.branchId;
+      }
+      replaceAddressHash(roomConfig);
+    }
+
+    let storedUpdate = null;
+    if (storedDocument) {
+      if (canEdit && storedDocument.update) {
+        storedUpdate = toUint8Array(storedDocument.update);
+        Y.applyUpdate(ydoc, storedUpdate, LOAD_ORIGIN);
+      } else if (!canEdit) {
+        storedUpdate = await applyStoredVerifiedDocument(storedDocument);
+        if (!storedUpdate && storedDocument.update) {
+          showMessage(
+            "An unsigned browser-local copy was ignored in read-only mode. Waiting for a verified editor state.",
+            "warning",
+            8500
+          );
+        }
+      }
+    }
+
+    let seedUpdate = null;
+    let seedEnvelope = null;
+    if (roomConfig.seed) {
+      try {
+        seedUpdate = await decodeSeed(roomConfig.seed);
+        if (seedUpdate.byteLength > MAX_SYNC_BYTES) {
+          throw new Error("The invite snapshot is larger than this editor accepts");
+        }
+
+        if (roomConfig.seedSignature && roomConfig.head && roomConfig.seedSavedAt) {
+          seedEnvelope = await verifySignedEnvelope(
+            {
+              protocol: SIGNATURE_PROTOCOL,
+              kind: "state",
+              lineageId: roomConfig.lineageId,
+              branchId: roomConfig.branchId,
+              savedAt: roomConfig.seedSavedAt,
+              stateHash: roomConfig.head,
+              author: "",
+              update: seedUpdate,
+              signature: base64UrlToBytes(roomConfig.seedSignature)
+            },
+            "state",
+            null
+          );
+        } else if (!roomConfig.migratedLegacy) {
+          throw new Error("The invite snapshot has no valid editor signature");
+        }
+      } catch (error) {
+        seedUpdate = null;
+        seedEnvelope = null;
+        console.warn("Could not verify the invite-link snapshot", error);
+        showMessage(
+          "The link snapshot was missing or failed its editor signature. Local history and live verified sync will still be attempted.",
+          "warning",
+          9000
+        );
+      }
+    }
+
+    let startupConflict = null;
+    if (seedUpdate && storedUpdate) {
+      const candidate = await analyzeIncomingUpdate(seedUpdate, {
+        sourceType: "link",
+        sourceKey: "link",
+        sourceName: "shared link",
+        signedEnvelope: seedEnvelope,
+        manifest: {
+          protocol: SIGNATURE_PROTOCOL,
+          lineageId: roomConfig.lineageId,
+          branchId: roomConfig.branchId,
+          stateHash: roomConfig.head || "",
+          savedAt: roomConfig.seedSavedAt || 0,
+          name: "Invite link"
+        }
+      });
+
+      if (candidateNeedsChoice(candidate)) {
+        startupConflict = candidate;
+      } else {
+        Y.applyUpdate(ydoc, seedUpdate, LOAD_ORIGIN);
+        if (seedEnvelope) rememberVerifiedStateEnvelope(seedEnvelope, candidate.relation);
+      }
+    } else if (seedUpdate) {
+      Y.applyUpdate(ydoc, seedUpdate, LOAD_ORIGIN);
+      if (seedEnvelope) rememberVerifiedStateEnvelope(seedEnvelope, "incoming-ahead");
+    }
+
+    if (roomConfig.isNew && canEdit && ytext.length === 0 && initialStandaloneText) {
+      ydoc.transact(function () {
+        ytext.insert(0, initialStandaloneText);
+      }, LOCAL_ORIGIN);
+    }
+
+    editor.setText(ytext.toString());
+    bindSharedText();
+    configureProfile();
+    renderParticipants();
+    renderRemoteCursors();
+    installSelectionTracking();
+    if (canEdit) installUndoRedo();
+
+    shareEditButton.disabled = !canEdit;
+    shareReadButton.disabled = false;
+    shareEditButton.addEventListener("click", function () { copyShareLink("edit"); });
+    shareReadButton.addEventListener("click", function () { copyShareLink("read"); });
+    input.readOnly = !canEdit;
+    input.removeAttribute("aria-busy");
+    updateAccessUi();
+
+    if (canEdit) await refreshSignedStateEnvelope();
+    await saveSnapshot();
+    await saveCheckpoint("Opened document", {important: false});
+    showForkNotice();
+
+    if (startupConflict) {
+      enqueueConflict(startupConflict, true);
+      setNetworkState("warning", "Version choice needed · not connected");
+    } else {
+      connectPeerRoom();
+    }
+
+    updateNetworkStatus();
+
+    const collaborationApi = {
+      doc: ydoc,
+      text: ytext,
+      get room() { return room; },
+      roomId: roomConfig.roomId,
+      copyEditLink: function () { return copyShareLink("edit"); },
+      copyReadOnlyLink: function () { return copyShareLink("read"); },
+      get canEdit() { return canEdit; },
+      openHistory: openHistoryDialog,
+      fork: function () {
+        return forkUpdate(Y.encodeStateAsUpdate(ydoc), "Manual fork");
+      }
+    };
+    window.MarkdownRelayCollaboration = collaborationApi;
+    window.OpenReviewCollaboration = collaborationApi;
+  }
+
+  async function importFirst(urls, label) {
+    let lastError = null;
+
+    for (const url of urls) {
+      try {
+        return await Promise.race([
+          import(url),
+          new Promise(function (_resolve, reject) {
+            window.setTimeout(function () {
+              reject(new Error(label + " load timed out"));
+            }, MODULE_LOAD_TIMEOUT);
+          })
+        ]);
+      } catch (error) {
+        lastError = error;
+        console.warn(label + " failed to load from " + url, error);
+      }
+    }
+
+    throw lastError || new Error(label + " could not be loaded");
+  }
+
+  async function initializeCapabilities() {
+    if (!(window.crypto && window.crypto.subtle)) {
+      throw new Error("Web Crypto is required for signed collaboration links");
+    }
+
+    if (roomConfig.publicKey) {
+      verifyKey = await importPublicCapability(roomConfig.publicKey);
+      if (roomConfig.writeKey) {
+        try {
+          const candidate = await importPrivateCapability(
+            roomConfig.publicKey,
+            roomConfig.writeKey
+          );
+          const proof = new TextEncoder().encode(
+            SIGNATURE_CONTEXT + "\nproof\n" + roomConfig.roomId
+          );
+          const signature = await window.crypto.subtle.sign(
+            {name: "ECDSA", hash: "SHA-256"},
+            candidate,
+            proof
+          );
+          const valid = await window.crypto.subtle.verify(
+            {name: "ECDSA", hash: "SHA-256"},
+            verifyKey,
+            signature,
+            proof
+          );
+          if (!valid) throw new Error("The edit capability does not match the document key");
+          signKey = candidate;
+          canEdit = true;
+        } catch (error) {
+          console.warn("The supplied edit capability was rejected", error);
+          roomConfig.writeKey = "";
+          signKey = null;
+          canEdit = false;
+          capabilityWarning = "The edit capability in this URL was invalid, so this browser opened read-only.";
+          replaceAddressHash(roomConfig);
+        }
+      }
+    } else {
+      const material = await generateCapabilityMaterial();
+      roomConfig.publicKey = material.publicToken;
+      roomConfig.writeKey = material.privateToken;
+      verifyKey = material.publicKey;
+      signKey = material.privateKey;
+      canEdit = true;
+      roomConfig.migratedLegacy = !roomConfig.isNew;
+      if (roomConfig.migratedLegacy) {
+        capabilityWarning =
+          "This older link had no signing capability. It was upgraded locally; copy fresh links before inviting collaborators.";
+      }
+      replaceAddressHash(roomConfig);
+    }
+
+    updateAccessUi();
+    if (capabilityWarning) showMessage(capabilityWarning, "warning", 10000);
+  }
+
+  async function generateCapabilityMaterial() {
+    const pair = await window.crypto.subtle.generateKey(
+      {name: "ECDSA", namedCurve: "P-256"},
+      true,
+      ["sign", "verify"]
+    );
+    const exported = await Promise.all([
+      window.crypto.subtle.exportKey("jwk", pair.publicKey),
+      window.crypto.subtle.exportKey("jwk", pair.privateKey)
+    ]);
+    const publicJwk = exported[0];
+    const privateJwk = exported[1];
+    if (!publicJwk.x || !publicJwk.y || !privateJwk.d) {
+      throw new Error("The browser could not export the document capability");
+    }
+    return {
+      publicToken: publicJwk.x + "." + publicJwk.y,
+      privateToken: privateJwk.d,
+      publicKey: pair.publicKey,
+      privateKey: pair.privateKey
+    };
+  }
+
+  async function importPublicCapability(token) {
+    const parts = publicKeyParts(token);
+    if (!parts) throw new Error("Invalid public document capability");
+    return window.crypto.subtle.importKey(
+      "jwk",
+      {
+        kty: "EC",
+        crv: "P-256",
+        x: parts.x,
+        y: parts.y,
+        ext: true,
+        key_ops: ["verify"]
+      },
+      {name: "ECDSA", namedCurve: "P-256"},
+      true,
+      ["verify"]
+    );
+  }
+
+  async function importPrivateCapability(publicToken, privateToken) {
+    const parts = publicKeyParts(publicToken);
+    if (!parts || !isToken(privateToken, 40, 64)) {
+      throw new Error("Invalid private document capability");
+    }
+    return window.crypto.subtle.importKey(
+      "jwk",
+      {
+        kty: "EC",
+        crv: "P-256",
+        x: parts.x,
+        y: parts.y,
+        d: privateToken,
+        ext: true,
+        key_ops: ["sign"]
+      },
+      {name: "ECDSA", namedCurve: "P-256"},
+      true,
+      ["sign"]
+    );
+  }
+
+  function publicKeyParts(value) {
+    if (typeof value !== "string") return null;
+    const parts = value.split(".");
+    if (
+      parts.length !== 2 ||
+      !isToken(parts[0], 40, 64) ||
+      !isToken(parts[1], 40, 64)
+    ) return null;
+    return {x: parts[0], y: parts[1]};
+  }
+
+  function updateAccessUi() {
+    const mode = canEdit ? "edit" : "read";
+    document.body.dataset.access = mode;
+    accessBadge.dataset.access = mode;
+    accessBadge.textContent = canEdit ? "Can edit" : "Read only";
+    accessBadge.title = canEdit
+      ? "This URL contains the private capability needed to sign accepted edits."
+      : "This URL can verify and follow edits but has no capability to publish an accepted change.";
+    shareEditButton.hidden = !canEdit;
+    shareEditButton.disabled = !canEdit || conflictCount() > 0;
+    shareReadButton.disabled = conflictCount() > 0;
+    shareEditButton.title = canEdit
+      ? "Copy a capability link that can publish signed edits. Treat it like a password."
+      : "This browser does not have the edit capability.";
+    shareReadButton.title =
+      "Copy a link that can verify live edits but cannot publish an accepted document change.";
+    if (!input.hasAttribute("aria-busy")) input.readOnly = !canEdit;
+    input.setAttribute(
+      "aria-label",
+      canEdit ? "Collaborative document source" : "Read-only collaborative document source"
+    );
+    const writeTitle = document.getElementById("write-title");
+    if (writeTitle) writeTitle.textContent = canEdit ? "Source" : "Source · read only";
+  }
+
+  function concatenateBytes(first, second) {
+    const left = toUint8Array(first);
+    const right = toUint8Array(second);
+    const combined = new Uint8Array(left.byteLength + right.byteLength);
+    combined.set(left, 0);
+    combined.set(right, left.byteLength);
+    return combined;
+  }
+
+  function envelopeSigningPayload(config, envelope) {
+    const header = [
+      SIGNATURE_CONTEXT,
+      String(SIGNATURE_PROTOCOL),
+      envelope.kind,
+      config.roomId,
+      envelope.lineageId,
+      envelope.branchId,
+      String(envelope.savedAt),
+      envelope.stateHash,
+      envelope.author || ""
+    ].join("\n") + "\n";
+    return concatenateBytes(new TextEncoder().encode(header), envelope.update);
+  }
+
+  async function createSignedEnvelopeFor(config, privateKey, kind, updateValue, author) {
+    if (!privateKey) throw new Error("This browser has no edit capability");
+    if (kind !== "state" && kind !== "update") throw new Error("Unknown signed message kind");
+    const update = new Uint8Array(toUint8Array(updateValue));
+    if (update.byteLength > MAX_SYNC_BYTES) throw new Error("Document update is too large");
+    const envelope = {
+      protocol: SIGNATURE_PROTOCOL,
+      kind: kind,
+      lineageId: config.lineageId,
+      branchId: config.branchId,
+      savedAt: Date.now(),
+      stateHash: await hashBytes(update),
+      author: kind === "update" ? String(author || "") : "",
+      update: update,
+      signature: null
+    };
+    if (kind === "update" && !isToken(envelope.author, 4, 256)) {
+      throw new Error("Cannot sign an update without a valid peer identity");
+    }
+    const signature = await window.crypto.subtle.sign(
+      {name: "ECDSA", hash: "SHA-256"},
+      privateKey,
+      envelopeSigningPayload(config, envelope)
+    );
+    envelope.signature = new Uint8Array(signature);
+    return envelope;
+  }
+
+  function createSignedEnvelope(kind, updateValue) {
+    return createSignedEnvelopeFor(
+      roomConfig,
+      signKey,
+      kind,
+      updateValue,
+      kind === "update" ? selfId : ""
+    );
+  }
+
+  async function verifySignedEnvelope(value, expectedKind, contextPeerId) {
+    if (!value || typeof value !== "object") throw new Error("Signed message is not an object");
+    if (Number(value.protocol) !== SIGNATURE_PROTOCOL) throw new Error("Unsupported signature protocol");
+    if (value.kind !== expectedKind) throw new Error("Signed message kind does not match");
+    if (value.lineageId !== roomConfig.lineageId || value.branchId !== roomConfig.branchId) {
+      throw new Error("Signed message belongs to another document branch");
+    }
+
+    const update = new Uint8Array(toUint8Array(value.update));
+    const signature = new Uint8Array(toUint8Array(value.signature));
+    if (update.byteLength > MAX_SYNC_BYTES) throw new Error("Signed document state is too large");
+    if (signature.byteLength < 48 || signature.byteLength > 160) {
+      throw new Error("Signature length is invalid");
+    }
+
+    const savedAt = parseTimestamp(value.savedAt);
+    const stateHash = isToken(value.stateHash, 8, 128) ? value.stateHash : "";
+    const author = typeof value.author === "string" ? value.author : "";
+    if (!savedAt || !stateHash) throw new Error("Signed message metadata is incomplete");
+    if (expectedKind === "state" && author) throw new Error("A state signature cannot claim a peer author");
+    if (expectedKind === "update") {
+      if (!isToken(author, 4, 256)) throw new Error("Signed update has no peer author");
+      if (contextPeerId && author !== contextPeerId) {
+        throw new Error("Signed update was replayed by a different peer");
+      }
+    }
+
+    const actualHash = await hashBytes(update);
+    if (actualHash !== stateHash) throw new Error("Signed document hash does not match its content");
+
+    const envelope = {
+      protocol: SIGNATURE_PROTOCOL,
+      kind: expectedKind,
+      lineageId: roomConfig.lineageId,
+      branchId: roomConfig.branchId,
+      savedAt: savedAt,
+      stateHash: stateHash,
+      author: author,
+      update: update,
+      signature: signature
+    };
+    const valid = await window.crypto.subtle.verify(
+      {name: "ECDSA", hash: "SHA-256"},
+      verifyKey,
+      signature,
+      envelopeSigningPayload(roomConfig, envelope)
+    );
+    if (!valid) throw new Error("Document signature was not produced by an editor capability");
+    return envelope;
+  }
+
+  function copySignedEnvelope(envelope) {
+    if (!envelope) return null;
+    return {
+      protocol: SIGNATURE_PROTOCOL,
+      kind: envelope.kind,
+      lineageId: envelope.lineageId,
+      branchId: envelope.branchId,
+      savedAt: envelope.savedAt,
+      stateHash: envelope.stateHash,
+      author: envelope.author || "",
+      update: new Uint8Array(envelope.update),
+      signature: new Uint8Array(envelope.signature)
+    };
+  }
+
+  function serializeSignedEnvelope(envelope) {
+    if (!envelope) return null;
+    return {
+      protocol: envelope.protocol,
+      kind: envelope.kind,
+      lineageId: envelope.lineageId,
+      branchId: envelope.branchId,
+      savedAt: envelope.savedAt,
+      stateHash: envelope.stateHash,
+      author: envelope.author || "",
+      update: arrayBufferCopy(envelope.update),
+      signature: arrayBufferCopy(envelope.signature)
+    };
+  }
+
+  function signedEnvelopeMetadata(envelope) {
+    if (!envelope) throw new Error("Cannot send an empty signed envelope");
+    return {
+      protocol: envelope.protocol,
+      kind: envelope.kind,
+      lineageId: envelope.lineageId,
+      branchId: envelope.branchId,
+      savedAt: envelope.savedAt,
+      stateHash: envelope.stateHash,
+      author: envelope.author || "",
+      signature: bytesToBase64Url(envelope.signature)
+    };
+  }
+
+  function signedEnvelopeFromTransport(data, context, expectedKind) {
+    // Compatibility with deterministic test harnesses and any peer that already
+    // sends a fully reconstructed envelope object.
+    if (
+      data &&
+      typeof data === "object" &&
+      !(data instanceof ArrayBuffer) &&
+      !ArrayBuffer.isView(data) &&
+      Object.prototype.hasOwnProperty.call(data, "update") &&
+      Object.prototype.hasOwnProperty.call(data, "signature")
+    ) {
+      return data;
+    }
+
+    const metadata = context && context.metadata;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+      throw new Error("Signed binary update arrived without metadata");
+    }
+    if (metadata.kind !== expectedKind) {
+      throw new Error("Signed binary update metadata has the wrong kind");
+    }
+    if (!isToken(metadata.signature, 40, 256)) {
+      throw new Error("Signed binary update metadata has no valid signature");
+    }
+
+    return {
+      protocol: metadata.protocol,
+      kind: metadata.kind,
+      lineageId: metadata.lineageId,
+      branchId: metadata.branchId,
+      savedAt: metadata.savedAt,
+      stateHash: metadata.stateHash,
+      author: typeof metadata.author === "string" ? metadata.author : "",
+      update: new Uint8Array(toUint8Array(data)),
+      signature: base64UrlToBytes(metadata.signature)
+    };
+  }
+
+  function sendSignedEnvelope(action, envelope, peerId) {
+    if (!action) return Promise.resolve();
+    return action.send(arrayBufferCopy(envelope.update), {
+      target: peerId,
+      metadata: signedEnvelopeMetadata(envelope)
+    });
+  }
+
+  function rememberVerifiedStateEnvelope(envelope, relation) {
+    if (!envelope) return;
+    if (latestSignedStateEnvelope && relation === "local-ahead") return;
+    latestSignedStateEnvelope = copySignedEnvelope(envelope);
+    verifiedUpdateLog = [];
+  }
+
+  function rememberVerifiedUpdateEnvelope(envelope) {
+    if (!envelope) return;
+    const duplicate = verifiedUpdateLog.some(function (item) {
+      return item.stateHash === envelope.stateHash && item.author === envelope.author;
+    });
+    if (duplicate) return;
+    verifiedUpdateLog.push(copySignedEnvelope(envelope));
+    if (verifiedUpdateLog.length > MAX_VERIFIED_UPDATE_LOG) {
+      verifiedUpdateLog = verifiedUpdateLog.slice(-MAX_VERIFIED_UPDATE_LOG);
+    }
+  }
+
+  async function applyStoredVerifiedDocument(record) {
+    let applied = false;
+    if (record.verifiedState) {
+      try {
+        const state = await verifySignedEnvelope(record.verifiedState, "state", null);
+        Y.applyUpdate(ydoc, state.update, LOAD_ORIGIN);
+        rememberVerifiedStateEnvelope(state, "incoming-ahead");
+        applied = true;
+      } catch (error) {
+        console.warn("Ignored an unverifiable browser-local state", error);
+      }
+    }
+
+    if (Array.isArray(record.verifiedUpdates)) {
+      for (const stored of record.verifiedUpdates.slice(-MAX_VERIFIED_UPDATE_LOG)) {
+        try {
+          const author = stored && typeof stored.author === "string" ? stored.author : null;
+          const update = await verifySignedEnvelope(stored, "update", author);
+          Y.applyUpdate(ydoc, update.update, LOAD_ORIGIN);
+          rememberVerifiedUpdateEnvelope(update);
+          applied = true;
+        } catch (error) {
+          console.warn("Ignored an unverifiable browser-local update", error);
+        }
+      }
+    }
+    return applied ? Y.encodeStateAsUpdate(ydoc) : null;
+  }
+
+  async function refreshSignedStateEnvelope() {
+    if (!canEdit || !ydoc) return latestSignedStateEnvelope;
+    const envelope = await createSignedEnvelope("state", Y.encodeStateAsUpdate(ydoc));
+    rememberVerifiedStateEnvelope(envelope, "incoming-ahead");
+    return envelope;
+  }
+
+  function scheduleSignedStateBroadcast() {
+    if (!canEdit || !ydoc) return;
+    window.clearTimeout(signedStateTimer);
+    signedStateTimer = window.setTimeout(function () {
+      fireAndForget(broadcastSignedState(), "Could not refresh the signed document state");
+    }, SIGNED_STATE_DELAY);
+  }
+
+  async function broadcastSignedState() {
+    if (!canEdit || !ydoc) return;
+    const envelope = await refreshSignedStateEnvelope();
+    if (snapshotAction && room && remotelyApprovedPeers.size) {
+      const sends = [];
+      remotelyApprovedPeers.forEach(function (peerId) {
+        lastSentStateHash.set(peerId, envelope.stateHash);
+        sends.push(sendSignedEnvelope(snapshotAction, envelope, peerId));
+      });
+      await Promise.all(sends);
+    }
+    scheduleSnapshotSave(0);
+  }
+
+  async function sendSignedDocumentUpdate(updateValue) {
+    if (!canEdit) return;
+    const envelope = await createSignedEnvelope("update", updateValue);
+    rememberVerifiedUpdateEnvelope(envelope);
+    scheduleSnapshotSave(0);
+    if (!updateAction || !room || !remotelyApprovedPeers.size) return;
+    const sends = [];
+    remotelyApprovedPeers.forEach(function (peerId) {
+      sends.push(sendSignedEnvelope(updateAction, envelope, peerId));
+    });
+    await Promise.all(sends);
+  }
+
+  function readOrCreateRoomConfig() {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const roomId = params.get("room");
+    const roomKey = params.get("key");
+    const validRoom = isToken(roomId, 16, 128);
+    const validKey = isToken(roomKey, 20, 128);
+
+    if (validRoom && validKey) {
+      const suppliedLineage = params.get("lineage");
+      const suppliedBranch = params.get("branch");
+      const suppliedPublic = params.get("pub") || "";
+      const suppliedWrite = params.get("write") || "";
+      return {
+        roomId: roomId,
+        roomKey: roomKey,
+        lineageId: isToken(suppliedLineage, 8, 128) ? suppliedLineage : "L" + roomId,
+        branchId: isToken(suppliedBranch, 8, 128) ? suppliedBranch : "B" + roomId,
+        explicitLineage: isToken(suppliedLineage, 8, 128),
+        explicitBranch: isToken(suppliedBranch, 8, 128),
+        publicKey: publicKeyParts(suppliedPublic) ? suppliedPublic : "",
+        writeKey: isToken(suppliedWrite, 40, 64) ? suppliedWrite : "",
+        seed: params.get("seed") || "",
+        seedSignature: isToken(params.get("sig"), 40, 256) ? params.get("sig") : "",
+        head: isToken(params.get("head"), 8, 128) ? params.get("head") : "",
+        seedSavedAt: parseTimestamp(params.get("ts")),
+        flavor: editor.getFlavor(),
+        isNew: false,
+        migratedLegacy: false
+      };
+    }
+
+    const config = {
+      roomId: randomToken(18),
+      roomKey: randomToken(24),
+      lineageId: randomToken(16),
+      branchId: randomToken(12),
+      explicitLineage: true,
+      explicitBranch: true,
+      publicKey: "",
+      writeKey: "",
+      seed: "",
+      seedSignature: "",
+      head: "",
+      seedSavedAt: 0,
+      flavor: editor.getFlavor(),
+      isNew: true,
+      migratedLegacy: false
+    };
+    replaceAddressHash(config);
+    return config;
+  }
+
+  function parseTimestamp(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  function isToken(value, minimum, maximum) {
+    return (
+      typeof value === "string" &&
+      value.length >= minimum &&
+      value.length <= maximum &&
+      /^[A-Za-z0-9_-]+$/.test(value)
+    );
+  }
+
+  function randomToken(byteLength) {
+    const bytes = new Uint8Array(byteLength);
+    window.crypto.getRandomValues(bytes);
+    return bytesToBase64Url(bytes);
+  }
+
+  function storageIdFor(config) {
+    return config.roomId + ":" + config.roomKey.slice(0, 12);
+  }
+
+  function replaceAddressHash(config) {
+    const url = new URL(window.location.href);
+    const params = new URLSearchParams();
+    params.set("room", config.roomId);
+    params.set("key", config.roomKey);
+    params.set("lineage", config.lineageId);
+    params.set("branch", config.branchId);
+    if (config.publicKey) params.set("pub", config.publicKey);
+    if (config.writeKey) params.set("write", config.writeKey);
+    params.set("flavor", editor.getFlavor());
+    if (config.seed) params.set("seed", config.seed);
+    if (config.seedSignature) params.set("sig", config.seedSignature);
+    if (config.head) params.set("head", config.head);
+    if (config.seedSavedAt) params.set("ts", String(config.seedSavedAt));
+    url.hash = params.toString();
+    window.history.replaceState(null, "", url.href);
+  }
+
+  async function createFreshDocumentConfig(lineageId) {
+    const material = await generateCapabilityMaterial();
+    return {
+      roomId: randomToken(18),
+      roomKey: randomToken(24),
+      lineageId: lineageId || randomToken(16),
+      branchId: randomToken(12),
+      publicKey: material.publicToken,
+      writeKey: material.privateToken,
+      privateKey: material.privateKey,
+      publicCryptoKey: material.publicKey
+    };
+  }
+
+  async function createNewDocument() {
+    newRoomButton.disabled = true;
+    try {
+      await saveCheckpoint("Before creating a new document", {important: true, force: true});
+      await saveSnapshot();
+    } catch (_error) {}
+
+    try {
+      const config = await createFreshDocumentConfig();
+      const url = urlForConfig(config, {includeWrite: true});
+      reloadAtDocumentUrl(url);
+    } catch (error) {
+      console.warn("Could not create a new document capability", error);
+      newRoomButton.disabled = false;
+      showMessage("Could not create the new document.", "error", 6000);
+    }
+  }
+
+  function reloadAtDocumentUrl(url) {
+    leaveRoom();
+    try {
+      window.history.pushState(null, "", url.href);
+      window.location.reload();
+    } catch (_error) {
+      window.location.assign(url.href);
+      window.setTimeout(function () { window.location.reload(); }, 0);
+    }
+  }
+
+  function shortRoomName(roomId) {
+    return roomId.slice(0, 4) + "…" + roomId.slice(-4);
+  }
+
+  function bindSharedText() {
+    undoManager = new Y.UndoManager(ytext, {
+      trackedOrigins: new Set([LOCAL_ORIGIN]),
+      captureTimeout: 500
+    });
+
+    ydoc.on("beforeTransaction", function (transaction) {
+      if (transaction.origin === LOCAL_ORIGIN || document.activeElement !== input) return;
+      savedSelection = selectionToRelativePosition();
+    });
+
+    ytext.observe(function (_event, transaction) {
+      if (transaction.origin === LOCAL_ORIGIN) return;
+
+      editor.setText(ytext.toString());
+      restoreRelativeSelection(savedSelection);
+      savedSelection = null;
+      queuePresenceUpdate(0);
+      renderRemoteCursors();
+    });
+
+    ydoc.on("afterTransaction", function () {
+      savedSelection = null;
+    });
+
+    editor.onLocalInput(function (nextText) {
+      if (!canEdit) {
+        if (nextText !== ytext.toString()) editor.setText(ytext.toString());
+        return;
+      }
+      applyTextareaDiff(ytext.toString(), nextText);
+      queuePresenceUpdate(30);
+      renderRemoteCursors();
+    });
+
+    ydoc.on("update", function (update, origin) {
+      scheduleSnapshotSave(350);
+      scheduleAutoCheckpoint();
+      if (origin !== REMOTE_ORIGIN && canEdit) {
+        fireAndForget(
+          sendSignedDocumentUpdate(update),
+          "Could not sign and save a document update"
+        );
+        scheduleSignedStateBroadcast();
+      }
+    });
+  }
+
+  function applyTextareaDiff(previousText, nextText) {
+    if (previousText === nextText) return;
+
+    let start = 0;
+    const previousLength = previousText.length;
+    const nextLength = nextText.length;
+    while (
+      start < previousLength &&
+      start < nextLength &&
+      previousText.charCodeAt(start) === nextText.charCodeAt(start)
+    ) {
+      start += 1;
+    }
+
+    let previousEnd = previousLength;
+    let nextEnd = nextLength;
+    while (
+      previousEnd > start &&
+      nextEnd > start &&
+      previousText.charCodeAt(previousEnd - 1) === nextText.charCodeAt(nextEnd - 1)
+    ) {
+      previousEnd -= 1;
+      nextEnd -= 1;
+    }
+
+    ydoc.transact(function () {
+      if (previousEnd > start) ytext.delete(start, previousEnd - start);
+      if (nextEnd > start) ytext.insert(start, nextText.slice(start, nextEnd));
+    }, LOCAL_ORIGIN);
+  }
+
+  function selectionToRelativePosition() {
+    if (!ytext) return null;
+    const start = clamp(input.selectionStart, 0, ytext.length);
+    const end = clamp(input.selectionEnd, 0, ytext.length);
+    const backward = input.selectionDirection === "backward";
+    const anchorIndex = backward ? end : start;
+    const headIndex = backward ? start : end;
+
+    return {
+      anchor: Y.createRelativePositionFromTypeIndex(ytext, anchorIndex),
+      head: Y.createRelativePositionFromTypeIndex(ytext, headIndex),
+      direction: backward ? "backward" : "forward"
+    };
+  }
+
+  function restoreRelativeSelection(selection) {
+    if (!selection) return;
+    const anchor = Y.createAbsolutePositionFromRelativePosition(selection.anchor, ydoc);
+    const head = Y.createAbsolutePositionFromRelativePosition(selection.head, ydoc);
+    if (!anchor || !head || anchor.type !== ytext || head.type !== ytext) return;
+
+    const anchorIndex = clamp(anchor.index, 0, input.value.length);
+    const headIndex = clamp(head.index, 0, input.value.length);
+    const start = Math.min(anchorIndex, headIndex);
+    const end = Math.max(anchorIndex, headIndex);
+    const direction = anchorIndex > headIndex ? "backward" : "forward";
+
+    try {
+      input.setSelectionRange(start, end, direction);
+    } catch (_error) {
+      input.setSelectionRange(start, end);
+    }
+  }
+
+  function configureProfile() {
+    const profile = loadProfile();
+    displayName.value = profile.name;
+    displayName.dataset.color = profile.color;
+
+    let nameTimer = null;
+    displayName.addEventListener("input", function () {
+      window.clearTimeout(nameTimer);
+      nameTimer = window.setTimeout(function () {
+        const current = getLocalProfile();
+        saveProfile(current);
+        renderParticipants();
+        queuePresenceUpdate(0);
+      }, 120);
+    });
+
+    displayName.addEventListener("blur", function () {
+      if (!displayName.value.trim()) displayName.value = defaultEditorName();
+      const current = getLocalProfile();
+      saveProfile(current);
+      renderParticipants();
+      queuePresenceUpdate(0);
+    });
+  }
+
+  function loadProfile() {
+    let stored = null;
+    try {
+      stored = JSON.parse(window.localStorage.getItem(PROFILE_KEY));
+    } catch (_error) {}
+
+    return {
+      name:
+        stored && typeof stored.name === "string" && stored.name.trim()
+          ? stored.name.trim().slice(0, 40)
+          : defaultEditorName(),
+      color:
+        stored && isColor(stored.color)
+          ? stored.color
+          : chooseColor(selfId || roomConfig.roomId)
+    };
+  }
+
+  function getLocalProfile() {
+    return {
+      name: displayName.value.trim().slice(0, 40) || defaultEditorName(),
+      color: isColor(displayName.dataset.color)
+        ? displayName.dataset.color
+        : chooseColor(selfId || roomConfig.roomId)
+    };
+  }
+
+  function saveProfile(profile) {
+    displayName.dataset.color = profile.color;
+    try {
+      window.localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    } catch (_error) {}
+  }
+
+  function defaultEditorName() {
+    const suffix = String(selfId || roomConfig.roomId).replace(/[^A-Za-z0-9]/g, "").slice(-4);
+    return "Guest " + (suffix || Math.floor(Math.random() * 900 + 100));
+  }
+
+  function chooseColor(seed) {
+    const palette = [
+      "#8c1b13",
+      "#3e6775",
+      "#6a4c93",
+      "#2a7f62",
+      "#a55400",
+      "#7a3e65",
+      "#4b6f31",
+      "#355c9a"
+    ];
+    let hash = 0;
+    for (let index = 0; index < seed.length; index += 1) {
+      hash = ((hash << 5) - hash + seed.charCodeAt(index)) | 0;
+    }
+    return palette[Math.abs(hash) % palette.length];
+  }
+
+  function isColor(value) {
+    return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+  }
+
+  async function initializeTurnConfiguration() {
+    const config = window.MarkdownRelayTURN;
+    if (!config) return;
+
+    try {
+      let suppliedServers = Array.isArray(config)
+        ? config
+        : config.turnServers || config.iceServers || [];
+
+      if (config && !Array.isArray(config) && config.credentialUrl) {
+        const endpoint = new URL(config.credentialUrl, window.location.href);
+        if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost") {
+          throw new Error("The TURN credential endpoint must use HTTPS");
+        }
+
+        const response = await fetch(endpoint.href, {
+          method: "GET",
+          cache: "no-store",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+          headers: {Accept: "application/json"}
+        });
+        if (!response.ok) {
+          throw new Error("The TURN credential endpoint returned HTTP " + response.status);
+        }
+
+        const payload = await response.json();
+        suppliedServers = Array.isArray(payload)
+          ? payload
+          : payload && (payload.turnServers || payload.iceServers);
+      }
+
+      turnServers = normalizeTurnServers(suppliedServers);
+      if (!turnServers.length) {
+        throw new Error("No valid TURN servers were supplied");
+      }
+    } catch (error) {
+      turnServers = [];
+      turnConfigurationError = error && error.message
+        ? error.message
+        : "The TURN configuration could not be loaded";
+      console.warn("TURN relay configuration is unavailable", error);
+      showMessage(
+        "TURN relay configuration failed. Direct peer connections will still be attempted.",
+        "warning",
+        9000
+      );
+    }
+  }
+
+  function normalizeTurnServers(value) {
+    if (!Array.isArray(value)) throw new Error("TURN servers must be an array");
+    if (value.length > 8) throw new Error("At most 8 TURN servers may be configured");
+
+    return value.map(function (server) {
+      if (!server || typeof server !== "object" || Array.isArray(server)) {
+        throw new Error("Each TURN server must be an object");
+      }
+
+      const rawUrls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      if (!rawUrls.length || rawUrls.length > 8) {
+        throw new Error("Each TURN server must have 1 to 8 URLs");
+      }
+
+      const urls = rawUrls.map(function (url) {
+        if (typeof url !== "string" || !/^turns?:/i.test(url)) {
+          throw new Error("TURN URLs must start with turn: or turns:");
+        }
+        return url;
+      });
+
+      if (typeof server.username !== "string" || !server.username) {
+        throw new Error("Each TURN server must have a username");
+      }
+      if (typeof server.credential !== "string" || !server.credential) {
+        throw new Error("Each TURN server must have a credential");
+      }
+
+      const normalized = {
+        urls: Array.isArray(server.urls) ? urls : urls[0],
+        username: server.username,
+        credential: server.credential
+      };
+      if (server.credentialType === "password") normalized.credentialType = "password";
+      return normalized;
+    });
+  }
+
+  function connectPeerRoom() {
+    if (room || conflictByKey.has("link")) return;
+    setNetworkState("loading", "Connecting to peer network…");
+
+    const peerConfig = {
+      appId: APP_ID,
+      password: roomConfig.roomKey,
+      relayConfig: {
+        redundancy: 4,
+        warnOnRelayFailure: false
+      }
+    };
+    if (turnServers.length) peerConfig.turnConfig = turnServers;
+
+    room = joinRoom(
+      peerConfig,
+      roomConfig.roomId,
+      {
+        onJoinError: function (details) {
+          const error = details && details.error;
+          networkError = error && error.message ? error.message : "Peer connection failed";
+          console.warn("Peer connection failed", details);
+          updateNetworkStatus();
+          showMessage(
+            turnServers.length
+              ? "A browser-to-browser connection failed despite the configured TURN relay. Check its credentials and TCP/TLS reachability."
+              : turnConfigurationError
+                ? "A browser-to-browser connection failed and TURN configuration is unavailable."
+                : "A browser-to-browser connection failed. This network may require a TURN relay.",
+            "warning",
+            10000
+          );
+        }
+      }
+    );
+
+    roomConnected = true;
+    // Trystero payloads are either JSON or top-level binary. Keep Yjs bytes as
+    // the action payload and put only JSON-safe signature fields in metadata.
+    updateAction = room.makeAction("signed-update-v4");
+    presenceAction = room.makeAction("presence-v4");
+    requestAction = room.makeAction("state-request-v4");
+    snapshotAction = room.makeAction("signed-state-v4");
+    decisionAction = room.makeAction("sync-decision-v4");
+
+    updateAction.onMessage = function (data, context) {
+      fireAndForget(
+        handleSignedDocumentUpdate(data, context),
+        "Could not verify a document update"
+      );
+    };
+
+    snapshotAction.onMessage = function (data, context) {
+      fireAndForget(
+        handleSignedDocumentState(data, context),
+        "Could not verify a document state"
+      );
+    };
+
+    requestAction.onMessage = function (_data, context) {
+      fireAndForget(sendDocumentState(context.peerId), "Could not answer a state request");
+    };
+
+    decisionAction.onMessage = function (data, context) {
+      if (!data || typeof data !== "object") return;
+      if (data.status === "allow") {
+        const expected = lastSentStateHash.get(context.peerId);
+        if (!expected || data.acceptedHash !== expected) return;
+        remotelyApprovedPeers.add(context.peerId);
+        activatePeerIfReady(context.peerId);
+        if (canEdit) scheduleSignedStateBroadcast();
+      } else if (data.status === "fork") {
+        const conflictKey = "peer:" + context.peerId;
+        const hadConflict = conflictByKey.has(conflictKey);
+        if (hadConflict) clearConflict(conflictKey);
+        showMessage(
+          hadConflict
+            ? "The collaborator forked their offline copy. Your version remains in this room."
+            : "A collaborator kept their offline copy as a separate fork.",
+          "info",
+          7000
+        );
+      }
+    };
+
+    presenceAction.onMessage = function (data, context) {
+      const presence = sanitizePresence(data);
+      if (!presence) return;
+      peerPresence.set(context.peerId, presence);
+      peerIds.add(context.peerId);
+      renderParticipants();
+      renderRemoteCursors();
+      updateNetworkStatus();
+    };
+
+    room.onPeerJoin = function (peerId) {
+      networkError = null;
+      peerIds.add(peerId);
+      renderParticipants();
+      updateNetworkStatus();
+      fireAndForget(
+        requestAction.send({protocol: SIGNATURE_PROTOCOL, request: "state"}, {target: peerId}),
+        "Could not request the document state"
+      );
+      fireAndForget(sendDocumentState(peerId), "Could not send the signed document state");
+      sendPresence(peerId);
+    };
+
+    room.onPeerLeave = function (peerId) {
+      peerIds.delete(peerId);
+      activePeers.delete(peerId);
+      locallyApprovedPeers.delete(peerId);
+      remotelyApprovedPeers.delete(peerId);
+      peerPresence.delete(peerId);
+      peerManifests.delete(peerId);
+      peerSnapshots.delete(peerId);
+      peerStateEnvelopes.delete(peerId);
+      processingPeers.delete(peerId);
+      lastSentStateHash.delete(peerId);
+      renderParticipants();
+      renderRemoteCursors();
+      updateNetworkStatus();
+    };
+
+    window.addEventListener("online", updateNetworkStatus);
+    window.addEventListener("offline", updateNetworkStatus);
+    window.addEventListener("pagehide", function () {
+      quickSaveSnapshot();
+      leaveRoom();
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") quickSaveSnapshot();
+    });
+
+    heartbeatTimer = window.setInterval(function () {
+      sendPresence();
+    }, 15000);
+  }
+
+  async function handleSignedDocumentUpdate(data, context) {
+    if (!locallyApprovedPeers.has(context.peerId)) {
+      if (requestAction) {
+        requestAction.send(
+          {protocol: SIGNATURE_PROTOCOL, request: "state"},
+          {target: context.peerId}
+        ).catch(function () {});
+      }
+      return;
+    }
+    try {
+      const transported = signedEnvelopeFromTransport(data, context, "update");
+      const envelope = await verifySignedEnvelope(transported, "update", context.peerId);
+      Y.applyUpdate(ydoc, envelope.update, REMOTE_ORIGIN);
+      rememberVerifiedUpdateEnvelope(envelope);
+      scheduleSnapshotSave(0);
+    } catch (error) {
+      console.warn("Rejected an unsigned or invalid document update from " + context.peerId, error);
+      showMessage(
+        "A peer tried to publish a document change without a valid edit signature. It was rejected.",
+        "warning",
+        6500
+      );
+    }
+  }
+
+  async function handleSignedDocumentState(data, context) {
+    try {
+      const transported = signedEnvelopeFromTransport(data, context, "state");
+      const envelope = await verifySignedEnvelope(transported, "state", null);
+      const presence = peerPresence.get(context.peerId);
+      const profile = presence || {name: "Collaborator", color: chooseColor(context.peerId)};
+      const manifest = {
+        protocol: SIGNATURE_PROTOCOL,
+        lineageId: envelope.lineageId,
+        branchId: envelope.branchId,
+        stateHash: envelope.stateHash,
+        savedAt: envelope.savedAt,
+        name: profile.name,
+        color: profile.color
+      };
+      peerManifests.set(context.peerId, manifest);
+      peerSnapshots.set(context.peerId, new Uint8Array(envelope.update));
+      peerStateEnvelopes.set(context.peerId, envelope);
+      maybeProcessPeerSync(context.peerId);
+    } catch (error) {
+      console.warn("Rejected an unsigned or invalid document state from " + context.peerId, error);
+    }
+  }
+
+  async function sendDocumentState(peerId) {
+    if (!room || !snapshotAction) return;
+    let envelope = null;
+    if (canEdit) envelope = await refreshSignedStateEnvelope();
+    else if (latestSignedStateEnvelope) envelope = copySignedEnvelope(latestSignedStateEnvelope);
+    if (!envelope) return;
+    lastSentStateHash.set(peerId, envelope.stateHash);
+    await sendSignedEnvelope(snapshotAction, envelope, peerId);
+  }
+
+  async function maybeProcessPeerSync(peerId) {
+    if (processingPeers.has(peerId)) return;
+    const manifest = peerManifests.get(peerId);
+    const update = peerSnapshots.get(peerId);
+    const signedEnvelope = peerStateEnvelopes.get(peerId);
+    if (!manifest || !update || !signedEnvelope) return;
+
+    processingPeers.add(peerId);
+    peerManifests.delete(peerId);
+    peerSnapshots.delete(peerId);
+    peerStateEnvelopes.delete(peerId);
+
+    try {
+      const candidate = await analyzeIncomingUpdate(update, {
+        sourceType: "peer",
+        sourceKey: "peer:" + peerId,
+        sourceName: manifest.name || "collaborator",
+        peerId: peerId,
+        manifest: manifest,
+        signedEnvelope: signedEnvelope
+      });
+
+      if (candidateNeedsChoice(candidate)) {
+        locallyApprovedPeers.delete(peerId);
+        remotelyApprovedPeers.delete(peerId);
+        activePeers.delete(peerId);
+        enqueueConflict(candidate, document.activeElement !== input);
+      } else {
+        const resolvedExistingConflict = conflictByKey.has(candidate.sourceKey);
+        await approveCandidate(candidate);
+        if (resolvedExistingConflict) {
+          clearConflict(candidate.sourceKey);
+          showMessage(
+            "The other browser reconciled the versions. This copy caught up automatically.",
+            "info",
+            7000
+          );
+        }
+      }
+    } catch (error) {
+      console.warn("Could not compare a peer document version", error);
+      showMessage("A collaborator sent a signed document state that could not be checked.", "warning", 7000);
+    } finally {
+      processingPeers.delete(peerId);
+      if (
+        peerManifests.has(peerId) &&
+        peerSnapshots.has(peerId) &&
+        peerStateEnvelopes.has(peerId)
+      ) {
+        maybeProcessPeerSync(peerId);
+      }
+    }
+  }
+
+  async function analyzeIncomingUpdate(updateValue, details) {
+    const incomingUpdate = new Uint8Array(toUint8Array(updateValue));
+    if (incomingUpdate.byteLength > MAX_SYNC_BYTES) {
+      throw new Error("Incoming document state is too large");
+    }
+
+    const localUpdate = Y.encodeStateAsUpdate(ydoc);
+    const incomingDoc = new Y.Doc();
+    const unionDoc = new Y.Doc();
+
+    try {
+      Y.applyUpdate(incomingDoc, incomingUpdate, LOAD_ORIGIN);
+      const canonicalIncoming = Y.encodeStateAsUpdate(incomingDoc);
+      Y.applyUpdate(unionDoc, localUpdate, LOAD_ORIGIN);
+      Y.applyUpdate(unionDoc, canonicalIncoming, LOAD_ORIGIN);
+      const unionUpdate = Y.encodeStateAsUpdate(unionDoc);
+
+      const localText = ytext.toString();
+      const incomingText = incomingDoc.getText("markdown").toString();
+      const mergedText = unionDoc.getText("markdown").toString();
+      const hashes = await Promise.all([
+        hashBytes(localUpdate),
+        hashBytes(canonicalIncoming),
+        hashBytes(unionUpdate)
+      ]);
+
+      let relation;
+      if (hashes[0] === hashes[1]) relation = "equal";
+      else if (localText === incomingText && mergedText === localText) relation = "equivalent";
+      else if (hashes[2] === hashes[0]) relation = "local-ahead";
+      else if (hashes[2] === hashes[1]) relation = "incoming-ahead";
+      else relation = "concurrent";
+
+      const manifest = details.manifest || {};
+      return {
+        id: details.sourceKey + ":" + hashes[1],
+        sourceType: details.sourceType,
+        sourceKey: details.sourceKey,
+        sourceName: details.sourceName,
+        peerId: details.peerId || null,
+        manifest: manifest,
+        signedEnvelope: details.signedEnvelope || null,
+        incomingUpdate: canonicalIncoming,
+        localUpdate: localUpdate,
+        localText: localText,
+        incomingText: incomingText,
+        mergedText: mergedText,
+        localHash: hashes[0],
+        incomingHash: hashes[1],
+        mergedHash: hashes[2],
+        relation: relation,
+        localSavedAt: latestSavedAt,
+        incomingSavedAt: parseTimestamp(manifest.savedAt),
+        lineageMismatch:
+          Boolean(manifest.lineageId) && manifest.lineageId !== roomConfig.lineageId,
+        branchMismatch:
+          Boolean(manifest.branchId) && manifest.branchId !== roomConfig.branchId,
+        deferred: false
+      };
+    } finally {
+      incomingDoc.destroy();
+      unionDoc.destroy();
+    }
+  }
+
+  function candidateNeedsChoice(candidate) {
+    const mergeChangesText =
+      candidate.mergedText !== candidate.localText ||
+      candidate.mergedText !== candidate.incomingText;
+    if (!mergeChangesText && candidate.localText === candidate.incomingText) return false;
+    if (candidate.lineageMismatch || candidate.branchMismatch) return true;
+    return candidate.relation === "concurrent";
+  }
+
+  async function approveCandidate(candidate) {
+    if (candidate.relation === "incoming-ahead") {
+      await saveCheckpoint("Before catching up", {important: false});
+    }
+
+    Y.applyUpdate(ydoc, candidate.incomingUpdate, REMOTE_ORIGIN);
+    if (candidate.signedEnvelope) {
+      rememberVerifiedStateEnvelope(candidate.signedEnvelope, candidate.relation);
+    }
+    scheduleSnapshotSave(0);
+    scheduleAutoCheckpoint();
+
+    if (candidate.sourceType === "peer" && candidate.peerId) {
+      locallyApprovedPeers.add(candidate.peerId);
+      const acceptedHash = candidate.signedEnvelope
+        ? candidate.signedEnvelope.stateHash
+        : candidate.manifest.stateHash || candidate.incomingHash;
+      await decisionAction.send(
+        {status: "allow", acceptedHash: acceptedHash},
+        {target: candidate.peerId}
+      );
+      activatePeerIfReady(candidate.peerId);
+    }
+
+    if (candidate.relation === "incoming-ahead") {
+      showMessage("Caught up with a newer saved copy.", "info", 4500);
+    }
+  }
+
+  function activatePeerIfReady(peerId) {
+    if (!locallyApprovedPeers.has(peerId) || !remotelyApprovedPeers.has(peerId)) return;
+    const wasActive = activePeers.has(peerId);
+    activePeers.add(peerId);
+    updateNetworkStatus();
+    if (!wasActive && canEdit && remotelyApprovedPeers.has(peerId)) {
+      fireAndForget(sendDocumentState(peerId), "Could not finish signed document synchronization");
+    }
+    sendPresence(peerId);
+  }
+
+  function sanitizePresence(value) {
+    if (!value || typeof value !== "object") return null;
+    const name =
+      typeof value.name === "string" && value.name.trim()
+        ? value.name.trim().slice(0, 40)
+        : "Collaborator";
+    const color = isColor(value.color) ? value.color : "#3e6775";
+    const role = value.role === "edit" ? "edit" : "read";
+    const cursor =
+      role === "edit" && value.cursor && typeof value.cursor === "object" && value.cursor.anchor && value.cursor.head
+        ? value.cursor
+        : null;
+    return {name: name, color: color, cursor: cursor, role: role};
+  }
+
+  function currentPresence() {
+    const profile = getLocalProfile();
+    return {
+      version: SIGNATURE_PROTOCOL,
+      name: profile.name,
+      color: profile.color,
+      role: canEdit ? "edit" : "read",
+      cursor: canEdit && document.activeElement === input ? selectionToRelativePosition() : null
+    };
+  }
+
+  function sendPresence(target) {
+    if (!presenceAction || !room) return;
+    const options = target ? {target: target} : undefined;
+    fireAndForget(presenceAction.send(currentPresence(), options), "Could not send presence");
+  }
+
+  function queuePresenceUpdate(delay) {
+    window.clearTimeout(presenceTimer);
+    presenceTimer = window.setTimeout(function () {
+      sendPresence();
+    }, delay == null ? 60 : delay);
+  }
+
+  function installSelectionTracking() {
+    ["select", "keyup", "mouseup", "focus", "blur"].forEach(function (eventName) {
+      input.addEventListener(eventName, function () {
+        queuePresenceUpdate(eventName === "blur" ? 0 : 40);
+      });
+    });
+
+    document.addEventListener("selectionchange", function () {
+      if (document.activeElement === input) queuePresenceUpdate(50);
+    });
+
+    input.addEventListener("scroll", syncCursorScroll, {passive: true});
+    window.addEventListener("resize", renderRemoteCursors);
+  }
+
+  function installUndoRedo() {
+    input.addEventListener("keydown", function (event) {
+      const command = event.metaKey || event.ctrlKey;
+      if (!command || event.altKey || event.key.toLowerCase() !== "z") return;
+
+      event.preventDefault();
+      if (event.shiftKey) undoManager.redo();
+      else undoManager.undo();
+      queuePresenceUpdate(0);
+    });
+
+    input.addEventListener("keydown", function (event) {
+      const command = event.metaKey || event.ctrlKey;
+      if (!command || event.altKey || event.key.toLowerCase() !== "y") return;
+      event.preventDefault();
+      undoManager.redo();
+      queuePresenceUpdate(0);
+    });
+  }
+
+  function renderParticipants() {
+    const local = getLocalProfile();
+    const participants = [{
+      id: selfId || "self",
+      name: local.name + " (you · " + (canEdit ? "editor" : "viewer") + ")",
+      color: local.color,
+      role: canEdit ? "edit" : "read",
+      self: true
+    }];
+
+    peerIds.forEach(function (peerId) {
+      const presence = peerPresence.get(peerId) || {
+        name: "Collaborator",
+        color: chooseColor(peerId),
+        role: "read"
+      };
+      const roleLabel = presence.role === "edit" ? "editor" : "viewer";
+      participants.push({
+        id: peerId,
+        name: presence.name + " · " + roleLabel + (activePeers.has(peerId) ? "" : " · checking"),
+        color: presence.color,
+        role: presence.role,
+        self: false
+      });
+    });
+
+    peerList.replaceChildren();
+    const visible = participants.slice(0, 5);
+    visible.forEach(function (participant) {
+      const chip = document.createElement("span");
+      chip.className = "peer-chip";
+      chip.title = participant.name;
+
+      const avatar = document.createElement("span");
+      avatar.className = "peer-avatar";
+      avatar.style.backgroundColor = participant.color;
+      avatar.textContent = initials(participant.name.replace(/\s*\(you[^)]*\)$/, ""));
+
+      const name = document.createElement("span");
+      name.className = "peer-chip-name";
+      name.textContent = participant.name;
+
+      chip.append(avatar, name);
+      peerList.appendChild(chip);
+    });
+
+    if (participants.length > visible.length) {
+      const overflow = document.createElement("span");
+      overflow.className = "peer-overflow";
+      overflow.textContent = "+" + (participants.length - visible.length);
+      peerList.appendChild(overflow);
+    }
+  }
+
+  function initials(name) {
+    const clean = name.replace(/\s*·\s*(editor|viewer)(?:\s*·\s*checking)?$/, "");
+    const words = clean.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return "?";
+    if (words.length === 1) return words[0].slice(0, 2);
+    return (words[0][0] + words[words.length - 1][0]).slice(0, 2);
+  }
+
+  function renderRemoteCursors() {
+    if (!Y || !ydoc || !ytext) return;
+    cursorOverlay.replaceChildren();
+    cursorOverlay.style.width = input.clientWidth + "px";
+    const source = ytext.toString();
+
+    activePeers.forEach(function (peerId) {
+      const presence = peerPresence.get(peerId);
+      if (!presence || presence.role !== "edit" || !presence.cursor) return;
+
+      const cursor = absoluteCursor(presence.cursor);
+      if (!cursor) return;
+
+      const layer = document.createElement("div");
+      layer.className = "remote-cursor-layer";
+      layer.style.width = input.clientWidth + "px";
+      layer.style.minHeight = Math.max(input.clientHeight, input.scrollHeight) + "px";
+      layer.style.setProperty("--peer-color", presence.color);
+      layer.dataset.peerId = peerId;
+
+      const start = Math.min(cursor.anchor, cursor.head);
+      const end = Math.max(cursor.anchor, cursor.head);
+      appendText(layer, source.slice(0, start));
+
+      if (cursor.head === start) layer.appendChild(makeCaret(presence.name, presence.color));
+
+      if (end > start) {
+        const selection = document.createElement("span");
+        selection.className = "remote-selection";
+        selection.style.backgroundColor = colorWithAlpha(presence.color, 0.22);
+        selection.textContent = source.slice(start, end);
+        layer.appendChild(selection);
+      }
+
+      if (cursor.head === end && cursor.head !== start) {
+        layer.appendChild(makeCaret(presence.name, presence.color));
+      }
+
+      appendText(layer, source.slice(end));
+      appendText(layer, "\u200b");
+      cursorOverlay.appendChild(layer);
+    });
+
+    syncCursorScroll();
+  }
+
+  function absoluteCursor(cursor) {
+    try {
+      const anchor = Y.createAbsolutePositionFromRelativePosition(cursor.anchor, ydoc);
+      const head = Y.createAbsolutePositionFromRelativePosition(cursor.head, ydoc);
+      if (!anchor || !head || anchor.type !== ytext || head.type !== ytext) return null;
+      return {
+        anchor: clamp(anchor.index, 0, ytext.length),
+        head: clamp(head.index, 0, ytext.length)
+      };
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function makeCaret(name, color) {
+    const caret = document.createElement("span");
+    caret.className = "remote-caret";
+    caret.dataset.name = name;
+    caret.style.borderColor = color;
+    caret.style.setProperty("--peer-color", color);
+    return caret;
+  }
+
+  function appendText(parent, value) {
+    if (value) parent.appendChild(document.createTextNode(value));
+  }
+
+  function syncCursorScroll() {
+    const transform = "translate(" + -input.scrollLeft + "px, " + -input.scrollTop + "px)";
+    cursorOverlay.querySelectorAll(".remote-cursor-layer").forEach(function (layer) {
+      layer.style.transform = transform;
+    });
+  }
+
+  function colorWithAlpha(hex, alpha) {
+    const value = parseInt(hex.slice(1), 16);
+    const red = (value >> 16) & 255;
+    const green = (value >> 8) & 255;
+    const blue = value & 255;
+    return "rgba(" + red + ", " + green + ", " + blue + ", " + alpha + ")";
+  }
+
+  function updateNetworkStatus() {
+    if (conflictByKey.has("link")) {
+      setNetworkState("warning", "Version choice needed · not connected");
+      return;
+    }
+    if (!navigator.onLine) {
+      setNetworkState("offline", canEdit ? "Offline · edits saved in this browser" : "Offline · verified copy saved in this browser");
+      return;
+    }
+    if (!roomConnected) {
+      setNetworkState("loading", "Connecting to peer network…");
+      return;
+    }
+
+    const participantCount = peerIds.size + 1;
+    if (networkError && !peerIds.size) {
+      setNetworkState("error", "Peer connection blocked · 1 participant");
+      return;
+    }
+
+    if (peerIds.size && activePeers.size < peerIds.size) {
+      const pending = peerIds.size - activePeers.size;
+      setNetworkState(
+        conflictCount() ? "warning" : "loading",
+        conflictCount()
+          ? "Version choice needed · sync paused"
+          : "Checking " + pending + (pending === 1 ? " collaborator…" : " collaborators…")
+      );
+      return;
+    }
+
+    if (activePeers.size) {
+      setNetworkState(
+        "ready",
+        participantCount + (participantCount === 1 ? " participant" : " participants") + " · live"
+      );
+    } else {
+      setNetworkState(
+        "waiting",
+        "1 " + (canEdit ? "editor" : "viewer") +
+          (turnServers.length ? " · TURN ready" : "") +
+          " · waiting for collaborators"
+      );
+    }
+  }
+
+  function setNetworkState(state, message) {
+    networkState.dataset.state = state;
+    networkStatus.textContent = message;
+  }
+
+  function setPersistenceState(state, message, savedAt) {
+    localSaveState.dataset.state = state;
+    localSaveStatus.textContent = message;
+    if (savedAt) localSaveState.title = "Last browser-local save: " + new Date(savedAt).toLocaleString();
+  }
+
+  function showMessage(message, tone, duration) {
+    window.clearTimeout(messageTimer);
+    collaborationMessage.hidden = false;
+    collaborationMessage.dataset.tone = tone || "info";
+    collaborationMessage.textContent = message;
+    if (duration) {
+      messageTimer = window.setTimeout(function () {
+        collaborationMessage.hidden = true;
+        collaborationMessage.textContent = "";
+      }, duration);
+    }
+  }
+
+  function enqueueConflict(candidate, autoOpen) {
+    const key = candidate.sourceKey;
+    const previous = conflictByKey.get(key);
+    if (!previous) conflictOrder.push(key);
+    candidate.deferred = previous ? previous.deferred : false;
+    conflictByKey.set(key, candidate);
+
+    if (!previous || previous.incomingHash !== candidate.incomingHash) {
+      fireAndForget(
+        saveCheckpoint("Local version at conflict", {important: true, force: true}),
+        "Could not save the local conflict checkpoint"
+      );
+      fireAndForget(
+        saveExternalCheckpoint(
+          candidate,
+          candidate.sourceType === "link"
+            ? "Conflicting invite-link version"
+            : "Conflicting version from " + candidate.sourceName
+        ),
+        "Could not save the incoming conflict checkpoint"
+      );
+    }
+
+    updateConflictButton();
+    updateNetworkStatus();
+
+    if (autoOpen && !candidate.deferred && currentConflict === null && conflictDialog.hidden) {
+      openConflict(candidate);
+    } else if (!autoOpen && !previous) {
+      showMessage(
+        "A collaborator has a divergent offline version. Your edits remain local until you review it.",
+        "warning",
+        8000
+      );
+    }
+  }
+
+  function conflictCount() {
+    return conflictByKey.size;
+  }
+
+  function updateConflictButton() {
+    const count = conflictCount();
+    reviewConflictButton.hidden = count === 0;
+    reviewConflictButton.textContent = count > 1 ? "Review " + count + " conflicts" : "Review conflict";
+    updateAccessUi();
+    if (count > 0) {
+      shareEditButton.disabled = true;
+      shareReadButton.disabled = true;
+      shareEditButton.title = "Review the version conflict before sharing this document.";
+      shareReadButton.title = "Review the version conflict before sharing this document.";
+    }
+  }
+
+  function openOldestConflict() {
+    for (const key of conflictOrder) {
+      const candidate = conflictByKey.get(key);
+      if (candidate) {
+        openConflict(candidate);
+        return;
+      }
+    }
+  }
+
+  function openConflict(candidate) {
+    if (!candidate) return;
+    if (!historyDialog.hidden) closeHistoryDialog();
+    currentConflict = candidate;
+    candidate.deferred = false;
+    lastDialogFocus = document.activeElement;
+
+    const sourceLabel = candidate.sourceType === "link"
+      ? "the shared-link snapshot"
+      : candidate.sourceName;
+    conflictDescription.textContent = canEdit
+      ? "Your browser copy and " + sourceLabel +
+        " both contain edits the other has not seen. Nothing has been changed yet. " +
+        "Merging keeps both CRDT histories; forking preserves your current text in a separate document."
+      : "Your verified browser copy and " + sourceLabel +
+        " belong to divergent signed histories. This read-only link cannot authorize a merge. " +
+        "You can wait for an editor to reconcile them or fork the copy you are viewing into a new editable document.";
+
+    conflictIncomingTitle.textContent = candidate.sourceType === "link"
+      ? "Shared-link copy"
+      : "Incoming copy";
+    conflictLocalMeta.textContent = versionMeta(candidate.localText, candidate.localSavedAt);
+    conflictIncomingMeta.textContent = versionMeta(candidate.incomingText, candidate.incomingSavedAt);
+    conflictMergedMeta.textContent = versionMeta(candidate.mergedText, Date.now());
+    conflictLocalPreview.textContent = previewText(candidate.localText);
+    conflictIncomingPreview.textContent = previewText(candidate.incomingText);
+    conflictMergedPreview.textContent = previewText(candidate.mergedText);
+
+    conflictMergeButton.hidden = !canEdit;
+    conflictMergeButton.disabled = !canEdit;
+    conflictForkButton.disabled = false;
+    conflictLaterButton.disabled = false;
+    conflictMergeButton.textContent = "Merge and continue";
+    conflictForkButton.textContent = canEdit ? "Fork my copy" : "Fork viewed copy";
+    if (conflictNote) {
+      conflictNote.textContent = canEdit
+        ? "Merge saves recovery checkpoints for the local, incoming, and merged states. Forking opens your current browser copy under a new document capability, so it cannot overwrite this shared document. Only one editor needs to act."
+        : "Nothing will be discarded. The two signed branches remain in browser-local history. Forking creates a new editable document with a new capability; deciding later leaves this viewer on its current verified copy.";
+    }
+    conflictDialog.hidden = false;
+    document.body.classList.add("dialog-open");
+    conflictLaterButton.focus();
+  }
+
+  function deferCurrentConflict() {
+    if (!currentConflict) {
+      closeConflictDialog();
+      return;
+    }
+    currentConflict.deferred = true;
+    conflictByKey.set(currentConflict.sourceKey, currentConflict);
+    closeConflictDialog();
+    showMessage(
+      "Version conflict paused. Your edits remain local until you review it.",
+      "warning",
+      6500
+    );
+    updateConflictButton();
+    updateNetworkStatus();
+  }
+
+  async function mergeCurrentConflict() {
+    const candidate = currentConflict;
+    if (!candidate) return;
+    if (!canEdit) {
+      showMessage("This read-only link cannot authorize a merged document state. Fork the viewed copy or wait for an editor.", "warning", 7000);
+      return;
+    }
+    setConflictButtonsBusy("Merging…");
+
+    try {
+      const fresh = await analyzeIncomingUpdate(candidate.incomingUpdate, {
+        sourceType: candidate.sourceType,
+        sourceKey: candidate.sourceKey,
+        sourceName: candidate.sourceName,
+        peerId: candidate.peerId,
+        manifest: candidate.manifest,
+        signedEnvelope: candidate.signedEnvelope
+      });
+
+      await saveCheckpoint("Before version merge", {important: true, force: true});
+      await saveExternalCheckpoint(fresh, "Incoming version before merge");
+      Y.applyUpdate(ydoc, fresh.incomingUpdate, MERGE_ORIGIN);
+      await saveSnapshot();
+      await saveCheckpoint("After version merge", {important: true, force: true});
+
+      removeConflict(candidate.sourceKey);
+      closeConflictDialog();
+
+      if (candidate.sourceType === "peer" && candidate.peerId) {
+        locallyApprovedPeers.add(candidate.peerId);
+        await decisionAction.send(
+          {
+            status: "allow",
+            acceptedHash: fresh.signedEnvelope
+              ? fresh.signedEnvelope.stateHash
+              : fresh.incomingHash
+          },
+          {target: candidate.peerId}
+        );
+        await sendDocumentState(candidate.peerId);
+        activatePeerIfReady(candidate.peerId);
+      } else if (candidate.sourceType === "link") {
+        connectPeerRoom();
+      }
+
+      showMessage(
+        "Versions merged. The local, incoming, and merged states are saved in History.",
+        "info",
+        7500
+      );
+      openNextUndeferredConflict();
+    } catch (error) {
+      console.warn("Could not merge document versions", error);
+      setConflictButtonsBusy(null);
+      showMessage("Could not merge the versions; your local copy was not changed.", "error", 7000);
+    }
+  }
+
+  async function forkCurrentConflict() {
+    const candidate = currentConflict;
+    if (!candidate) return;
+    setConflictButtonsBusy("Forking…");
+
+    try {
+      await saveCheckpoint("Before conflict fork", {important: true, force: true});
+      await saveExternalCheckpoint(candidate, "Incoming version left in original room");
+      if (candidate.sourceType === "peer" && candidate.peerId && decisionAction) {
+        await Promise.race([
+          decisionAction.send({status: "fork"}, {target: candidate.peerId}).catch(function (error) {
+            console.warn("Could not tell the collaborator about the fork", error);
+          }),
+          new Promise(function (resolve) { window.setTimeout(resolve, 800); })
+        ]);
+      }
+      await forkUpdate(Y.encodeStateAsUpdate(ydoc), "Forked local copy");
+    } catch (error) {
+      console.warn("Could not fork the document", error);
+      setConflictButtonsBusy(null);
+      showMessage("Could not create the fork; your local copy was not changed.", "error", 7000);
+    }
+  }
+
+  function setConflictButtonsBusy(label) {
+    const busy = Boolean(label);
+    conflictMergeButton.hidden = !canEdit;
+    conflictMergeButton.disabled = busy || !canEdit;
+    conflictForkButton.disabled = busy;
+    conflictLaterButton.disabled = busy;
+    conflictCloseButton.disabled = busy;
+    conflictMergeButton.textContent = label || "Merge and continue";
+    if (!busy) conflictForkButton.textContent = canEdit ? "Fork my copy" : "Fork viewed copy";
+  }
+
+  function removeConflict(key) {
+    conflictByKey.delete(key);
+    const index = conflictOrder.indexOf(key);
+    if (index !== -1) conflictOrder.splice(index, 1);
+    updateConflictButton();
+    updateNetworkStatus();
+  }
+
+  function clearConflict(key) {
+    const wasOpen = currentConflict && currentConflict.sourceKey === key;
+    removeConflict(key);
+    if (wasOpen) closeConflictDialog();
+  }
+
+  function closeConflictDialog() {
+    conflictDialog.hidden = true;
+    currentConflict = null;
+    document.body.classList.toggle("dialog-open", !historyDialog.hidden);
+    if (lastDialogFocus && typeof lastDialogFocus.focus === "function") lastDialogFocus.focus();
+    lastDialogFocus = null;
+    setConflictButtonsBusy(null);
+  }
+
+  function openNextUndeferredConflict() {
+    for (const key of conflictOrder) {
+      const candidate = conflictByKey.get(key);
+      if (candidate && !candidate.deferred) {
+        window.setTimeout(function () { openConflict(candidate); }, 0);
+        return;
+      }
+    }
+  }
+
+  function versionMeta(text, savedAt) {
+    const chars = Array.from(text || "").length;
+    const lines = text ? text.split(/\n/).length : 0;
+    const time = savedAt ? new Date(savedAt).toLocaleString() : "time unknown";
+    return chars.toLocaleString() + " characters · " + lines.toLocaleString() +
+      (lines === 1 ? " line · " : " lines · ") + time;
+  }
+
+  function previewText(text) {
+    const value = String(text || "");
+    const limit = 3200;
+    if (value.length <= limit) return value || "(empty document)";
+    const half = Math.floor(limit / 2);
+    return value.slice(0, half) + "\n\n… preview shortened …\n\n" + value.slice(-half);
+  }
+
+  async function copyShareLink(mode) {
+    const editMode = mode === "edit";
+    if (editMode && !canEdit) {
+      showMessage("This browser does not have the edit capability.", "warning", 5000);
+      return;
+    }
+
+    const button = editMode ? shareEditButton : shareReadButton;
+    const originalLabel = editMode ? "Copy edit link" : "Copy read-only link";
+    button.disabled = true;
+    button.textContent = "Building link…";
+
+    try {
+      await saveSnapshot();
+      await saveCheckpoint(
+        editMode ? "Shared editable link snapshot" : "Shared read-only link snapshot",
+        {important: true, force: true}
+      );
+      const result = await buildInviteUrl(mode);
+      await editor.copyString(result.url);
+      button.textContent = "Link copied";
+
+      let message;
+      let tone = "info";
+      if (editMode) {
+        message = result.includesSnapshot
+          ? "Edit link copied with the current signed snapshot. Anyone with this link can edit; treat it like a password."
+          : "Edit link copied without a snapshot because the document is large. Keep an editor online for the first sync; anyone with the link can edit.";
+        if (!result.includesSnapshot) tone = "warning";
+      } else {
+        message = result.includesSnapshot
+          ? "Read-only link copied with the latest verified snapshot. Viewers can follow live edits but cannot publish accepted changes."
+          : "Read-only live-room link copied. Keep an editor online for the first sync; viewers cannot publish accepted changes.";
+        if (!result.includesSnapshot) tone = "warning";
+      }
+      showMessage(message, tone, 8000);
+    } catch (error) {
+      console.warn("Could not copy the sharing link", error);
+      button.textContent = "Copy failed";
+      showMessage("Could not copy the sharing link.", "error", 5000);
+    } finally {
+      window.setTimeout(function () {
+        button.textContent = originalLabel;
+        updateConflictButton();
+        updateAccessUi();
+      }, 1300);
+    }
+  }
+
+  async function buildInviteUrl(mode) {
+    const editMode = mode === "edit";
+    if (editMode && !canEdit) throw new Error("No edit capability is available");
+
+    let envelope = null;
+    if (canEdit) envelope = await refreshSignedStateEnvelope();
+    else if (latestSignedStateEnvelope) envelope = copySignedEnvelope(latestSignedStateEnvelope);
+
+    const config = {
+      roomId: roomConfig.roomId,
+      roomKey: roomConfig.roomKey,
+      lineageId: roomConfig.lineageId,
+      branchId: roomConfig.branchId,
+      publicKey: roomConfig.publicKey,
+      writeKey: editMode ? roomConfig.writeKey : ""
+    };
+    const url = urlForConfig(config, {includeWrite: editMode});
+    const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+
+    if (envelope) {
+      params.set("seed", await encodeSeed(envelope.update));
+      params.set("sig", bytesToBase64Url(envelope.signature));
+      params.set("head", envelope.stateHash);
+      params.set("ts", String(envelope.savedAt));
+      url.hash = params.toString();
+    }
+
+    if (envelope && url.href.length <= MAX_INVITE_URL_LENGTH) {
+      return {url: url.href, includesSnapshot: true};
+    }
+
+    params.delete("seed");
+    params.delete("sig");
+    params.delete("head");
+    params.delete("ts");
+    url.hash = params.toString();
+    return {url: url.href, includesSnapshot: false};
+  }
+
+  function urlForConfig(config, options) {
+    const settings = options || {};
+    const url = new URL(window.location.href);
+    const params = new URLSearchParams();
+    params.set("room", config.roomId);
+    params.set("key", config.roomKey);
+    params.set("lineage", config.lineageId);
+    params.set("branch", config.branchId);
+    if (config.publicKey) params.set("pub", config.publicKey);
+    if (settings.includeWrite && config.writeKey) params.set("write", config.writeKey);
+    params.set("flavor", editor.getFlavor());
+    url.hash = params.toString();
+    return url;
+  }
+
+  async function forkUpdate(updateValue, label) {
+    const update = new Uint8Array(toUint8Array(updateValue));
+    const forkConfig = await createFreshDocumentConfig(roomConfig.lineageId);
+    const forkStorageId = storageIdFor(forkConfig);
+    const forkDoc = new Y.Doc();
+    let text = "";
+    try {
+      Y.applyUpdate(forkDoc, update, LOAD_ORIGIN);
+      text = forkDoc.getText("markdown").toString();
+    } finally {
+      forkDoc.destroy();
+    }
+
+    const signedState = await createSignedEnvelopeFor(
+      forkConfig,
+      forkConfig.privateKey,
+      "state",
+      update,
+      ""
+    );
+    const stateHash = signedState.stateHash;
+    const textHash = await hashText(text);
+    const savedAt = signedState.savedAt;
+
+    if (database) {
+      await queuePersistence(function () {
+        return putDocumentRecord(forkStorageId, {
+          update: arrayBufferCopy(update),
+          text: text,
+          stateHash: stateHash,
+          textHash: textHash,
+          savedAt: savedAt,
+          lineageId: forkConfig.lineageId,
+          branchId: forkConfig.branchId,
+          publicKey: forkConfig.publicKey,
+          verifiedState: serializeSignedEnvelope(signedState),
+          verifiedUpdates: [],
+          sourceRoomId: roomConfig.roomId
+        });
+      });
+      await queuePersistence(function () {
+        return putVersionRecord({
+          docKey: forkStorageId,
+          roomId: forkConfig.roomId,
+          savedAt: savedAt,
+          label: label || "Fork created",
+          important: true,
+          update: arrayBufferCopy(update),
+          text: text,
+          stateHash: stateHash,
+          textHash: textHash,
+          lineageId: forkConfig.lineageId,
+          branchId: forkConfig.branchId
+        });
+      });
+    }
+
+    const url = urlForConfig(forkConfig, {includeWrite: true});
+    const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+    params.set("seed", await encodeSeed(signedState.update));
+    params.set("sig", bytesToBase64Url(signedState.signature));
+    params.set("head", signedState.stateHash);
+    params.set("ts", String(signedState.savedAt));
+    url.hash = params.toString();
+
+    if (url.href.length > MAX_LOCAL_FORK_URL_LENGTH) {
+      if (!database) throw new Error("The fork is too large to carry in the URL without local storage");
+      params.delete("seed");
+      params.delete("sig");
+      params.delete("head");
+      params.delete("ts");
+      url.hash = params.toString();
+    }
+
+    try {
+      window.sessionStorage.setItem(
+        FORK_NOTICE_KEY,
+        JSON.stringify({roomId: forkConfig.roomId, fromRoomId: roomConfig.roomId})
+      );
+    } catch (_error) {}
+
+    reloadAtDocumentUrl(url);
+  }
+
+  function showForkNotice() {
+    try {
+      const notice = JSON.parse(window.sessionStorage.getItem(FORK_NOTICE_KEY));
+      if (notice && notice.roomId === roomConfig.roomId) {
+        window.sessionStorage.removeItem(FORK_NOTICE_KEY);
+        showMessage(
+          "Fork created. This document is independent; copy an edit or read-only link to share it.",
+          "info",
+          8500
+        );
+      }
+    } catch (_error) {}
+  }
+
+  async function encodeSeed(bytes) {
+    if (typeof window.CompressionStream === "function") {
+      try {
+        const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+        const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+        if (compressed.length < bytes.length) return "g." + bytesToBase64Url(compressed);
+      } catch (_error) {}
+    }
+    return "r." + bytesToBase64Url(bytes);
+  }
+
+  async function decodeSeed(value) {
+    const separator = value.indexOf(".");
+    const mode = separator === -1 ? "r" : value.slice(0, separator);
+    const payload = separator === -1 ? value : value.slice(separator + 1);
+    const bytes = base64UrlToBytes(payload);
+
+    if (mode === "g") {
+      if (typeof window.DecompressionStream !== "function") {
+        throw new Error("This browser cannot decompress the invite snapshot");
+      }
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    if (mode !== "r") throw new Error("Unknown invite snapshot format");
+    return bytes;
+  }
+
+  function bytesToBase64Url(bytes) {
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
+    }
+    return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function base64UrlToBytes(value) {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const binary = window.atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  function toUint8Array(value) {
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    throw new TypeError("Expected a binary Yjs update");
+  }
+
+  function arrayBufferCopy(bytes) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  }
+
+  async function hashBytes(bytesValue) {
+    const bytes = toUint8Array(bytesValue);
+    if (window.crypto && window.crypto.subtle) {
+      const digest = new Uint8Array(await window.crypto.subtle.digest("SHA-256", bytes));
+      return bytesToBase64Url(digest);
+    }
+
+    let hash = 2166136261;
+    for (let index = 0; index < bytes.length; index += 1) {
+      hash ^= bytes[index];
+      hash = Math.imul(hash, 16777619);
+    }
+    return "fnv_" + (hash >>> 0).toString(36) + "_" + bytes.length.toString(36);
+  }
+
+  function hashText(text) {
+    return hashBytes(new TextEncoder().encode(text));
+  }
+
+  function openDatabase() {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) {
+        resolve(null);
+        return;
+      }
+
+      const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = function () {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(DB_DOCUMENTS)) {
+          db.createObjectStore(DB_DOCUMENTS);
+        }
+        let versions;
+        if (!db.objectStoreNames.contains(DB_VERSIONS)) {
+          versions = db.createObjectStore(DB_VERSIONS, {
+            keyPath: "id",
+            autoIncrement: true
+          });
+        } else {
+          versions = request.transaction.objectStore(DB_VERSIONS);
+        }
+        if (!versions.indexNames.contains("docKey")) {
+          versions.createIndex("docKey", "docKey", {unique: false});
+        }
+        if (!versions.indexNames.contains("savedAt")) {
+          versions.createIndex("savedAt", "savedAt", {unique: false});
+        }
+      };
+      request.onsuccess = function () {
+        const db = request.result;
+        db.onversionchange = function () { db.close(); };
+        resolve(db);
+      };
+      request.onerror = function () { reject(request.error || new Error("IndexedDB failed")); };
+      request.onblocked = function () { reject(new Error("IndexedDB upgrade was blocked")); };
+    });
+  }
+
+  async function loadStoredDocument() {
+    if (!database) return null;
+    const current = await getDocumentRecord(storageId);
+    if (current) return current;
+    const legacy = await getDocumentRecord(roomConfig.roomId);
+    return legacy || null;
+  }
+
+  function getDocumentRecord(key) {
+    return new Promise(function (resolve, reject) {
+      const transaction = database.transaction(DB_DOCUMENTS, "readonly");
+      const request = transaction.objectStore(DB_DOCUMENTS).get(key);
+      request.onsuccess = function () { resolve(request.result || null); };
+      request.onerror = function () { reject(request.error || new Error("Document load failed")); };
+    });
+  }
+
+  function putDocumentRecord(key, value) {
+    return new Promise(function (resolve, reject) {
+      const transaction = database.transaction(DB_DOCUMENTS, "readwrite");
+      const store = transaction.objectStore(DB_DOCUMENTS);
+      const request = store.get(key);
+      let wrote = false;
+      request.onsuccess = function () {
+        const existing = request.result;
+        const existingTime = existing ? Number(existing.savedAt) || 0 : 0;
+        const nextTime = Number(value.savedAt) || 0;
+        if (existingTime <= nextTime) {
+          store.put(value, key);
+          wrote = true;
+        }
+      };
+      transaction.oncomplete = function () { resolve(wrote); };
+      transaction.onerror = function () {
+        reject(transaction.error || new Error("Document save failed"));
+      };
+      transaction.onabort = function () {
+        reject(transaction.error || new Error("Document save was aborted"));
+      };
+    });
+  }
+
+  function queuePersistence(task) {
+    const run = persistenceChain.catch(function () {}).then(task);
+    persistenceChain = run.catch(function (error) {
+      console.warn("Browser-local persistence failed", error);
+      setPersistenceState("error", "Local save failed");
+    });
+    return run;
+  }
+
+  function scheduleSnapshotSave(delay) {
+    if (!database) return;
+    setPersistenceState("saving", "Saving locally…");
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(function () {
+      saveSnapshot().catch(function () {});
+    }, delay == null ? 350 : delay);
+  }
+
+  function scheduleAutoCheckpoint() {
+    if (!database) return;
+    window.clearTimeout(checkpointTimer);
+    checkpointTimer = window.setTimeout(function () {
+      saveCheckpoint("Autosave", {important: false}).catch(function () {});
+    }, AUTO_CHECKPOINT_DELAY);
+  }
+
+  function saveSnapshot() {
+    if (!database || !ydoc) return Promise.resolve();
+    const update = Y.encodeStateAsUpdate(ydoc);
+    const text = ytext.toString();
+    const savedAt = Date.now();
+    return queuePersistence(async function () {
+      const hashes = await Promise.all([hashBytes(update), hashText(text)]);
+      const wrote = await putDocumentRecord(storageId, {
+        update: arrayBufferCopy(update),
+        text: text,
+        stateHash: hashes[0],
+        textHash: hashes[1],
+        savedAt: savedAt,
+        lineageId: roomConfig.lineageId,
+        branchId: roomConfig.branchId,
+        publicKey: roomConfig.publicKey,
+        verifiedState: serializeSignedEnvelope(latestSignedStateEnvelope),
+        verifiedUpdates: verifiedUpdateLog.map(serializeSignedEnvelope)
+      });
+      if (wrote) {
+        latestSavedAt = Math.max(latestSavedAt, savedAt);
+        setPersistenceState("ready", "Saved locally · " + formatClock(savedAt), savedAt);
+      }
+    });
+  }
+
+  function quickSaveSnapshot() {
+    if (!database || !ydoc) return;
+    try {
+      const update = Y.encodeStateAsUpdate(ydoc);
+      const savedAt = Date.now();
+      latestSavedAt = Math.max(latestSavedAt, savedAt);
+      const value = {
+        update: arrayBufferCopy(update),
+        text: ytext.toString(),
+        stateHash: "",
+        textHash: "",
+        savedAt: savedAt,
+        lineageId: roomConfig.lineageId,
+        branchId: roomConfig.branchId,
+        publicKey: roomConfig.publicKey,
+        verifiedState: serializeSignedEnvelope(latestSignedStateEnvelope),
+        verifiedUpdates: verifiedUpdateLog.map(serializeSignedEnvelope)
+      };
+      const transaction = database.transaction(DB_DOCUMENTS, "readwrite");
+      const store = transaction.objectStore(DB_DOCUMENTS);
+      const request = store.get(storageId);
+      request.onsuccess = function () {
+        const existing = request.result;
+        const existingTime = existing ? Number(existing.savedAt) || 0 : 0;
+        if (existingTime <= savedAt) store.put(value, storageId);
+      };
+    } catch (_error) {}
+  }
+
+  function saveCheckpoint(label, options) {
+    if (!database || !ydoc) return Promise.resolve(null);
+    const settings = options || {};
+    const update = Y.encodeStateAsUpdate(ydoc);
+    const text = ytext.toString();
+    return queuePersistence(async function () {
+      const hashes = await Promise.all([hashBytes(update), hashText(text)]);
+      const versions = await loadVersions(storageId);
+      const latest = versions[0] || null;
+      if (!settings.force && latest && latest.stateHash === hashes[0]) return latest;
+
+      const record = {
+        docKey: storageId,
+        roomId: roomConfig.roomId,
+        savedAt: Date.now(),
+        label: String(label || "Saved version").slice(0, 100),
+        important: Boolean(settings.important),
+        update: arrayBufferCopy(update),
+        text: text,
+        stateHash: hashes[0],
+        textHash: hashes[1],
+        lineageId: roomConfig.lineageId,
+        branchId: roomConfig.branchId
+      };
+      await putVersionRecord(record);
+      await pruneVersions(storageId);
+      return record;
+    });
+  }
+
+  function saveExternalCheckpoint(candidate, label) {
+    if (!database) return Promise.resolve(null);
+    const update = new Uint8Array(candidate.incomingUpdate);
+    return queuePersistence(async function () {
+      const textHash = await hashText(candidate.incomingText);
+      const record = {
+        docKey: storageId,
+        roomId: roomConfig.roomId,
+        savedAt: candidate.incomingSavedAt || Date.now(),
+        recordedAt: Date.now(),
+        label: String(label || "Incoming version").slice(0, 100),
+        important: true,
+        update: arrayBufferCopy(update),
+        text: candidate.incomingText,
+        stateHash: candidate.incomingHash || await hashBytes(update),
+        textHash: textHash,
+        lineageId: candidate.manifest.lineageId || roomConfig.lineageId,
+        branchId: candidate.manifest.branchId || roomConfig.branchId,
+        sourceName: candidate.sourceName
+      };
+      await putVersionRecord(record);
+      await pruneVersions(storageId);
+      return record;
+    });
+  }
+
+  function putVersionRecord(record) {
+    return new Promise(function (resolve, reject) {
+      const transaction = database.transaction(DB_VERSIONS, "readwrite");
+      const request = transaction.objectStore(DB_VERSIONS).add(record);
+      let result = null;
+      request.onsuccess = function () { result = request.result; };
+      transaction.oncomplete = function () { resolve(result); };
+      transaction.onerror = function () {
+        reject(transaction.error || request.error || new Error("Version save failed"));
+      };
+      transaction.onabort = function () {
+        reject(transaction.error || new Error("Version save was aborted"));
+      };
+    });
+  }
+
+  function loadVersions(docKey) {
+    if (!database) return Promise.resolve([]);
+    return new Promise(function (resolve, reject) {
+      const transaction = database.transaction(DB_VERSIONS, "readonly");
+      const index = transaction.objectStore(DB_VERSIONS).index("docKey");
+      const request = index.getAll(IDBKeyRange.only(docKey));
+      request.onsuccess = function () {
+        const values = request.result || [];
+        values.sort(function (a, b) {
+          return (Number(b.recordedAt) || Number(b.savedAt) || 0) -
+            (Number(a.recordedAt) || Number(a.savedAt) || 0);
+        });
+        resolve(values);
+      };
+      request.onerror = function () { reject(request.error || new Error("Version history load failed")); };
+    });
+  }
+
+  async function loadRecentHeadHashes() {
+    if (!database) return [];
+    try {
+      const versions = await loadVersions(storageId);
+      return versions
+        .map(function (version) { return version.stateHash; })
+        .filter(function (value) { return isToken(value, 8, 128); })
+        .slice(0, 20);
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  async function pruneVersions(docKey) {
+    const versions = await loadVersions(docKey);
+    if (versions.length <= MAX_HISTORY_ENTRIES) return;
+    const remove = versions.slice(MAX_HISTORY_ENTRIES);
+    await new Promise(function (resolve, reject) {
+      const transaction = database.transaction(DB_VERSIONS, "readwrite");
+      const store = transaction.objectStore(DB_VERSIONS);
+      remove.forEach(function (version) { store.delete(version.id); });
+      transaction.oncomplete = function () { resolve(); };
+      transaction.onerror = function () {
+        reject(transaction.error || new Error("Version pruning failed"));
+      };
+    });
+  }
+
+  async function openHistoryDialog() {
+    if (!database) {
+      showMessage("Local history is unavailable in this browser.", "warning", 6000);
+      return;
+    }
+
+    lastDialogFocus = document.activeElement;
+    historyButton.disabled = true;
+    historyList.replaceChildren();
+    historyPreview.textContent = "Loading…";
+    historyPreviewMeta.textContent = "";
+    historyDialog.hidden = false;
+    document.body.classList.add("dialog-open");
+
+    try {
+      await saveSnapshot();
+      await saveCheckpoint("Current document", {important: false});
+      const versions = await loadVersions(storageId);
+      renderHistory(versions);
+    } catch (error) {
+      console.warn("Could not open local history", error);
+      historyPreview.textContent = "Local history could not be loaded.";
+    } finally {
+      historyButton.disabled = false;
+      historyCloseButton.focus();
+    }
+  }
+
+  function renderHistory(versions) {
+    historyList.replaceChildren();
+    if (!versions.length) {
+      const empty = document.createElement("p");
+      empty.className = "history-empty";
+      empty.textContent = "No checkpoints have been saved yet.";
+      historyList.appendChild(empty);
+      historyPreview.textContent = "";
+      historyPreviewMeta.textContent = "";
+      return;
+    }
+
+    versions.forEach(function (version, index) {
+      const row = document.createElement("div");
+      row.className = "history-row";
+
+      const inspect = document.createElement("button");
+      inspect.type = "button";
+      inspect.className = "history-version-button";
+      inspect.innerHTML = "<strong></strong><span></span>";
+      inspect.querySelector("strong").textContent = version.label || "Saved version";
+      inspect.querySelector("span").textContent = versionMeta(
+        version.text || "",
+        Number(version.savedAt) || Number(version.recordedAt) || 0
+      );
+      inspect.addEventListener("click", function () { previewHistoryVersion(version, row); });
+
+      const forkButton = document.createElement("button");
+      forkButton.type = "button";
+      forkButton.className = "history-fork-button";
+      forkButton.textContent = "Open as fork";
+      forkButton.addEventListener("click", async function () {
+        forkButton.disabled = true;
+        forkButton.textContent = "Opening…";
+        try {
+          await forkUpdate(toUint8Array(version.update), "Forked from: " + (version.label || "saved version"));
+        } catch (error) {
+          console.warn("Could not fork a saved version", error);
+          forkButton.disabled = false;
+          forkButton.textContent = "Open as fork";
+          showMessage("Could not open that saved version as a fork.", "error", 6500);
+        }
+      });
+
+      row.append(inspect, forkButton);
+      historyList.appendChild(row);
+      if (index === 0) previewHistoryVersion(version, row);
+    });
+  }
+
+  function previewHistoryVersion(version, row) {
+    historyList.querySelectorAll(".history-row").forEach(function (item) {
+      item.classList.toggle("selected", item === row);
+    });
+    historyPreview.textContent = previewText(version.text || textFromUpdate(version.update));
+    historyPreviewMeta.textContent =
+      (version.label || "Saved version") + " · " +
+      versionMeta(version.text || "", Number(version.savedAt) || Number(version.recordedAt) || 0);
+  }
+
+  function textFromUpdate(updateValue) {
+    try {
+      const doc = new Y.Doc();
+      Y.applyUpdate(doc, toUint8Array(updateValue), LOAD_ORIGIN);
+      const text = doc.getText("markdown").toString();
+      doc.destroy();
+      return text;
+    } catch (_error) {
+      return "(This saved version could not be decoded.)";
+    }
+  }
+
+  function closeHistoryDialog() {
+    historyDialog.hidden = true;
+    document.body.classList.toggle("dialog-open", !conflictDialog.hidden);
+    if (lastDialogFocus && typeof lastDialogFocus.focus === "function") lastDialogFocus.focus();
+    lastDialogFocus = null;
+  }
+
+  function formatClock(timestamp) {
+    return new Date(timestamp).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  }
+
+  function leaveRoom() {
+    if (heartbeatTimer) window.clearInterval(heartbeatTimer);
+    if (presenceTimer) window.clearTimeout(presenceTimer);
+    if (signedStateTimer) window.clearTimeout(signedStateTimer);
+    heartbeatTimer = null;
+    presenceTimer = null;
+    signedStateTimer = null;
+    if (room) {
+      try { room.leave(); } catch (_error) {}
+    }
+    room = null;
+    roomConnected = false;
+  }
+
+  function fireAndForget(promise, label) {
+    if (!promise || typeof promise.catch !== "function") return;
+    promise.catch(function (error) {
+      console.warn(label, error);
+    });
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.max(minimum, Math.min(maximum, Number(value) || 0));
+  }
+})();
+  </script>
+</body>
+</html>
