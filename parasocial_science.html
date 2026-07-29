@@ -2777,13 +2777,13 @@
           <input id="display-name" type="text" maxlength="40" autocomplete="name">
         </label>
         <span id="access-badge" class="access-badge" data-access="loading">Checking access…</span>
-        <button id="review-conflict-button" class="action-button warning" type="button" hidden>Review conflict</button>
+        <button id="review-conflict-button" class="action-button warning" type="button" hidden>Review reconnect</button>
         <div class="share-buttons" role="group" aria-label="Share document">
           <button id="share-edit-button" class="action-button" type="button" title="Copy a capability link that can publish signed edits." disabled>Copy edit link</button>
           <button id="share-chat-button" class="action-button secondary" type="button" title="Copy a scalable audience link with live preview and chat." disabled>Copy chat link</button>
           <button id="share-read-button" class="action-button secondary" type="button" title="Copy a cryptographically read-only link without audience chat." disabled>Copy read-only link</button>
         </div>
-        <button id="document-manager-button" class="action-button secondary" type="button" disabled>Documents</button>
+        <button id="document-manager-button" class="action-button secondary" type="button">Documents</button>
         <button id="history-button" class="action-button secondary" type="button" disabled>History</button>
         <button id="new-room-button" class="action-button secondary" type="button">New</button>
       </div>
@@ -2802,6 +2802,7 @@
           <textarea
             id="markdown-input"
             aria-label="Collaborative document source"
+            placeholder="Start writing…"
             autocomplete="off"
             autocapitalize="off"
             autocorrect="off"
@@ -2912,7 +2913,7 @@
     <section class="dialog-card">
       <header class="dialog-header">
         <div class="dialog-heading">
-          <h2 id="conflict-title">Two offline versions need a choice</h2>
+          <h2 id="conflict-title">Reconnect needs a choice</h2>
           <p id="conflict-description"></p>
         </div>
         <button id="conflict-close-button" class="dialog-close" type="button" aria-label="Decide later">×</button>
@@ -2930,7 +2931,7 @@
             <pre id="conflict-incoming-preview"></pre>
           </section>
           <section class="version-card merge-preview">
-            <h3>Automatic CRDT merge</h3>
+            <h3>Merge preview</h3>
             <div id="conflict-merged-meta" class="version-meta"></div>
             <pre id="conflict-merged-preview"></pre>
           </section>
@@ -3134,7 +3135,6 @@ Every collaborator keeps browser-local history.
     (function () {
       "use strict";
 
-      var STORAGE_KEY = "markdown-relay-standalone-draft-v1";
       var FLAVOR_KEY = "markdown-relay-flavor-v1";
       var OPENREVIEW_ORIGIN = "https://openreview.net";
       var VALID_FLAVORS = ["openreview", "github", "commonmark", "plaintext"];
@@ -3718,34 +3718,18 @@ Every collaborator keeps browser-local history.
       }
 
       function saveDraft() {
-        if (collaborationActive || !storage) {
-          updateDraftStatus(false);
-          return;
-        }
-        try {
-          storage.setItem(STORAGE_KEY, input.value);
-          updateDraftStatus(true);
-        } catch (_error) {
-          storage = null;
-          updateDraftStatus(false);
-        }
+        updateDraftStatus(false);
       }
 
       function scheduleSave() {
-        if (collaborationActive) return;
         updateDraftStatus(false);
-        window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(saveDraft, 250);
       }
 
       function loadInitialDraft() {
-        var example = exampleNode.textContent.replace(/^\s*\n/, "").replace(/\s+$/, "");
-        var stored = null;
-        if (storage) {
-          try { stored = storage.getItem(STORAGE_KEY); } catch (_error) { storage = null; }
-        }
-        input.value = stored === null ? example : stored;
-        updateDraftStatus(stored !== null);
+        // Document restoration is explicit through the Documents dialog.
+        // A bare page load must never inherit an unrelated legacy draft.
+        input.value = "";
+        updateDraftStatus(false);
       }
 
       function markMathReady() {
@@ -4093,6 +4077,12 @@ Every collaborator keeps browser-local history.
   const SIGNATURE_PROTOCOL = 3;
   const SIGNATURE_CONTEXT = "MarkdownRelay/document-capability/v3";
   const SIGNED_STATE_DELAY = 2800;
+  const SESSION_STARTED_AT = Date.now();
+  const RECONNECT_MIN_AGE_MS = 12000;
+  const RECONNECT_MIN_TEXT_CHANGE = 320;
+  const RECONNECT_MIN_LINE_CHANGE = 8;
+  const RECONNECT_MIN_BRANCH_BYTES = 64;
+  const RECONNECT_LARGE_UPDATE_BYTES = 2048;
   const MAX_VERIFIED_UPDATE_LOG = 300;
   const DB_VERSION = 2;
   const DB_DOCUMENTS = "documents";
@@ -4196,9 +4186,16 @@ Every collaborator keeps browser-local history.
   let latestSignedStateEnvelope = null;
   let verifiedUpdateLog = [];
   let capabilityWarning = "";
+  let audienceCapabilitiesReady = false;
   let storagePreferences = loadStoragePreferences();
   let storageSuspended = false;
   let documentManagerFocus = null;
+  let loadedStoredDocument = false;
+  let localReconnectReviewComplete = true;
+  let localReconnectSince = 0;
+  let reconnectConflictPeerId = null;
+  let hadLivePeers = false;
+  let livePeerHighWaterMark = 0;
 
   const peerIds = new Set();
   const activePeers = new Set();
@@ -4210,10 +4207,10 @@ Every collaborator keeps browser-local history.
   const peerStateEnvelopes = new Map();
   const processingPeers = new Set();
   const lastSentStateHash = new Map();
+  const heldReconnectCandidates = new Map();
   const conflictByKey = new Map();
   const conflictOrder = [];
 
-  const initialStandaloneText = editor.getText();
   const roomConfig = readOrCreateRoomConfig();
   const storageId = storageIdFor(roomConfig);
 
@@ -4342,6 +4339,9 @@ Every collaborator keeps browser-local history.
       : null;
 
     if (storedDocument) {
+      loadedStoredDocument = true;
+      localReconnectReviewComplete = false;
+      localReconnectSince = Number(storedDocument.savedAt) || SESSION_STARTED_AT;
       latestSavedAt = Number(storedDocument.savedAt) || 0;
       if (!roomConfig.explicitLineage && isToken(storedDocument.lineageId, 8, 128)) {
         roomConfig.lineageId = storedDocument.lineageId;
@@ -4409,7 +4409,6 @@ Every collaborator keeps browser-local history.
       }
     }
 
-    let startupConflict = null;
     if (seedUpdate && storedUpdate) {
       const candidate = await analyzeIncomingUpdate(seedUpdate, {
         sourceType: "link",
@@ -4426,21 +4425,13 @@ Every collaborator keeps browser-local history.
         }
       });
 
-      if (candidateNeedsChoice(candidate)) {
-        startupConflict = candidate;
-      } else {
-        Y.applyUpdate(ydoc, seedUpdate, LOAD_ORIGIN);
-        if (seedEnvelope) rememberVerifiedStateEnvelope(seedEnvelope, candidate.relation);
-      }
+      // Invite snapshots are ordinary CRDT catch-up data. They never open a
+      // conflict dialog; only a materially divergent live peer reconnect can.
+      Y.applyUpdate(ydoc, seedUpdate, LOAD_ORIGIN);
+      if (seedEnvelope) rememberVerifiedStateEnvelope(seedEnvelope, candidate.relation);
     } else if (seedUpdate) {
       Y.applyUpdate(ydoc, seedUpdate, LOAD_ORIGIN);
       if (seedEnvelope) rememberVerifiedStateEnvelope(seedEnvelope, "incoming-ahead");
-    }
-
-    if (roomConfig.isNew && canEdit && ytext.length === 0 && initialStandaloneText) {
-      ydoc.transact(function () {
-        ytext.insert(0, initialStandaloneText);
-      }, LOCAL_ORIGIN);
     }
 
     editor.setText(ytext.toString());
@@ -4462,15 +4453,16 @@ Every collaborator keeps browser-local history.
     updateAccessUi();
 
     if (canEdit) await refreshSignedStateEnvelope();
-    await saveSnapshot();
-    await saveCheckpoint("Opened document", {important: false});
-    registerManagedDocument(ytext.toString(), latestSavedAt || Date.now());
+    if (!roomConfig.isNew || ytext.length > 0 || managedDocumentExists(storageId)) {
+      await saveSnapshot();
+      await saveCheckpoint("Opened document", {important: false});
+      registerManagedDocument(ytext.toString(), latestSavedAt || Date.now());
+    } else {
+      setPersistenceState("ready", "Blank document · not saved yet");
+    }
     showForkNotice();
 
-    if (startupConflict) {
-      enqueueConflict(startupConflict, true);
-      setNetworkState("warning", "Version choice needed · not connected");
-    } else if (roomConfig.accessMode === "chat") {
+    if (roomConfig.accessMode === "chat") {
       setNetworkState("loading", "Connecting to audience feed…");
     } else {
       connectPeerRoom();
@@ -4536,13 +4528,25 @@ Every collaborator keeps browser-local history.
     const feedPublicKey = values.feedPublicKey || roomConfig.feedPublicKey;
     const feedWriteKey = values.feedWriteKey || roomConfig.feedWriteKey;
     if (!isToken(chatKey, 40, 64)) throw new Error("Audience encryption key is invalid");
+    if (base64UrlToBytes(chatKey).byteLength !== 32) {
+      throw new Error("Audience encryption key has the wrong length");
+    }
     if (!/^[0-9a-f]{64}$/i.test(feedPublicKey || "")) throw new Error("Audience feed public key is invalid");
     if (feedWriteKey && !isToken(feedWriteKey, 40, 64)) throw new Error("Audience feed signing key is invalid");
+    if (feedWriteKey && base64UrlToBytes(feedWriteKey).byteLength !== 32) {
+      throw new Error("Audience feed signing key has the wrong length");
+    }
     if (feedWriteKey && !canEdit) throw new Error("A viewer cannot install an audience publishing capability");
     roomConfig.chatKey = chatKey;
     roomConfig.feedPublicKey = String(feedPublicKey).toLowerCase();
     if (canEdit) roomConfig.feedWriteKey = feedWriteKey || roomConfig.feedWriteKey;
+    audienceCapabilitiesReady = true;
     replaceAddressHash(roomConfig);
+    registerManagedDocument(
+      ytext ? ytext.toString() : editor.getText(),
+      Date.now(),
+      ydoc && Y ? Y.encodeStateAsUpdate(ydoc).byteLength : 0
+    );
     updateAccessUi();
     window.dispatchEvent(new CustomEvent("parasocial-channel-capabilities", {
       detail: {
@@ -4812,7 +4816,11 @@ Every collaborator keeps browser-local history.
     shareEditButton.hidden = !canEdit;
     shareEditButton.disabled = !canEdit || conflictCount() > 0;
     shareChatButton.hidden = false;
-    shareChatButton.disabled = conflictCount() > 0 || !roomConfig.chatKey || !roomConfig.feedPublicKey;
+    shareChatButton.disabled =
+      conflictCount() > 0 ||
+      !audienceCapabilitiesReady ||
+      !roomConfig.chatKey ||
+      !roomConfig.feedPublicKey;
     shareReadButton.hidden = mode === "chat";
     shareReadButton.disabled = conflictCount() > 0;
     shareEditButton.title = canEdit
@@ -4984,7 +4992,10 @@ Every collaborator keeps browser-local history.
       savedAt: envelope.savedAt,
       stateHash: envelope.stateHash,
       author: envelope.author || "",
-      signature: bytesToBase64Url(envelope.signature)
+      signature: bytesToBase64Url(envelope.signature),
+      sessionStartedAt: SESSION_STARTED_AT,
+      resumeCandidate: needsLocalReconnectReview(),
+      reconnectSince: currentReconnectSince()
     };
   }
 
@@ -5495,7 +5506,7 @@ Every collaborator keeps browser-local history.
   }
 
   function connectPeerRoom() {
-    if (room || conflictByKey.has("link")) return;
+    if (room) return;
     setNetworkState("loading", "Connecting to peer network…");
 
     room = joinRoom(
@@ -5560,6 +5571,7 @@ Every collaborator keeps browser-local history.
         if (canEdit) scheduleSignedStateBroadcast();
       } else if (data.status === "fork") {
         const conflictKey = "peer:" + context.peerId;
+        heldReconnectCandidates.delete(context.peerId);
         const hadConflict = conflictByKey.has(conflictKey);
         if (hadConflict) clearConflict(conflictKey);
         showMessage(
@@ -5596,6 +5608,7 @@ Every collaborator keeps browser-local history.
     };
 
     room.onPeerLeave = function (peerId) {
+      const wasReconnectConflict = reconnectConflictPeerId === peerId;
       peerIds.delete(peerId);
       activePeers.delete(peerId);
       locallyApprovedPeers.delete(peerId);
@@ -5606,13 +5619,33 @@ Every collaborator keeps browser-local history.
       peerStateEnvelopes.delete(peerId);
       processingPeers.delete(peerId);
       lastSentStateHash.delete(peerId);
+      heldReconnectCandidates.delete(peerId);
+      if (wasReconnectConflict) {
+        reconnectConflictPeerId = null;
+        if (conflictByKey.has("peer:" + peerId)) clearConflict("peer:" + peerId);
+        showMessage(
+          "The reconnecting collaborator left before resolving their offline copy.",
+          "info",
+          5500
+        );
+      }
+      if (
+        hadLivePeers &&
+        livePeerHighWaterMark >= 2 &&
+        peerIds.size === 0
+      ) {
+        markLocalIsolation();
+      }
       renderParticipants();
       renderRemoteCursors();
       updateNetworkStatus();
     };
 
     window.addEventListener("online", updateNetworkStatus);
-    window.addEventListener("offline", updateNetworkStatus);
+    window.addEventListener("offline", function () {
+      if (hadLivePeers) markLocalIsolation();
+      updateNetworkStatus();
+    });
     window.addEventListener("pagehide", function () {
       quickSaveSnapshot();
       leaveRoom();
@@ -5658,6 +5691,10 @@ Every collaborator keeps browser-local history.
       const envelope = await verifySignedEnvelope(transported, "state", null);
       const presence = peerPresence.get(context.peerId);
       const profile = presence || {name: "Collaborator", color: chooseColor(context.peerId)};
+      const transportMetadata =
+        context && context.metadata && typeof context.metadata === "object"
+          ? context.metadata
+          : {};
       const manifest = {
         protocol: SIGNATURE_PROTOCOL,
         lineageId: envelope.lineageId,
@@ -5665,7 +5702,16 @@ Every collaborator keeps browser-local history.
         stateHash: envelope.stateHash,
         savedAt: envelope.savedAt,
         name: profile.name,
-        color: profile.color
+        color: profile.color,
+        sessionStartedAt:
+          parseTimestamp(transportMetadata.sessionStartedAt) ||
+          parseTimestamp(profile.sessionStartedAt),
+        resumeCandidate:
+          transportMetadata.resumeCandidate === true ||
+          profile.resumeCandidate === true,
+        reconnectSince:
+          parseTimestamp(transportMetadata.reconnectSince) ||
+          parseTimestamp(profile.reconnectSince)
       };
       peerManifests.set(context.peerId, manifest);
       peerSnapshots.set(context.peerId, new Uint8Array(envelope.update));
@@ -5712,11 +5758,25 @@ Every collaborator keeps browser-local history.
         locallyApprovedPeers.delete(peerId);
         remotelyApprovedPeers.delete(peerId);
         activePeers.delete(peerId);
-        enqueueConflict(candidate, document.activeElement !== input);
+        heldReconnectCandidates.set(peerId, candidate);
+
+        if (localOwnsReconnectDecision(candidate)) {
+          if (!reconnectConflictPeerId || reconnectConflictPeerId === peerId) {
+            reconnectConflictPeerId = peerId;
+            enqueueConflict(candidate, document.activeElement !== input);
+          } else {
+            updateNetworkStatus();
+          }
+        } else {
+          setNetworkState("loading", "Collaborator reconciling an offline copy…");
+        }
       } else {
+        heldReconnectCandidates.delete(peerId);
         const resolvedExistingConflict = conflictByKey.has(candidate.sourceKey);
         await approveCandidate(candidate);
         if (resolvedExistingConflict) {
+          reconnectConflictPeerId = null;
+          completeLocalReconnectReview();
           clearConflict(candidate.sourceKey);
           showMessage(
             "The other browser reconciled the versions. This copy caught up automatically.",
@@ -5756,10 +5816,19 @@ Every collaborator keeps browser-local history.
       Y.applyUpdate(unionDoc, localUpdate, LOAD_ORIGIN);
       Y.applyUpdate(unionDoc, canonicalIncoming, LOAD_ORIGIN);
       const unionUpdate = Y.encodeStateAsUpdate(unionDoc);
+      const localOnlyUpdate = Y.encodeStateAsUpdate(
+        ydoc,
+        Y.encodeStateVector(incomingDoc)
+      );
+      const incomingOnlyUpdate = Y.encodeStateAsUpdate(
+        incomingDoc,
+        Y.encodeStateVector(ydoc)
+      );
 
       const localText = ytext.toString();
       const incomingText = incomingDoc.getText("markdown").toString();
       const mergedText = unionDoc.getText("markdown").toString();
+      const textDivergence = measureTextDivergence(localText, incomingText);
       const hashes = await Promise.all([
         hashBytes(localUpdate),
         hashBytes(canonicalIncoming),
@@ -5791,6 +5860,14 @@ Every collaborator keeps browser-local history.
         incomingHash: hashes[1],
         mergedHash: hashes[2],
         relation: relation,
+        localOnlyBytes: localOnlyUpdate.byteLength,
+        incomingOnlyBytes: incomingOnlyUpdate.byteLength,
+        changedCharacters: textDivergence.characters,
+        changedLines: textDivergence.lines,
+        localResumeCandidate: needsLocalReconnectReview(),
+        remoteResumeCandidate: manifest.resumeCandidate === true,
+        localReconnectSince: currentReconnectSince(),
+        remoteReconnectSince: parseTimestamp(manifest.reconnectSince),
         localSavedAt: latestSavedAt,
         incomingSavedAt: parseTimestamp(manifest.savedAt),
         lineageMismatch:
@@ -5805,16 +5882,72 @@ Every collaborator keeps browser-local history.
     }
   }
 
+  function measureTextDivergence(leftValue, rightValue) {
+    const left = String(leftValue || "");
+    const right = String(rightValue || "");
+    let start = 0;
+    while (
+      start < left.length &&
+      start < right.length &&
+      left.charCodeAt(start) === right.charCodeAt(start)
+    ) start += 1;
+
+    let leftEnd = left.length;
+    let rightEnd = right.length;
+    while (
+      leftEnd > start &&
+      rightEnd > start &&
+      left.charCodeAt(leftEnd - 1) === right.charCodeAt(rightEnd - 1)
+    ) {
+      leftEnd -= 1;
+      rightEnd -= 1;
+    }
+
+    const leftChanged = left.slice(start, leftEnd);
+    const rightChanged = right.slice(start, rightEnd);
+    const lineBreaks = function (value) {
+      return (value.match(/\n/g) || []).length;
+    };
+    return {
+      characters: leftChanged.length + rightChanged.length,
+      lines: Math.max(lineBreaks(leftChanged), lineBreaks(rightChanged))
+    };
+  }
+
   function candidateNeedsChoice(candidate) {
-    const mergeChangesText =
-      candidate.mergedText !== candidate.localText ||
-      candidate.mergedText !== candidate.incomingText;
-    if (!mergeChangesText && candidate.localText === candidate.incomingText) return false;
-    if (candidate.lineageMismatch || candidate.branchMismatch) return true;
-    // Peers in the same room and branch are live CRDT replicas. Concurrent
-    // typing is an expected merge, not an offline-version conflict.
-    if (candidate.sourceType === "peer") return false;
-    return candidate.relation === "concurrent";
+    if (candidate.sourceType !== "peer") return false;
+    if (candidate.lineageMismatch || candidate.branchMismatch) return false;
+    if (candidate.relation !== "concurrent") return false;
+    if (!candidate.localResumeCandidate && !candidate.remoteResumeCandidate) return false;
+
+    const reconnectSince = Math.min(
+      candidate.localReconnectSince || Date.now(),
+      candidate.remoteReconnectSince || Date.now()
+    );
+    if (Date.now() - reconnectSince < RECONNECT_MIN_AGE_MS) return false;
+    if (
+      candidate.localOnlyBytes < RECONNECT_MIN_BRANCH_BYTES ||
+      candidate.incomingOnlyBytes < RECONNECT_MIN_BRANCH_BYTES
+    ) return false;
+
+    const documentLength = Math.max(
+      candidate.localText.length,
+      candidate.incomingText.length,
+      1
+    );
+    const proportionalThreshold = Math.min(
+      1200,
+      Math.max(RECONNECT_MIN_TEXT_CHANGE, Math.floor(documentLength * 0.04))
+    );
+    return (
+      candidate.changedCharacters >= proportionalThreshold ||
+      candidate.changedLines >= RECONNECT_MIN_LINE_CHANGE ||
+      (
+        Math.max(candidate.localOnlyBytes, candidate.incomingOnlyBytes) >=
+          RECONNECT_LARGE_UPDATE_BYTES &&
+        candidate.changedCharacters >= 80
+      )
+    );
   }
 
   async function approveCandidate(candidate) {
@@ -5850,6 +5983,9 @@ Every collaborator keeps browser-local history.
     if (!locallyApprovedPeers.has(peerId) || !remotelyApprovedPeers.has(peerId)) return;
     const wasActive = activePeers.has(peerId);
     activePeers.add(peerId);
+    hadLivePeers = true;
+    livePeerHighWaterMark = Math.max(livePeerHighWaterMark, activePeers.size);
+    if (!conflictCount()) completeLocalReconnectReview();
     updateNetworkStatus();
     if (!wasActive && canEdit && remotelyApprovedPeers.has(peerId)) {
       fireAndForget(sendDocumentState(peerId), "Could not finish signed document synchronization");
@@ -5869,7 +6005,15 @@ Every collaborator keeps browser-local history.
       role === "edit" && value.cursor && typeof value.cursor === "object" && value.cursor.anchor && value.cursor.head
         ? value.cursor
         : null;
-    return {name: name, color: color, cursor: cursor, role: role};
+    return {
+      name: name,
+      color: color,
+      cursor: cursor,
+      role: role,
+      sessionStartedAt: parseTimestamp(value.sessionStartedAt),
+      resumeCandidate: value.resumeCandidate === true,
+      reconnectSince: parseTimestamp(value.reconnectSince)
+    };
   }
 
   function currentPresence() {
@@ -5879,7 +6023,10 @@ Every collaborator keeps browser-local history.
       name: profile.name,
       color: profile.color,
       role: canEdit ? "edit" : "read",
-      cursor: canEdit && document.activeElement === input ? selectionToRelativePosition() : null
+      cursor: canEdit && document.activeElement === input ? selectionToRelativePosition() : null,
+      sessionStartedAt: SESSION_STARTED_AT,
+      resumeCandidate: needsLocalReconnectReview(),
+      reconnectSince: currentReconnectSince()
     };
   }
 
@@ -5887,6 +6034,46 @@ Every collaborator keeps browser-local history.
     if (!presenceAction || !room) return;
     const options = target ? {target: target} : undefined;
     fireAndForget(presenceAction.send(currentPresence(), options), "Could not send presence");
+  }
+
+  function needsLocalReconnectReview() {
+    return !localReconnectReviewComplete && Boolean(
+      loadedStoredDocument || localReconnectSince
+    );
+  }
+
+  function currentReconnectSince() {
+    if (!needsLocalReconnectReview()) return 0;
+    return localReconnectSince || latestSavedAt || SESSION_STARTED_AT;
+  }
+
+  function markLocalIsolation() {
+    if (!localReconnectSince) localReconnectSince = Date.now();
+    localReconnectReviewComplete = false;
+    queuePresenceUpdate(0);
+  }
+
+  function completeLocalReconnectReview() {
+    const changed = needsLocalReconnectReview();
+    localReconnectReviewComplete = true;
+    localReconnectSince = 0;
+    if (changed) queuePresenceUpdate(0);
+  }
+
+  function localOwnsReconnectDecision(candidate) {
+    const localResume = needsLocalReconnectReview();
+    const remoteResume = candidate.manifest.resumeCandidate === true;
+    if (localResume && !remoteResume) return true;
+    if (!localResume && remoteResume) return false;
+
+    const remoteSessionStartedAt = parseTimestamp(candidate.manifest.sessionStartedAt);
+    if (
+      remoteSessionStartedAt &&
+      remoteSessionStartedAt !== SESSION_STARTED_AT
+    ) {
+      return SESSION_STARTED_AT > remoteSessionStartedAt;
+    }
+    return String(selfId || "") > String(candidate.peerId || "");
   }
 
   function queuePresenceUpdate(delay) {
@@ -6084,12 +6271,8 @@ Every collaborator keeps browser-local history.
   function updateNetworkStatus() {
     if (roomConfig.accessMode === "chat") {
       if (!navigator.onLine) setNetworkState("offline", "Offline · cached audience copy");
-      else if (conflictCount()) setNetworkState("warning", "Version choice needed · audience feed paused");
+      else if (conflictCount()) setNetworkState("warning", "Reconnect choice needed · audience feed paused");
       else setNetworkState("loading", "Connecting to audience feed…");
-      return;
-    }
-    if (conflictByKey.has("link")) {
-      setNetworkState("warning", "Version choice needed · not connected");
       return;
     }
     if (!navigator.onLine) {
@@ -6107,12 +6290,23 @@ Every collaborator keeps browser-local history.
       return;
     }
 
+    if (heldReconnectCandidates.size && !conflictCount()) {
+      const count = heldReconnectCandidates.size;
+      setNetworkState(
+        "loading",
+        count === 1
+          ? "Collaborator reconciling an offline copy…"
+          : count + " collaborators reconnecting…"
+      );
+      return;
+    }
+
     if (peerIds.size && activePeers.size < peerIds.size) {
       const pending = peerIds.size - activePeers.size;
       setNetworkState(
         conflictCount() ? "warning" : "loading",
         conflictCount()
-          ? "Version choice needed · sync paused"
+          ? "Reconnect choice needed · this browser paused"
           : "Checking " + pending + (pending === 1 ? " collaborator…" : " collaborators…")
       );
       return;
@@ -6167,9 +6361,7 @@ Every collaborator keeps browser-local history.
       fireAndForget(
         saveExternalCheckpoint(
           candidate,
-          candidate.sourceType === "link"
-            ? "Conflicting invite-link version"
-            : "Conflicting version from " + candidate.sourceName
+          "Offline reconnect version from " + candidate.sourceName
         ),
         "Could not save the incoming conflict checkpoint"
       );
@@ -6182,7 +6374,7 @@ Every collaborator keeps browser-local history.
       openConflict(candidate);
     } else if (!autoOpen && !previous) {
       showMessage(
-        "A collaborator has a divergent offline version. Your edits remain local until you review it.",
+        "This browser has substantial offline edits. Review them before rejoining the live room.",
         "warning",
         8000
       );
@@ -6196,13 +6388,13 @@ Every collaborator keeps browser-local history.
   function updateConflictButton() {
     const count = conflictCount();
     reviewConflictButton.hidden = count === 0;
-    reviewConflictButton.textContent = count > 1 ? "Review " + count + " conflicts" : "Review conflict";
+    reviewConflictButton.textContent = count > 1 ? "Review " + count + " reconnects" : "Review reconnect";
     updateAccessUi();
     if (count > 0) {
       shareEditButton.disabled = true;
       shareReadButton.disabled = true;
-      shareEditButton.title = "Review the version conflict before sharing this document.";
-      shareReadButton.title = "Review the version conflict before sharing this document.";
+      shareEditButton.title = "Resolve this browser's reconnect before sharing the document.";
+      shareReadButton.title = "Resolve this browser's reconnect before sharing the document.";
     }
   }
 
@@ -6223,20 +6415,12 @@ Every collaborator keeps browser-local history.
     candidate.deferred = false;
     lastDialogFocus = document.activeElement;
 
-    const sourceLabel = candidate.sourceType === "link"
-      ? "the shared-link snapshot"
-      : candidate.sourceName;
     conflictDescription.textContent = canEdit
-      ? "Your browser copy and " + sourceLabel +
-        " both contain edits the other has not seen. Nothing has been changed yet. " +
-        "Merging keeps both CRDT histories; forking preserves your current text in a separate document."
-      : "Your verified browser copy and " + sourceLabel +
-        " belong to divergent signed histories. This read-only link cannot authorize a merge. " +
-        "You can wait for an editor to reconcile them or fork the copy you are viewing into a new editable document.";
+      ? "This browser was away long enough for both its offline copy and the live room to change substantially. " +
+        "Only this reconnecting browser is paused; the other collaborators remain live. Merge your offline work into the room, or keep it as a separate fork."
+      : "This browser is reconnecting with an older verified copy. It will catch up automatically because read-only viewers cannot create offline edits.";
 
-    conflictIncomingTitle.textContent = candidate.sourceType === "link"
-      ? "Shared-link copy"
-      : "Incoming copy";
+    conflictIncomingTitle.textContent = "Live room";
     conflictLocalMeta.textContent = versionMeta(candidate.localText, candidate.localSavedAt);
     conflictIncomingMeta.textContent = versionMeta(candidate.incomingText, candidate.incomingSavedAt);
     conflictMergedMeta.textContent = versionMeta(candidate.mergedText, Date.now());
@@ -6248,11 +6432,11 @@ Every collaborator keeps browser-local history.
     conflictMergeButton.disabled = !canEdit;
     conflictForkButton.disabled = false;
     conflictLaterButton.disabled = false;
-    conflictMergeButton.textContent = "Merge and continue";
-    conflictForkButton.textContent = canEdit ? "Fork my copy" : "Fork viewed copy";
+    conflictMergeButton.textContent = "Merge into live room";
+    conflictForkButton.textContent = canEdit ? "Fork my offline copy" : "Fork viewed copy";
     if (conflictNote) {
       conflictNote.textContent = canEdit
-        ? "Merge saves recovery checkpoints for the local, incoming, and merged states. Forking opens your current browser copy under a new document capability, so it cannot overwrite this shared document. Only one editor needs to act."
+        ? "Merge preserves both CRDT histories and saves recovery checkpoints. Fork keeps your offline text under a new document capability and leaves the live room untouched."
         : "Nothing will be discarded. The two signed branches remain in browser-local history. Forking creates a new editable document with a new capability; deciding later leaves this viewer on its current verified copy.";
     }
     conflictDialog.hidden = false;
@@ -6269,7 +6453,7 @@ Every collaborator keeps browser-local history.
     conflictByKey.set(currentConflict.sourceKey, currentConflict);
     closeConflictDialog();
     showMessage(
-      "Version conflict paused. Your edits remain local until you review it.",
+      "Reconnect paused on this browser. Other collaborators remain live.",
       "warning",
       6500
     );
@@ -6302,6 +6486,9 @@ Every collaborator keeps browser-local history.
       await saveSnapshot();
       await saveCheckpoint("After version merge", {important: true, force: true});
 
+      if (candidate.peerId) heldReconnectCandidates.delete(candidate.peerId);
+      reconnectConflictPeerId = null;
+      completeLocalReconnectReview();
       removeConflict(candidate.sourceKey);
       closeConflictDialog();
 
@@ -6318,14 +6505,16 @@ Every collaborator keeps browser-local history.
         );
         await sendDocumentState(candidate.peerId);
         activatePeerIfReady(candidate.peerId);
-      } else if (candidate.sourceType === "link") {
-        connectPeerRoom();
       }
 
       showMessage(
-        "Versions merged. The local, incoming, and merged states are saved in History.",
+        "Your offline edits were merged into the live room. Everyone can keep editing.",
         "info",
         7500
+      );
+      fireAndForget(
+        processHeldReconnectCandidates(),
+        "Could not finish reconnecting to every collaborator"
       );
       openNextUndeferredConflict();
     } catch (error) {
@@ -6359,6 +6548,31 @@ Every collaborator keeps browser-local history.
     }
   }
 
+  async function processHeldReconnectCandidates() {
+    const entries = Array.from(heldReconnectCandidates.entries());
+    for (const entry of entries) {
+      const peerId = entry[0];
+      const candidate = entry[1];
+      if (!peerIds.has(peerId) || peerId === reconnectConflictPeerId) continue;
+      const fresh = await analyzeIncomingUpdate(candidate.incomingUpdate, {
+        sourceType: "peer",
+        sourceKey: "peer:" + peerId,
+        sourceName: candidate.sourceName,
+        peerId: peerId,
+        manifest: candidate.manifest,
+        signedEnvelope: candidate.signedEnvelope
+      });
+      if (candidateNeedsChoice(fresh)) {
+        heldReconnectCandidates.set(peerId, fresh);
+        continue;
+      }
+      heldReconnectCandidates.delete(peerId);
+      await approveCandidate(fresh);
+      await sendDocumentState(peerId);
+    }
+    updateNetworkStatus();
+  }
+
   function setConflictButtonsBusy(label) {
     const busy = Boolean(label);
     conflictMergeButton.hidden = !canEdit;
@@ -6366,8 +6580,8 @@ Every collaborator keeps browser-local history.
     conflictForkButton.disabled = busy;
     conflictLaterButton.disabled = busy;
     conflictCloseButton.disabled = busy;
-    conflictMergeButton.textContent = label || "Merge and continue";
-    if (!busy) conflictForkButton.textContent = canEdit ? "Fork my copy" : "Fork viewed copy";
+    conflictMergeButton.textContent = label || "Merge into live room";
+    if (!busy) conflictForkButton.textContent = canEdit ? "Fork my offline copy" : "Fork viewed copy";
   }
 
   function removeConflict(key) {
@@ -6440,10 +6654,10 @@ Every collaborator keeps browser-local history.
       if (chatMode && window.ParasocialChat && typeof window.ParasocialChat.publishNow === "function") {
         await window.ParasocialChat.publishNow();
       }
-      await saveSnapshot();
+      await saveSnapshot({persistBlank: true});
       await saveCheckpoint(
         editMode ? "Shared editable link snapshot" : (chatMode ? "Shared audience link snapshot" : "Shared read-only link snapshot"),
-        {important: true, force: true}
+        {important: true, force: true, persistBlank: true}
       );
       const result = await buildInviteUrl(mode);
       await editor.copyString(result.url);
@@ -6774,6 +6988,12 @@ Every collaborator keeps browser-local history.
     }
   }
 
+  function managedDocumentExists(documentStorageId) {
+    return loadDocumentManagerState().documents.some(function (item) {
+      return item.storageId === documentStorageId;
+    });
+  }
+
   function saveDocumentManagerState(state) {
     try {
       window.localStorage.setItem(
@@ -6786,12 +7006,19 @@ Every collaborator keeps browser-local history.
     }
   }
 
-  function registerManagedDocument(text, savedAt, byteLength) {
+  function registerManagedDocument(text, savedAt, byteLength, options) {
     if (!database || !storagePreferences.documents || storageSuspended) return;
+    const settings = options || {};
     const state = loadDocumentManagerState();
     const existing = state.documents.find(function (item) {
       return item.storageId === storageId;
     });
+    if (
+      !existing &&
+      roomConfig.isNew &&
+      !String(text || "").trim() &&
+      !settings.persistBlank
+    ) return;
     const now = Number(savedAt) || Date.now();
     const generatedName = documentNameFromText(text);
     const url = urlForConfig(roomConfig, {
@@ -7406,15 +7633,25 @@ Every collaborator keeps browser-local history.
     }, AUTO_CHECKPOINT_DELAY);
   }
 
-  function saveSnapshot() {
+  function saveSnapshot(options) {
     if (
       !database ||
       !ydoc ||
       !storagePreferences.documents ||
       storageSuspended
     ) return Promise.resolve();
+    const settings = options || {};
     const update = Y.encodeStateAsUpdate(ydoc);
     const text = ytext.toString();
+    if (
+      roomConfig.isNew &&
+      !text.trim() &&
+      !managedDocumentExists(storageId) &&
+      !settings.persistBlank
+    ) {
+      setPersistenceState("ready", "Blank document · not saved yet");
+      return Promise.resolve();
+    }
     const savedAt = Date.now();
     return queuePersistence(async function () {
       const hashes = await Promise.all([hashBytes(update), hashText(text)]);
@@ -7432,7 +7669,7 @@ Every collaborator keeps browser-local history.
       });
       if (wrote) {
         latestSavedAt = Math.max(latestSavedAt, savedAt);
-        registerManagedDocument(text, savedAt, update.byteLength);
+        registerManagedDocument(text, savedAt, update.byteLength, settings);
         setPersistenceState("ready", "Saved locally · " + formatClock(savedAt), savedAt);
       }
     });
@@ -7444,6 +7681,11 @@ Every collaborator keeps browser-local history.
       !ydoc ||
       !storagePreferences.documents ||
       storageSuspended
+    ) return;
+    if (
+      roomConfig.isNew &&
+      !ytext.toString().trim() &&
+      !managedDocumentExists(storageId)
     ) return;
     try {
       const update = Y.encodeStateAsUpdate(ydoc);
@@ -7480,6 +7722,12 @@ Every collaborator keeps browser-local history.
       storageSuspended
     ) return Promise.resolve(null);
     const settings = options || {};
+    if (
+      roomConfig.isNew &&
+      !ytext.toString().trim() &&
+      !managedDocumentExists(storageId) &&
+      !settings.persistBlank
+    ) return Promise.resolve(null);
     const update = Y.encodeStateAsUpdate(ydoc);
     const text = ytext.toString();
     return queuePersistence(async function () {
@@ -8085,7 +8333,37 @@ Every collaborator keeps browser-local history.
 
   async function ensureChannelCapabilities() {
     channel = collaboration.channel;
-    if (channel.chatKey && channel.feedPublicKey && (!collaboration.canEdit || channel.feedWriteKey)) return;
+    let existingCapabilitiesValid = false;
+    if (channel.chatKey && channel.feedPublicKey) {
+      try {
+        const existingChatKey = base64UrlToBytes(channel.chatKey);
+        if (existingChatKey.byteLength !== 32) {
+          throw new Error("Audience encryption key has the wrong length");
+        }
+        if (!/^[0-9a-f]{64}$/i.test(channel.feedPublicKey)) {
+          throw new Error("Audience feed public key is invalid");
+        }
+        if (!collaboration.canEdit) {
+          existingCapabilitiesValid = true;
+        } else if (channel.feedWriteKey) {
+          const existingFeedSecret = base64UrlToBytes(channel.feedWriteKey);
+          existingCapabilitiesValid =
+            existingFeedSecret.byteLength === 32 &&
+            nostr.getPublicKey(existingFeedSecret) === channel.feedPublicKey;
+        }
+      } catch (error) {
+        console.warn("Stored audience capabilities were invalid and will be refreshed", error);
+        existingCapabilitiesValid = false;
+      }
+    }
+    if (existingCapabilitiesValid) {
+      collaboration.setChannelCapabilities({
+        chatKey: channel.chatKey,
+        feedPublicKey: channel.feedPublicKey,
+        feedWriteKey: channel.feedWriteKey || ""
+      });
+      return;
+    }
     if (!collaboration.canEdit) {
       throw new Error("This audience link is incomplete. Ask an editor for a fresh chat link.");
     }
